@@ -56,6 +56,9 @@ import { AgencyDashboardController } from '@gitroom/backend/api/routes/agency.da
 import { AgencyAiController } from '@gitroom/backend/api/routes/agency.ai.controller';
 import { AgencyInvoicesController } from '@gitroom/backend/api/routes/agency.invoices.controller';
 import { AgencyTrackingController } from '@gitroom/backend/api/routes/agency.tracking.controller';
+import { AgencyIntelligenceController } from '@gitroom/backend/api/routes/agency.intelligence.controller';
+import { AgencyPlatformsController } from '@gitroom/backend/api/routes/agency.platforms.controller';
+import { AgencyPortalController } from '@gitroom/backend/api/routes/agency.portal.controller';
 import { AuthProviderManager } from '@gitroom/backend/services/auth/providers/providers.manager';
 import { GithubProvider } from '@gitroom/backend/services/auth/providers/github.provider';
 import { GoogleProvider } from '@gitroom/backend/services/auth/providers/google.provider';
@@ -94,6 +97,9 @@ const authenticatedController = [
   AgencyAiController,
   AgencyInvoicesController,
   AgencyTrackingController,
+  AgencyIntelligenceController,
+  AgencyPlatformsController,
+  AgencyPortalController,
 ];
 @Module({
   imports: [UploadModule],

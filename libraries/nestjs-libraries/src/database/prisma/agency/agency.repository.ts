@@ -777,4 +777,122 @@ export class AgencyRepository {
       },
     });
   }
+
+  // ==========================================
+  // MODULE E: DISCUSSION & KNOWLEDGE REPOSITORY
+  // ==========================================
+  async createKnowledgeDocument(
+    orgId: string,
+    data: {
+      title: string;
+      content: string;
+      category?: string;
+      source?: string;
+      telegramDestId?: string;
+      sentimentScore?: number;
+      tags?: string;
+      embedding?: string;
+    }
+  ) {
+    return this.prisma.agencyKnowledgeDocument.create({
+      data: {
+        orgId,
+        title: data.title,
+        content: data.content,
+        category: data.category || 'DISCUSSION',
+        source: data.source,
+        telegramDestId: data.telegramDestId,
+        sentimentScore: data.sentimentScore ?? 0.0,
+        tags: data.tags,
+        embedding: data.embedding,
+      },
+    });
+  }
+
+  async getKnowledgeDocuments(orgId: string, category?: string, limit = 50) {
+    return this.prisma.agencyKnowledgeDocument.findMany({
+      where: {
+        orgId,
+        ...(category ? { category } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+  }
+
+  async getKnowledgeDocumentById(orgId: string, id: string) {
+    return this.prisma.agencyKnowledgeDocument.findFirst({
+      where: { id, orgId },
+    });
+  }
+
+  async deleteKnowledgeDocument(orgId: string, id: string) {
+    return this.prisma.agencyKnowledgeDocument.deleteMany({
+      where: { id, orgId },
+    });
+  }
+
+  async getAllKnowledgeDocumentsForSearch(orgId: string, category?: string) {
+    return this.prisma.agencyKnowledgeDocument.findMany({
+      where: {
+        orgId,
+        ...(category ? { category } : {}),
+      },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        category: true,
+        source: true,
+        sentimentScore: true,
+        tags: true,
+        embedding: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  // ==========================================
+  // MODULE G & H: CONNECTED INTEGRATIONS MANAGEMENT
+  // ==========================================
+  async getConnectedIntegrations(orgId: string) {
+    return this.prisma.integration.findMany({
+      where: {
+        organizationId: orgId,
+        deletedAt: null,
+      },
+      include: {
+        customer: {
+          select: { id: true, name: true, companyName: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getIntegrationById(orgId: string, id: string) {
+    return this.prisma.integration.findFirst({
+      where: {
+        id,
+        organizationId: orgId,
+        deletedAt: null,
+      },
+      include: {
+        customer: true,
+      },
+    });
+  }
+
+  async updateIntegrationCustomer(orgId: string, id: string, customerId: string | null) {
+    return this.prisma.integration.update({
+      where: { id },
+      data: {
+        customerId,
+      },
+      include: {
+        customer: true,
+      },
+    });
+  }
 }
+

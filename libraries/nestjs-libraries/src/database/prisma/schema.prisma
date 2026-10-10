@@ -49,6 +49,7 @@ model Organization {
   telegramDestinations TelegramDestination[]
   leads               LeadCapture[]
   agencyInvoices      AgencyInvoice[]
+  agencyKnowledge     AgencyKnowledgeDocument[]
 
   @@index([apiKey])
   @@index([streakSince])
@@ -2091,4 +2092,25 @@ model AgencyInvoice {
   @@index([orgId])
   @@index([customerId])
   @@index([status])
+}
+
+model AgencyKnowledgeDocument {
+  id             String        @id @default(cuid())
+  orgId          String
+  title          String
+  content        String        @db.Text
+  category       String        @default("DISCUSSION") // DISCUSSION, CAMPAIGN_BRIEF, FAQ, SOP, MARKET_RESEARCH
+  source         String?
+  telegramDestId String?
+  sentimentScore Float?        @default(0.0) // -1.0 to 1.0
+  tags           String?       // JSON string array of topic tags
+  embedding      String?       @db.Text // JSON float array for vector embeddings
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization  @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
+  @@index([category])
+  @@index([telegramDestId])
 }

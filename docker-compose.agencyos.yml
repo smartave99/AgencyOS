@@ -1,0 +1,111 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # DATABASE: PostgreSQL 16 (Multi-Tenant & pgvector ready)
+  # ==========================================
+  agency-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: agencyos-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agency_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-AgencyOS_SecurePass_2026!}
+      POSTGRES_DB: ${POSTGRES_DB:-agencyos_db}
+    ports:
+      - '5432:5432'
+    volumes:
+      - agency_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-agency_admin} -d ${POSTGRES_DB:-agencyos_db}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================
+  # QUEUE & CACHE: Redis 7
+  # ==========================================
+  agency-redis:
+    image: redis:7-alpine
+    container_name: agencyos-redis
+    restart: always
+    command: redis-server --appendonly yes
+    ports:
+      - '6379:6379'
+    volumes:
+      - agency_redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================
+  # OPTIONAL LOCAL AI: Ollama (qwen2.5:3b / embeddinggemma)
+  # Activated with: docker compose --profile with-ai up -d
+  # ==========================================
+  agency-ollama:
+    image: ollama/ollama:latest
+    container_name: agencyos-ollama
+    profiles:
+      - with-ai
+    restart: unless-stopped
+    ports:
+      - '11434:11434'
+    volumes:
+      - agency_ollama_models:/root/.ollama
+
+  # ==========================================
+  # BACKEND: AgencyOS NestJS Engine
+  # ==========================================
+  agency-backend:
+    build:
+      context: .
+      dockerfile: ./apps/backend/Dockerfile
+    container_name: agencyos-backend
+    restart: always
+    depends_on:
+      agency-postgres:
+        condition: service_healthy
+      agency-redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agency_admin}:${POSTGRES_PASSWORD:-AgencyOS_SecurePass_2026!}@agency-postgres:5432/${POSTGRES_DB:-agencyos_db}
+      REDIS_URL: redis://agency-redis:6379
+      JWT_SECRET: ${JWT_SECRET:-AgencyOS_SuperSecretJWT_Key_ReplaceInProd_2026}
+      BACKEND_INTERNAL_URL: http://agency-backend:3000
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5000}
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://agency-ollama:11434}
+      AI_PROVIDER: ${AI_PROVIDER:-ollama}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    ports:
+      - '3000:3000'
+    volumes:
+      - agency_uploads:/app/uploads
+
+  # ==========================================
+  # FRONTEND: AgencyOS Next.js Portal & App
+  # ==========================================
+  agency-frontend:
+    build:
+      context: .
+      dockerfile: ./apps/frontend/Dockerfile
+    container_name: agencyos-frontend
+    restart: always
+    depends_on:
+      - agency-backend
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-http://localhost:3000}
+    ports:
+      - '5000:5000'
+
+volumes:
+  agency_pg_data:
+  agency_redis_data:
+  agency_ollama_models:
+  agency_uploads:

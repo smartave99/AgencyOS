@@ -14,6 +14,7 @@ import {
 } from './agency.repository';
 import { CampaignStatus } from '@prisma/client';
 import TelegramBot from 'node-telegram-bot-api';
+import { createHash, randomBytes } from 'crypto';
 
 @Injectable()
 export class AgencyService {
@@ -442,5 +443,167 @@ export class AgencyService {
   // ==========================================
   async getPublishingEvents(orgId: string, campaignId?: string) {
     return this.agencyRepo.getPublishingEvents(orgId, campaignId);
+  }
+
+  // ==========================================
+  // TRACKING LINKS & CLICK ATTRIBUTION (Module F)
+  // ==========================================
+  async createTrackingLink(
+    orgId: string,
+    campaignId: string,
+    params: { destinationUrl: string; utmSource?: string; utmMedium?: string; utmCampaign?: string }
+  ) {
+    await this.getCampaignById(orgId, campaignId);
+
+    const shortCode = randomBytes(4).toString('hex');
+    return this.agencyRepo.createTrackingLink({
+      campaignId,
+      shortCode,
+      destinationUrl: params.destinationUrl,
+      utmSource: params.utmSource,
+      utmMedium: params.utmMedium,
+      utmCampaign: params.utmCampaign,
+    });
+  }
+
+  async getCampaignTrackingLinks(orgId: string, campaignId: string) {
+    await this.getCampaignById(orgId, campaignId);
+    return this.agencyRepo.getCampaignTrackingLinks(campaignId);
+  }
+
+  async resolveTrackingLinkAndRecordClick(
+    shortCode: string,
+    clientIp?: string,
+    userAgent?: string,
+    referer?: string
+  ): Promise<string> {
+    const link = await this.agencyRepo.getTrackingLinkByCode(shortCode);
+    if (!link) {
+      throw new NotFoundException(`Tracking link ${shortCode} not found`);
+    }
+
+    // Anonymize IP via SHA-256 for privacy compliance
+    const ipHash = clientIp ? createHash('sha256').update(clientIp).digest('hex').substring(0, 16) : undefined;
+
+    // Asynchronously record click event without delaying redirect
+    this.agencyRepo.recordLinkClick({
+      trackingLinkId: link.id,
+      ipHash,
+      userAgent: userAgent?.substring(0, 255),
+      referer: referer?.substring(0, 255),
+    }).catch((err) => console.error('Failed to log link click event:', err));
+
+    // Append UTM tags if present and not already on destinationUrl
+    try {
+      const url = new URL(link.destinationUrl);
+      if (link.utmSource && !url.searchParams.has('utm_source')) url.searchParams.set('utm_source', link.utmSource);
+      if (link.utmMedium && !url.searchParams.has('utm_medium')) url.searchParams.set('utm_medium', link.utmMedium);
+      if (link.utmCampaign && !url.searchParams.has('utm_campaign')) url.searchParams.set('utm_campaign', link.utmCampaign);
+      return url.toString();
+    } catch {
+      return link.destinationUrl;
+    }
+  }
+
+  // ==========================================
+  // CLIENT REPORTING & CSV EXPORT (Module K)
+  // ==========================================
+  async generateCampaignCsvReport(orgId: string, campaignId: string): Promise<string> {
+    const campaign = await this.getCampaignById(orgId, campaignId);
+    const events = await this.agencyRepo.getPublishingEvents(orgId, campaignId);
+    const links = await this.agencyRepo.getCampaignTrackingLinks(campaignId);
+
+    const totalClicks = links.reduce((sum, l) => sum + (l.totalClicks || 0), 0);
+    const successfulDispatches = events.filter((e) => e.status === 'SUCCESS').length;
+    const failedDispatches = events.filter((e) => e.status === 'FAILED').length;
+
+    let csv = `AgencyOS Campaign Delivery & Performance Report\n`;
+    csv += `Campaign ID,${campaign.id}\n`;
+    csv += `Campaign Name,"${campaign.name.replace(/"/g, '""')}"\n`;
+    csv += `Client,"${(campaign.customer?.companyName || campaign.customer?.name || '').replace(/"/g, '""')}"\n`;
+    csv += `Status,${campaign.status}\n`;
+    csv += `Start Date,${campaign.startDate ? campaign.startDate.toISOString() : 'N/A'}\n`;
+    csv += `End Date,${campaign.endDate ? campaign.endDate.toISOString() : 'N/A'}\n`;
+    csv += `Budget,${campaign.budget || 0} USD\n`;
+    csv += `Total Destinations,${campaign.destinations.length}\n`;
+    csv += `Successful Publications,${successfulDispatches}\n`;
+    csv += `Failed Publications,${failedDispatches}\n`;
+    csv += `Tracked Link Clicks,${totalClicks}\n\n`;
+
+    csv += `Publication Receipts & Telemetry\n`;
+    csv += `Event ID,Destination,Channel Type,Status,External Message ID,Executed At,Error Message\n`;
+    for (const evt of events) {
+      const destName = evt.telegramDestination?.title || evt.integration?.name || 'Unknown';
+      const channelType = evt.telegramDestination ? 'Telegram' : evt.integration?.type || 'Social';
+      csv += `"${evt.id}","${destName.replace(/"/g, '""')}","${channelType}","${evt.status}","${evt.externalMessageId || ''}","${evt.executedAt ? evt.executedAt.toISOString() : ''}","${(evt.errorMessage || '').replace(/"/g, '""')}"\n`;
+    }
+
+    if (links.length > 0) {
+      csv += `\nTracking Links Attribution\n`;
+      csv += `Short Code,Destination URL,UTM Source,UTM Medium,UTM Campaign,Total Clicks\n`;
+      for (const link of links) {
+        csv += `"${link.shortCode}","${link.destinationUrl}","${link.utmSource || ''}","${link.utmMedium || ''}","${link.utmCampaign || ''}",${link.totalClicks}\n`;
+      }
+    }
+
+    return csv;
+  }
+
+  // ==========================================
+  // AGENCY BILLING & INVOICES (Module M)
+  // ==========================================
+  async createInvoice(orgId: string, params: {
+    customerId: string;
+    amount: number;
+    currency?: string;
+    dueDate?: Date;
+    items?: string;
+    notes?: string;
+  }) {
+    await this.getClientById(orgId, params.customerId);
+    const invoiceNumber = `INV-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+
+    return this.agencyRepo.createAgencyInvoice(orgId, {
+      customerId: params.customerId,
+      invoiceNumber,
+      amount: params.amount,
+      currency: params.currency,
+      dueDate: params.dueDate,
+      items: params.items,
+      notes: params.notes,
+    });
+  }
+
+  async getInvoices(orgId: string, status?: string) {
+    return this.agencyRepo.getAgencyInvoices(orgId, status);
+  }
+
+  async markInvoicePaid(orgId: string, invoiceId: string) {
+    const invoices = await this.agencyRepo.getAgencyInvoices(orgId);
+    const invoice = invoices.find((i) => i.id === invoiceId);
+    if (!invoice) {
+      throw new NotFoundException(`Invoice ${invoiceId} not found`);
+    }
+
+    return this.agencyRepo.updateAgencyInvoiceStatus(orgId, invoiceId, 'PAID', new Date());
+  }
+
+  // ==========================================
+  // AUTONOMOUS BACKGROUND DISPATCH SCHEDULER
+  // ==========================================
+  async processScheduledCampaigns(): Promise<number> {
+    const campaignsToPublish = await this.agencyRepo.getScheduledCampaignsReadyToPublish();
+    let processed = 0;
+
+    for (const campaign of campaignsToPublish) {
+      try {
+        await this.publishCampaignNow(campaign.orgId, campaign.id);
+        processed++;
+      } catch (err: any) {
+        console.error(`Autonomous scheduler error for campaign ${campaign.id}:`, err?.message);
+      }
+    }
+
+    return processed;
   }
 }

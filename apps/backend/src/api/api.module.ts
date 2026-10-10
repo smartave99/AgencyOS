@@ -54,6 +54,8 @@ import { AgencyApprovalsController } from '@gitroom/backend/api/routes/agency.ap
 import { AgencyTelegramController } from '@gitroom/backend/api/routes/agency.telegram.controller';
 import { AgencyDashboardController } from '@gitroom/backend/api/routes/agency.dashboard.controller';
 import { AgencyAiController } from '@gitroom/backend/api/routes/agency.ai.controller';
+import { AgencyInvoicesController } from '@gitroom/backend/api/routes/agency.invoices.controller';
+import { AgencyTrackingController } from '@gitroom/backend/api/routes/agency.tracking.controller';
 import { AuthProviderManager } from '@gitroom/backend/services/auth/providers/providers.manager';
 import { GithubProvider } from '@gitroom/backend/services/auth/providers/github.provider';
 import { GoogleProvider } from '@gitroom/backend/services/auth/providers/google.provider';
@@ -90,6 +92,8 @@ const authenticatedController = [
   AgencyTelegramController,
   AgencyDashboardController,
   AgencyAiController,
+  AgencyInvoicesController,
+  AgencyTrackingController,
 ];
 @Module({
   imports: [UploadModule],
@@ -99,6 +103,7 @@ const authenticatedController = [
         OAuthController,
         MediaWidgetController,
         ClippingWidgetController,
+        AgencyTrackingController,
       ]
     : [
         RootController,
@@ -106,6 +111,7 @@ const authenticatedController = [
         StripeController,
         AuthController,
         PublicController,
+        AgencyTrackingController,
         MonitorController,
         EnterpriseController,
         NoAuthIntegrationsController,

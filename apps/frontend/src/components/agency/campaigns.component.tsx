@@ -296,6 +296,15 @@ export const AgencyCampaignsComponent = () => {
                   </div>
                 )}
 
+                <a
+                  href={`/agency/campaigns/${camp.id}/export/csv`}
+                  download
+                  title="Download Performance CSV Report"
+                  className="px-2.5 py-1.5 border border-newBgLineColor hover:border-blue-500 text-textItemBlur hover:text-newTextColor rounded-lg text-xs transition-colors flex items-center gap-1 shrink-0"
+                >
+                  <span>📥 CSV</span>
+                </a>
+
                 <Link
                   href={`/agency/campaigns/${camp.id}`}
                   className="px-3 py-1.5 bg-newBgColor hover:bg-slate-800 text-newTextColor border border-newBgLineColor text-xs rounded-lg transition-colors"

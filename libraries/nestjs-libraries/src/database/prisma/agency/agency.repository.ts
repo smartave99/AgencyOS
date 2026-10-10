@@ -641,4 +641,140 @@ export class AgencyRepository {
       recentEvents,
     };
   }
+
+  // ==========================================
+  // TRACKING LINKS & CLICK ATTRIBUTION
+  // ==========================================
+  async createTrackingLink(params: {
+    campaignId: string;
+    shortCode: string;
+    destinationUrl: string;
+    utmSource?: string;
+    utmMedium?: string;
+    utmCampaign?: string;
+  }) {
+    return this.prisma.trackingLink.create({
+      data: params,
+    });
+  }
+
+  async getTrackingLinkByCode(shortCode: string) {
+    return this.prisma.trackingLink.findUnique({
+      where: { shortCode },
+      include: {
+        campaign: { select: { id: true, orgId: true, name: true } },
+      },
+    });
+  }
+
+  async recordLinkClick(params: {
+    trackingLinkId: string;
+    ipHash?: string;
+    userAgent?: string;
+    referer?: string;
+  }) {
+    await this.prisma.$transaction([
+      this.prisma.linkClickEvent.create({
+        data: {
+          trackingLinkId: params.trackingLinkId,
+          ipHash: params.ipHash,
+          userAgent: params.userAgent,
+          referer: params.referer,
+        },
+      }),
+      this.prisma.trackingLink.update({
+        where: { id: params.trackingLinkId },
+        data: { totalClicks: { increment: 1 } },
+      }),
+    ]);
+  }
+
+  async getCampaignTrackingLinks(campaignId: string) {
+    return this.prisma.trackingLink.findMany({
+      where: { campaignId },
+      include: {
+        _count: { select: { clicks: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // ==========================================
+  // AGENCY INVOICING & BILLING
+  // ==========================================
+  async createAgencyInvoice(orgId: string, params: {
+    customerId: string;
+    invoiceNumber: string;
+    amount: number;
+    currency?: string;
+    dueDate?: Date;
+    items?: string;
+    notes?: string;
+  }) {
+    return this.prisma.agencyInvoice.create({
+      data: {
+        orgId,
+        customerId: params.customerId,
+        invoiceNumber: params.invoiceNumber,
+        amount: params.amount,
+        currency: params.currency || 'USD',
+        dueDate: params.dueDate,
+        items: params.items,
+        notes: params.notes,
+        status: 'DRAFT',
+      },
+      include: {
+        customer: { select: { id: true, name: true, companyName: true, email: true } },
+      },
+    });
+  }
+
+  async getAgencyInvoices(orgId: string, status?: string) {
+    return this.prisma.agencyInvoice.findMany({
+      where: {
+        orgId,
+        ...(status ? { status } : {}),
+      },
+      include: {
+        customer: { select: { id: true, name: true, companyName: true, email: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async updateAgencyInvoiceStatus(orgId: string, id: string, status: string, paidAt?: Date) {
+    return this.prisma.agencyInvoice.update({
+      where: { id },
+      data: {
+        status,
+        ...(paidAt ? { paidAt } : {}),
+      },
+      include: {
+        customer: { select: { id: true, name: true, companyName: true, email: true } },
+      },
+    });
+  }
+
+  // ==========================================
+  // SCHEDULED CAMPAIGNS FOR AUTONOMOUS DISPATCH
+  // ==========================================
+  async getScheduledCampaignsReadyToPublish() {
+    return this.prisma.campaign.findMany({
+      where: {
+        status: CampaignStatus.SCHEDULED,
+        deletedAt: null,
+        startDate: {
+          lte: new Date(),
+        },
+      },
+      include: {
+        destinations: {
+          include: {
+            telegramDestination: true,
+            integration: true,
+          },
+        },
+      },
+    });
+  }
 }

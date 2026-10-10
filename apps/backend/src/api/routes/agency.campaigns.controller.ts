@@ -7,7 +7,9 @@ import {
   Post,
   Put,
   Query,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { AgencyService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.service';
 import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.request';
@@ -123,5 +125,43 @@ export class AgencyCampaignsController {
     @Param('id') id: string
   ) {
     return this.agencyService.deleteCampaign(org.id, id);
+  }
+
+  @Get('/:id/export/csv')
+  async exportCsv(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string,
+    @Res() res: Response
+  ) {
+    const csv = await this.agencyService.generateCampaignCsvReport(org.id, id);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="campaign-${id}-report.csv"`
+    );
+    return res.send(csv);
+  }
+
+  @Post('/:id/tracking-links')
+  async createTrackingLink(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      destinationUrl: string;
+      utmSource?: string;
+      utmMedium?: string;
+      utmCampaign?: string;
+    }
+  ) {
+    return this.agencyService.createTrackingLink(org.id, id, body);
+  }
+
+  @Get('/:id/tracking-links')
+  async getTrackingLinks(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string
+  ) {
+    return this.agencyService.getCampaignTrackingLinks(org.id, id);
   }
 }

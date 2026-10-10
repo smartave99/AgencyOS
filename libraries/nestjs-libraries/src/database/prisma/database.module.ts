@@ -53,6 +53,7 @@ import { AdminStatsService } from '@gitroom/nestjs-libraries/database/prisma/adm
 import { AgencyRepository } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.repository';
 import { AgencyService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.service';
 import { AgencyAiService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.service';
+import { AgencySchedulerService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.scheduler.service';
 
 @Global()
 @Module({
@@ -115,6 +116,7 @@ import { AgencyAiService } from '@gitroom/nestjs-libraries/database/prisma/agenc
     AgencyRepository,
     AgencyService,
     AgencyAiService,
+    AgencySchedulerService,
   ],
   get exports() {
     return this.providers;

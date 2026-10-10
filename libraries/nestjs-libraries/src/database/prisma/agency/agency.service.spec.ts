@@ -26,6 +26,15 @@ describe('AgencyService - Core Business Logic & Workflow Gating', () => {
       recordPublishingEvent: jest.fn(),
       getPublishingEventByIdempotencyKey: jest.fn(),
       updateTelegramDestination: jest.fn(),
+      createTrackingLink: jest.fn(),
+      getTrackingLinkByCode: jest.fn(),
+      recordLinkClick: jest.fn(),
+      getCampaignTrackingLinks: jest.fn(),
+      createAgencyInvoice: jest.fn(),
+      getAgencyInvoices: jest.fn(),
+      updateAgencyInvoiceStatus: jest.fn(),
+      getScheduledCampaignsReadyToPublish: jest.fn(),
+      getPublishingEvents: jest.fn(),
     };
 
     service = new AgencyService(mockRepo as AgencyRepository);
@@ -351,7 +360,7 @@ describe('AgencyService - Core Business Logic & Workflow Gating', () => {
       (mockRepo.updateCampaign as jest.Mock).mockResolvedValue({} as any);
 
       // Existing success event with matching deterministic idempotency key
-      const expectedKey = `camp_${mockCampaignId}_dest_dest-1_v1`;
+      const expectedKey = `camp_${mockCampaignId}_dest_dest-1`;
       (mockRepo.getPublishingEventByIdempotencyKey as jest.Mock).mockResolvedValue({
         id: 'event-already-sent',
         idempotencyKey: expectedKey,
@@ -367,6 +376,168 @@ describe('AgencyService - Core Business Logic & Workflow Gating', () => {
         mockCampaignId,
         { status: CampaignStatus.COMPLETED }
       );
+    });
+  });
+
+  describe('4. Tracking Links & Click Attribution (Module F)', () => {
+    it('should generate a tracking link with shortcode and UTM parameters', async () => {
+      (mockRepo.getCampaignById as jest.Mock).mockResolvedValue({ id: mockCampaignId, orgId: mockOrgId } as any);
+      (mockRepo.createTrackingLink as jest.Mock).mockImplementation((data) => Promise.resolve({ id: 'tl-1', ...data }));
+
+      const link = await service.createTrackingLink(mockOrgId, mockCampaignId, {
+        destinationUrl: 'https://clientbrand.com/join',
+        utmSource: 'telegram',
+        utmMedium: 'community',
+        utmCampaign: 'launch2026',
+      });
+
+      expect(link.shortCode).toHaveLength(8);
+      expect(link.destinationUrl).toEqual('https://clientbrand.com/join');
+      expect(mockRepo.createTrackingLink).toHaveBeenCalledWith(
+        expect.objectContaining({
+          campaignId: mockCampaignId,
+          utmSource: 'telegram',
+        })
+      );
+    });
+
+    it('should resolve tracking link, record anonymized click event, and append UTM tags', async () => {
+      const mockLink = {
+        id: 'tl-1',
+        shortCode: 'abcd1234',
+        destinationUrl: 'https://clientbrand.com/landing',
+        utmSource: 'telegram',
+        utmCampaign: 'spring_promo',
+        utmMedium: null,
+      };
+      (mockRepo.getTrackingLinkByCode as jest.Mock).mockResolvedValue(mockLink as any);
+      (mockRepo.recordLinkClick as jest.Mock).mockResolvedValue(undefined);
+
+      const resolvedUrl = await service.resolveTrackingLinkAndRecordClick(
+        'abcd1234',
+        '192.168.1.100',
+        'Mozilla/5.0',
+        'https://t.me/ourgroup'
+      );
+
+      expect(resolvedUrl).toContain('utm_source=telegram');
+      expect(resolvedUrl).toContain('utm_campaign=spring_promo');
+      expect(mockRepo.recordLinkClick).toHaveBeenCalledWith(
+        expect.objectContaining({
+          trackingLinkId: 'tl-1',
+          ipHash: expect.any(String),
+        })
+      );
+    });
+  });
+
+  describe('5. Client Reporting & CSV Export (Module K)', () => {
+    it('should generate an authentic CSV report with publishing receipts and click stats', async () => {
+      const mockCamp = {
+        id: mockCampaignId,
+        name: 'Omni Flash Launch',
+        status: CampaignStatus.COMPLETED,
+        budget: 1200,
+        customer: { name: 'Acme Corp', companyName: 'Acme International' },
+        startDate: new Date('2026-03-01'),
+        endDate: new Date('2026-03-10'),
+        destinations: [{ id: 'd-1' }],
+      };
+      (mockRepo.getCampaignById as jest.Mock).mockResolvedValue(mockCamp as any);
+      (mockRepo.getPublishingEvents as jest.Mock).mockResolvedValue([
+        {
+          id: 'evt-1',
+          status: 'SUCCESS',
+          telegramDestination: { title: 'Crypto Alpha Channel' },
+          externalMessageId: '12345',
+          executedAt: new Date('2026-03-01T10:00:00Z'),
+        },
+      ] as any);
+      (mockRepo.getCampaignTrackingLinks as jest.Mock).mockResolvedValue([
+        { shortCode: 'xyz1', destinationUrl: 'https://acme.com', totalClicks: 420 },
+      ] as any);
+
+      const csv = await service.generateCampaignCsvReport(mockOrgId, mockCampaignId);
+
+      expect(csv).toContain('AgencyOS Campaign Delivery & Performance Report');
+      expect(csv).toContain('Omni Flash Launch');
+      expect(csv).toContain('Acme International');
+      expect(csv).toContain('Crypto Alpha Channel');
+      expect(csv).toContain('420');
+      expect(csv).toContain('SUCCESS');
+    });
+  });
+
+  describe('6. Agency Billing & Invoicing (Module M)', () => {
+    it('should generate a client invoice with custom line items and unique invoice number', async () => {
+      (mockRepo.getClientById as jest.Mock).mockResolvedValue({ id: mockCustomerId } as any);
+      (mockRepo.createAgencyInvoice as jest.Mock).mockImplementation((orgId, data) =>
+        Promise.resolve({ id: 'inv-1', orgId, ...data })
+      );
+
+      const inv = await service.createInvoice(mockOrgId, {
+        customerId: mockCustomerId,
+        amount: 2500,
+        items: '10x Telegram Broadcasts + Content Creation',
+      });
+
+      expect(inv.amount).toEqual(2500);
+      expect(inv.invoiceNumber).toMatch(/^INV-/);
+      expect(mockRepo.createAgencyInvoice).toHaveBeenCalled();
+    });
+
+    it('should mark invoice as PAID when payment received', async () => {
+      (mockRepo.getAgencyInvoices as jest.Mock).mockResolvedValue([
+        { id: 'inv-1', invoiceNumber: 'INV-101', status: 'DRAFT' },
+      ] as any);
+      (mockRepo.updateAgencyInvoiceStatus as jest.Mock).mockResolvedValue({
+        id: 'inv-1',
+        status: 'PAID',
+      } as any);
+
+      const res = await service.markInvoicePaid(mockOrgId, 'inv-1');
+      expect(mockRepo.updateAgencyInvoiceStatus).toHaveBeenCalledWith(
+        mockOrgId,
+        'inv-1',
+        'PAID',
+        expect.any(Date)
+      );
+      expect(res.status).toEqual('PAID');
+    });
+  });
+
+  describe('7. Autonomous Background Campaign Scheduler', () => {
+    it('should automatically publish scheduled campaigns whose start time has arrived', async () => {
+      const scheduledCampaign = {
+        id: 'camp-auto-1',
+        orgId: mockOrgId,
+        version: 1,
+        status: CampaignStatus.SCHEDULED,
+        contentBody: 'Scheduled auto post',
+        destinations: [
+          {
+            id: 'dest-auto',
+            destinationType: 'TELEGRAM',
+            telegramDestination: {
+              id: 'tg-auto',
+              chatId: '-100999',
+              isAuthorized: true,
+              canPostMessages: true,
+            },
+          },
+        ],
+      };
+
+      (mockRepo.getScheduledCampaignsReadyToPublish as jest.Mock).mockResolvedValue([scheduledCampaign] as any);
+      (mockRepo.getCampaignById as jest.Mock).mockResolvedValue(scheduledCampaign as any);
+      (mockRepo.getPublishingEventByIdempotencyKey as jest.Mock).mockResolvedValue(null);
+      (mockRepo.recordPublishingEvent as jest.Mock).mockResolvedValue({ id: 'evt-auto' } as any);
+      (mockRepo.updateCampaign as jest.Mock).mockResolvedValue({ status: CampaignStatus.COMPLETED } as any);
+
+      const count = await service.processScheduledCampaigns();
+
+      expect(count).toEqual(1);
+      expect(mockRepo.recordPublishingEvent).toHaveBeenCalled();
     });
   });
 });

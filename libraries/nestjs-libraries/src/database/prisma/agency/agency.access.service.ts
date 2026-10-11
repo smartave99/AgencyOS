@@ -25,6 +25,9 @@ export type AgencyPermission =
   | 'destination:manage'
   | 'accounts:read'
   | 'accounts:manage'
+  | 'crm:read'
+  | 'crm:write'
+  | 'crm:delete'
   | 'billing:read'
   | 'billing:write'
   | 'analytics:read'
@@ -92,6 +95,9 @@ export const AGENCY_PERMISSIONS: Record<AgencyPermission, AgencyRole[]> = {
   'destination:manage': [OWNER, ADMIN, CAMPAIGN_MANAGER],
   'accounts:read': ALL_STAFF,
   'accounts:manage': [OWNER, ADMIN, CAMPAIGN_MANAGER],
+  'crm:read': [OWNER, ADMIN, SALES_MANAGER, SALES_EXEC],
+  'crm:write': [OWNER, ADMIN, SALES_MANAGER, SALES_EXEC],
+  'crm:delete': [OWNER, ADMIN, SALES_MANAGER],
   'billing:read': [OWNER, ADMIN, SALES_MANAGER],
   'billing:write': [OWNER, ADMIN, SALES_MANAGER],
   'analytics:read': ALL_STAFF,

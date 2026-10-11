@@ -51,6 +51,7 @@ model Organization {
   agencyInvoices      AgencyInvoice[]
   agencyKnowledge     AgencyKnowledgeDocument[]
   agencyMembers       AgencyMember[]
+  deals               Deal[]
   auditEvents         AuditEvent[]
   postingJobs         PostingJob[]
 
@@ -130,6 +131,7 @@ model User {
   submittedApprovals    ApprovalRequest[]    @relation("ApprovalSubmittedBy")
   reviewedApprovals     ApprovalRequest[]    @relation("ApprovalReviewedBy")
   agencyMemberships     AgencyMember[]
+  ownedDeals            Deal[]               @relation("DealOwner")
 
   @@unique([email, providerName])
   @@index([lastReadNotifications])
@@ -385,6 +387,7 @@ model Customer {
   campaigns           Campaign[]
   agencyInvoices      AgencyInvoice[]
   agencyMembers       AgencyMember[]
+  deals               Deal[]
 
   @@unique([orgId, name, deletedAt])
   @@index([orgId])
@@ -2286,4 +2289,43 @@ model LeaderLease {
   holder     String
   leaseUntil DateTime
   updatedAt  DateTime @updatedAt
+}
+
+enum DealStage {
+  PROSPECT
+  CONTACTED
+  PROPOSAL_SENT
+  WON
+  LOST
+}
+
+// A sales opportunity. Deliberately small: enough to run a pipeline and turn a won deal
+// into a client, not a general-purpose CRM.
+model Deal {
+  id                String       @id @default(cuid())
+  orgId             String
+  customerId        String?
+  contactName       String
+  companyName       String?
+  contactEmail      String?
+  contactPhone      String?
+  value             Decimal?     @db.Decimal(12, 2)
+  currency          String       @default("USD")
+  stage             DealStage    @default(PROSPECT)
+  stageChangedAt    DateTime     @default(now())
+  ownerUserId       String?
+  expectedCloseDate DateTime?
+  lostReason        String?
+  notes             String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  deletedAt         DateTime?
+
+  organization      Organization @relation(fields: [orgId], references: [id])
+  customer          Customer?    @relation(fields: [customerId], references: [id])
+  owner             User?        @relation("DealOwner", fields: [ownerUserId], references: [id])
+
+  @@index([orgId, stage])
+  @@index([ownerUserId])
+  @@index([customerId])
 }

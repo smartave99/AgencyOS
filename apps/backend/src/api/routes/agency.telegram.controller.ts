@@ -8,10 +8,12 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UseGuards,
   UsePipes,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { PostingJobStatus } from '@prisma/client';
 import { timingSafeEqual } from 'crypto';
 import { AgencyService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.service';
 import { AgencyTelegramService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.telegram.service';
@@ -119,6 +121,16 @@ export class AgencyTelegramController {
     @Param('id') id: string
   ) {
     return this.telegramService.remove(actor, id);
+  }
+
+  /** Live publishing queue: what is waiting, sending, blocked or dead. */
+  @Get('/jobs')
+  async getJobs(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Query('status') status?: PostingJobStatus,
+    @Query('campaignId') campaignId?: string
+  ) {
+    return this.agencyService.listJobs(actor, { status, campaignId });
   }
 
   @Get('/events')

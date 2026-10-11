@@ -725,6 +725,25 @@ export class AgencyService {
     return this.publishing.resolveUncertainJob(actor, jobId, outcome, note);
   }
 
+  /** The publishing queue across all campaigns, for the live queue view. */
+  async listJobs(
+    actor: AgencyActor,
+    filters: { status?: PostingJobStatus; campaignId?: string; limit?: number }
+  ) {
+    this.access.assert(actor, 'campaign:read');
+    if (
+      filters.status &&
+      !Object.values(PostingJobStatus).includes(filters.status)
+    ) {
+      throw new BadRequestException(`Unknown job status "${filters.status}"`);
+    }
+    const [jobs, counts] = await Promise.all([
+      this.jobsRepo.listJobs(actor.orgId, filters),
+      this.jobsRepo.getOrgJobStats(actor.orgId),
+    ]);
+    return { counts, jobs };
+  }
+
   async getCampaignJobs(actor: AgencyActor, campaignId: string) {
     this.access.assert(actor, 'campaign:read');
     await this.requireCampaign(actor.orgId, campaignId);

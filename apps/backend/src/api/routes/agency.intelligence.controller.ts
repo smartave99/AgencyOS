@@ -1,48 +1,82 @@
 import {
-  Controller,
-  Get,
-  Post,
-  Delete,
   Body,
+  Controller,
+  Delete,
+  Get,
   Param,
+  Post,
+  Query,
+  UseGuards,
+  UsePipes,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.request';
-import { Organization } from '@prisma/client';
+import { AgencyActor } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.access.service';
 import { AgencyIntelligenceService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.intelligence.service';
-import { IngestDocumentDto, SearchIntelligenceDto } from '@gitroom/nestjs-libraries/dtos/agency/intelligence.dto';
+import {
+  IngestDocumentDto,
+  SearchIntelligenceDto,
+} from '@gitroom/nestjs-libraries/dtos/agency/intelligence.dto';
+import {
+  AgencyActorFromRequest,
+  AgencyActorGuard,
+  agencyValidationPipe,
+} from '@gitroom/backend/services/auth/permissions/agency.actor';
 
 @ApiTags('Agency Intelligence')
 @Controller('/agency/intelligence')
+@UseGuards(AgencyActorGuard)
+@UsePipes(agencyValidationPipe)
 export class AgencyIntelligenceController {
-  constructor(private readonly intelligenceService: AgencyIntelligenceService) {}
+  constructor(
+    private readonly intelligenceService: AgencyIntelligenceService
+  ) {}
 
   @Get('/')
-  async getAnalytics(@GetOrgFromRequest() org: Organization) {
-    return this.intelligenceService.getIntelligenceAnalytics(org.id);
+  async getAnalytics(@AgencyActorFromRequest() actor: AgencyActor) {
+    return this.intelligenceService.getIntelligenceAnalytics(actor);
   }
 
   @Post('/ingest')
   async ingestDocument(
-    @GetOrgFromRequest() org: Organization,
+    @AgencyActorFromRequest() actor: AgencyActor,
     @Body() dto: IngestDocumentDto
   ) {
-    return this.intelligenceService.ingestDocument(org.id, dto);
+    return this.intelligenceService.ingestDocument(actor, dto);
   }
 
   @Post('/search')
   async searchKnowledge(
-    @GetOrgFromRequest() org: Organization,
+    @AgencyActorFromRequest() actor: AgencyActor,
     @Body() dto: SearchIntelligenceDto
   ) {
-    return this.intelligenceService.searchKnowledge(org.id, dto);
+    return this.intelligenceService.searchKnowledge(actor, dto);
+  }
+
+  @Post('/reindex')
+  async reindex(@AgencyActorFromRequest() actor: AgencyActor) {
+    return this.intelligenceService.reindex(actor);
+  }
+
+  /** Retention: DELETE /agency/intelligence?category=DISCUSSION&olderThanDays=90 */
+  @Delete('/')
+  async purge(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Query('category') category?: string,
+    @Query('olderThanDays') olderThanDays?: string
+  ) {
+    return this.intelligenceService.purge(actor, {
+      category,
+      olderThanDays: olderThanDays
+        ? Number.parseInt(olderThanDays, 10) || undefined
+        : undefined,
+    });
   }
 
   @Delete('/:id')
   async deleteDocument(
-    @GetOrgFromRequest() org: Organization,
+    @AgencyActorFromRequest() actor: AgencyActor,
     @Param('id') id: string
   ) {
-    return this.intelligenceService.deleteDocument(org.id, id);
+    return this.intelligenceService.deleteDocument(actor, id);
   }
 }

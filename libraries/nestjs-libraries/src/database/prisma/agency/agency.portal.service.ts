@@ -1,6 +1,11 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { AgencyRepository } from './agency.repository';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CampaignStatus } from '@prisma/client';
+import { AgencyRepository } from './agency.repository';
+import { AgencyAccessService, AgencyActor } from './agency.access.service';
 
 export interface ClientPortalOverview {
   client: {
@@ -11,6 +16,7 @@ export interface ClientPortalOverview {
     phone?: string;
     accountRep?: { name: string; email: string };
   };
+  viewer: { isClient: boolean; canReview: boolean };
   metrics: {
     totalCampaigns: number;
     activeCampaigns: number;
@@ -36,24 +42,47 @@ export interface ClientPortalOverview {
     totalClicks: number;
     leadsCount: number;
     destinationsCount: number;
+    awaitingClientApproval: boolean;
+    clientApprovedAt?: Date;
   }[];
 }
 
+const AWAITING_REVIEW: CampaignStatus[] = [
+  CampaignStatus.SUBMITTED,
+  CampaignStatus.UNDER_REVIEW,
+];
+
 @Injectable()
 export class AgencyPortalService {
-  constructor(private readonly repository: AgencyRepository) {}
+  constructor(
+    private readonly repository: AgencyRepository,
+    private readonly access: AgencyAccessService
+  ) {}
 
   /**
-   * Secure, isolated client portal view.
-   * Excludes internal agency margins, other clients, and internal CRM sales notes.
+   * Client-safe view of one customer. A CLIENT user is pinned to their own customer
+   * and can never name another; staff may preview any client but cannot act as one.
+   * Internal notes, budgets, other clients and the sales rep's CRM data are never
+   * selected here, so they cannot leak by accident.
    */
-  async getClientPortalData(orgId: string, customerId: string): Promise<ClientPortalOverview> {
-    const client = await this.repository.getClientById(orgId, customerId);
-    if (!client) {
-      throw new NotFoundException(`Client ${customerId} not found`);
+  async getClientPortalData(
+    actor: AgencyActor,
+    requestedCustomerId?: string
+  ): Promise<ClientPortalOverview> {
+    this.access.assert(actor, 'portal:view');
+    const isClient = this.access.isClient(actor);
+    const customerId = isClient ? actor.customerId : requestedCustomerId;
+    if (!customerId) {
+      throw new BadRequestException('Choose a client to preview');
     }
+    this.access.assertCustomerScope(actor, customerId);
 
-    const allCampaigns = await this.repository.getCampaigns(orgId, { customerId });
+    const client = await this.repository.getClientById(actor.orgId, customerId);
+    if (!client) throw new NotFoundException('Client not found');
+    const campaigns = await this.repository.getPortalCampaigns(
+      actor.orgId,
+      customerId
+    );
 
     let totalLinkClicks = 0;
     let totalLeads = 0;
@@ -62,41 +91,28 @@ export class AgencyPortalService {
     let scheduledCount = 0;
     let completedCount = 0;
 
-    const formattedCampaigns = [];
-
-    for (const camp of allCampaigns) {
+    const formatted = campaigns.map((camp) => {
       if (camp.status === CampaignStatus.PUBLISHING) activeCount++;
       if (camp.status === CampaignStatus.SCHEDULED) scheduledCount++;
       if (camp.status === CampaignStatus.COMPLETED) completedCount++;
 
-      // Retrieve full campaign detail to fetch exact link clicks and publishing stats
-      const fullCamp = await this.repository.getCampaignById(orgId, camp.id);
-      let clicksForCamp = 0;
-      if (fullCamp?.trackingLinks) {
-        for (const link of fullCamp.trackingLinks) {
-          clicksForCamp += link.totalClicks;
-        }
-      }
-      totalLinkClicks += clicksForCamp;
+      const clicks = camp.trackingLinks.reduce(
+        (sum, l) => sum + l.totalClicks,
+        0
+      );
+      totalLinkClicks += clicks;
+      totalLeads += camp._count.leads;
+      successfulPublications += camp.postingJobs.filter(
+        (j) => j.status === 'SUCCEEDED'
+      ).length;
 
-      const leadsForCamp = fullCamp?.leads?.length || camp._count.leads;
-      totalLeads += leadsForCamp;
-
-      const pubEvents = fullCamp?.publishingEvents || [];
-      for (const ev of pubEvents) {
-        if (ev.status === 'SUCCESS') successfulPublications++;
-      }
-
-      let parsedMedia: string[] = [];
+      let media: string[] = [];
       try {
-        if (camp.contentMedia) {
-          parsedMedia = JSON.parse(camp.contentMedia);
-        }
+        if (camp.contentMedia) media = JSON.parse(camp.contentMedia);
       } catch {
-        parsedMedia = [];
+        media = [];
       }
-
-      formattedCampaigns.push({
+      return {
         id: camp.id,
         name: camp.name,
         objective: camp.objective,
@@ -105,15 +121,20 @@ export class AgencyPortalService {
         endDate: camp.endDate || undefined,
         contentTitle: camp.contentTitle || undefined,
         contentBody: camp.contentBody || undefined,
-        contentMedia: parsedMedia,
+        contentMedia: media,
         ctaLink: camp.ctaLink || undefined,
         ctaText: camp.ctaText || undefined,
         telegramChannelLink: camp.telegramChannelLink || undefined,
-        totalClicks: clicksForCamp,
-        leadsCount: leadsForCamp,
-        destinationsCount: camp.destinations?.length || 0,
-      });
-    }
+        totalClicks: clicks,
+        leadsCount: camp._count.leads,
+        destinationsCount: camp._count.destinations,
+        awaitingClientApproval:
+          camp.requiresClientApproval &&
+          !camp.clientApprovedAt &&
+          AWAITING_REVIEW.includes(camp.status),
+        clientApprovedAt: camp.clientApprovedAt || undefined,
+      };
+    });
 
     return {
       client: {
@@ -129,8 +150,9 @@ export class AgencyPortalService {
             }
           : undefined,
       },
+      viewer: { isClient, canReview: this.access.can(actor, 'portal:review') },
       metrics: {
-        totalCampaigns: allCampaigns.length,
+        totalCampaigns: campaigns.length,
         activeCampaigns: activeCount,
         scheduledCampaigns: scheduledCount,
         completedCampaigns: completedCount,
@@ -138,57 +160,78 @@ export class AgencyPortalService {
         totalLeads,
         successfulPublications,
       },
-      campaigns: formattedCampaigns,
+      campaigns: formatted,
     };
   }
 
   /**
-   * Client creative review action: Approve or Request Changes
+   * Only a real CLIENT user, for their own customer, can review. Approval records the
+   * client's sign-off on this exact content; it does not publish and does not replace
+   * the agency's own approval. Requesting changes sends the campaign back to the team.
    */
   async clientReviewCampaign(
-    orgId: string,
-    customerId: string,
+    actor: AgencyActor,
     campaignId: string,
     action: 'APPROVE' | 'REQUEST_CHANGES',
     feedback?: string
   ) {
-    const campaign = await this.repository.getCampaignById(orgId, campaignId);
-    if (!campaign || campaign.customerId !== customerId) {
-      throw new NotFoundException(`Campaign ${campaignId} not found for this client`);
+    this.access.assert(actor, 'portal:review');
+    const campaign = await this.repository.getCampaignById(
+      actor.orgId,
+      campaignId
+    );
+    if (!campaign || campaign.customerId !== actor.customerId) {
+      throw new NotFoundException('Campaign not found');
     }
-
-    if (campaign.status !== CampaignStatus.SUBMITTED && campaign.status !== CampaignStatus.UNDER_REVIEW) {
-      throw new BadRequestException(`Campaign is in ${campaign.status} status and not awaiting client review`);
-    }
-
-    const newCampaignStatus =
-      action === 'APPROVE' ? CampaignStatus.APPROVED : CampaignStatus.CHANGES_REQUESTED;
-    const approvalDecision =
-      action === 'APPROVE' ? 'APPROVED' : 'CHANGES_REQUESTED';
-
-    await this.repository.updateCampaign(orgId, campaignId, {
-      status: newCampaignStatus,
-    });
-
-    const approvals = await this.repository.getApprovals(orgId, 'PENDING');
-    const matchingApproval = approvals.find((a) => a.campaignId === campaignId);
-
-    if (matchingApproval) {
-      await this.repository.reviewApprovalRequest(
-        matchingApproval.id,
-        campaign.createdById,
-        approvalDecision,
-        feedback ? `[Client Feedback] ${feedback}` : `[Client Review] ${action}`
+    if (!AWAITING_REVIEW.includes(campaign.status)) {
+      throw new BadRequestException(
+        `Campaign is ${campaign.status} and not awaiting review`
       );
     }
 
+    if (action === 'APPROVE') {
+      const ok = await this.repository.recordClientApproval(
+        actor.orgId,
+        campaignId,
+        actor.userId
+      );
+      if (!ok)
+        throw new BadRequestException('Campaign is no longer awaiting review');
+      await this.access.audit(actor, {
+        action: 'campaign.client_approved',
+        entityType: 'Campaign',
+        entityId: campaignId,
+        summary: feedback?.slice(0, 200),
+      });
+      return {
+        campaignId,
+        status: campaign.status,
+        message:
+          'Thanks. Your approval is recorded and the agency can now finalize the campaign.',
+      };
+    }
+
+    if (!feedback?.trim()) {
+      throw new BadRequestException(
+        'Tell us what to change so the team can fix it'
+      );
+    }
+    const ok = await this.repository.clientRequestChanges(
+      actor.orgId,
+      campaignId
+    );
+    if (!ok)
+      throw new BadRequestException('Campaign is no longer awaiting review');
+    await this.access.audit(actor, {
+      action: 'campaign.client_changes_requested',
+      entityType: 'Campaign',
+      entityId: campaignId,
+      summary: feedback.slice(0, 200),
+    });
     return {
       campaignId,
-      status: newCampaignStatus,
-      message:
-        action === 'APPROVE'
-          ? 'Campaign creative approved by client.'
-          : 'Feedback recorded for agency team.',
+      status: CampaignStatus.CHANGES_REQUESTED,
+      message: 'Feedback sent to the agency team.',
     };
   }
 }

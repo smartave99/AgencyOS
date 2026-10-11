@@ -29,5 +29,7 @@ DROP TYPE IF EXISTS "DestinationAuthStatus";
 ALTER TABLE "Campaign"
   DROP COLUMN IF EXISTS "approvedAt", DROP COLUMN IF EXISTS "approvedByUserId",
   DROP COLUMN IF EXISTS "approvedContentHash", DROP COLUMN IF EXISTS "attentionReason",
-  DROP COLUMN IF EXISTS "requiresAttention", DROP COLUMN IF EXISTS "revision";
+  DROP COLUMN IF EXISTS "requiresAttention", DROP COLUMN IF EXISTS "revision",
+  DROP COLUMN IF EXISTS "requiresClientApproval", DROP COLUMN IF EXISTS "clientApprovedAt",
+  DROP COLUMN IF EXISTS "clientApprovedByUserId";
 COMMIT;

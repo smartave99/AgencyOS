@@ -35,7 +35,10 @@ ALTER TABLE "Campaign" ADD COLUMN     "approvedAt" TIMESTAMP(3),
 ADD COLUMN     "approvedByUserId" TEXT,
 ADD COLUMN     "approvedContentHash" TEXT,
 ADD COLUMN     "attentionReason" TEXT,
+ADD COLUMN     "clientApprovedAt" TIMESTAMP(3),
+ADD COLUMN     "clientApprovedByUserId" TEXT,
 ADD COLUMN     "requiresAttention" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "requiresClientApproval" BOOLEAN NOT NULL DEFAULT false,
 ADD COLUMN     "revision" INTEGER NOT NULL DEFAULT 1;
 
 -- AlterTable

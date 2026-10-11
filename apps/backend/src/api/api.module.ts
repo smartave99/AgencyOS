@@ -51,7 +51,11 @@ import { AdminController } from '@gitroom/backend/api/routes/admin.controller';
 import { AgencyClientsController } from '@gitroom/backend/api/routes/agency.clients.controller';
 import { AgencyCampaignsController } from '@gitroom/backend/api/routes/agency.campaigns.controller';
 import { AgencyApprovalsController } from '@gitroom/backend/api/routes/agency.approvals.controller';
-import { AgencyTelegramController } from '@gitroom/backend/api/routes/agency.telegram.controller';
+import {
+  AgencyTelegramController,
+  AgencyTelegramWebhookController,
+} from '@gitroom/backend/api/routes/agency.telegram.controller';
+import { AgencyTeamController } from '@gitroom/backend/api/routes/agency.team.controller';
 import { AgencyDashboardController } from '@gitroom/backend/api/routes/agency.dashboard.controller';
 import { AgencyAiController } from '@gitroom/backend/api/routes/agency.ai.controller';
 import { AgencyInvoicesController } from '@gitroom/backend/api/routes/agency.invoices.controller';
@@ -96,7 +100,7 @@ const authenticatedController = [
   AgencyDashboardController,
   AgencyAiController,
   AgencyInvoicesController,
-  AgencyTrackingController,
+  AgencyTeamController,
   AgencyIntelligenceController,
   AgencyPlatformsController,
   AgencyPortalController,
@@ -118,6 +122,7 @@ const authenticatedController = [
         AuthController,
         PublicController,
         AgencyTrackingController,
+        AgencyTelegramWebhookController,
         MonitorController,
         EnterpriseController,
         NoAuthIntegrationsController,

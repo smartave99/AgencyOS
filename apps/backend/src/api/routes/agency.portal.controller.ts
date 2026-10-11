@@ -1,43 +1,50 @@
 import {
+  Body,
   Controller,
   Get,
-  Post,
-  Body,
   Param,
+  Post,
+  UseGuards,
+  UsePipes,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.request';
-import { Organization } from '@prisma/client';
 import { AgencyPortalService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.portal.service';
-
-export class ClientReviewDto {
-  campaignId: string;
-  action: 'APPROVE' | 'REQUEST_CHANGES';
-  feedback?: string;
-}
+import { AgencyActor } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.access.service';
+import { ClientReviewDto } from '@gitroom/nestjs-libraries/dtos/agency/team.dto';
+import {
+  AgencyActorFromRequest,
+  AgencyActorGuard,
+  agencyValidationPipe,
+} from '@gitroom/backend/services/auth/permissions/agency.actor';
 
 @ApiTags('Agency Client Portal')
 @Controller('/agency/portal')
+@UseGuards(AgencyActorGuard)
+@UsePipes(agencyValidationPipe)
 export class AgencyPortalController {
   constructor(private readonly portalService: AgencyPortalService) {}
 
-  @Get('/:clientId')
-  async getPortalOverview(
-    @GetOrgFromRequest() org: Organization,
-    @Param('clientId') clientId: string
-  ) {
-    return this.portalService.getClientPortalData(org.id, clientId);
+  /** A CLIENT user is pinned to their own client; staff may preview any client by id. */
+  @Get('/me')
+  async getMyPortal(@AgencyActorFromRequest() actor: AgencyActor) {
+    return this.portalService.getClientPortalData(actor);
   }
 
-  @Post('/:clientId/review')
+  @Get('/:clientId')
+  async getPortalOverview(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Param('clientId') clientId: string
+  ) {
+    return this.portalService.getClientPortalData(actor, clientId);
+  }
+
+  @Post('/review')
   async reviewCampaign(
-    @GetOrgFromRequest() org: Organization,
-    @Param('clientId') clientId: string,
+    @AgencyActorFromRequest() actor: AgencyActor,
     @Body() body: ClientReviewDto
   ) {
     return this.portalService.clientReviewCampaign(
-      org.id,
-      clientId,
+      actor,
       body.campaignId,
       body.action,
       body.feedback

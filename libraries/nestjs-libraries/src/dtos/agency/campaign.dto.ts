@@ -1,20 +1,27 @@
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
-  IsEnum,
+  IsIn,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  IsUrl,
+  MaxLength,
+  Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { CampaignStatus } from '@prisma/client';
+
+// Empty strings arrive from cleared form fields; treat them as "not provided".
+const HTTP_URL = { protocols: ['http', 'https'], require_protocol: true };
 
 export class CampaignDestinationItemDto {
   @ApiProperty({ enum: ['TELEGRAM', 'SOCIAL'] })
-  @IsString()
+  @IsIn(['TELEGRAM', 'SOCIAL'])
   destinationType: 'TELEGRAM' | 'SOCIAL';
 
   @ApiPropertyOptional()
@@ -31,6 +38,13 @@ export class CampaignDestinationItemDto {
   @IsString()
   @IsOptional()
   customSettings?: string;
+
+  @ApiPropertyOptional({
+    description: 'Start for this destination only (ISO 8601)',
+  })
+  @IsDateString()
+  @IsOptional()
+  scheduledAt?: string;
 }
 
 export class CreateCampaignDto {
@@ -56,6 +70,7 @@ export class CreateCampaignDto {
 
   @ApiPropertyOptional({ description: 'Campaign Budget in USD' })
   @IsNumber()
+  @Min(0)
   @IsOptional()
   budget?: number;
 
@@ -92,6 +107,7 @@ export class CreateCampaignDto {
   @ApiProperty({ description: 'Advertisement primary promotional text' })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(10000)
   contentBody: string;
 
   @ApiPropertyOptional({ description: 'JSON array of media URLs or IDs' })
@@ -99,9 +115,9 @@ export class CreateCampaignDto {
   @IsOptional()
   contentMedia?: string;
 
-  @ApiPropertyOptional({ description: 'Landing page or CTA link' })
-  @IsString()
-  @IsOptional()
+  @ApiPropertyOptional({ description: 'Landing page or CTA link (http/https)' })
+  @ValidateIf((o) => o.ctaLink !== undefined && o.ctaLink !== '')
+  @IsUrl(HTTP_URL)
   ctaLink?: string;
 
   @ApiPropertyOptional({ description: 'Call to Action button text' })
@@ -109,10 +125,21 @@ export class CreateCampaignDto {
   @IsOptional()
   ctaText?: string;
 
-  @ApiPropertyOptional({ description: 'Direct Telegram channel link' })
-  @IsString()
-  @IsOptional()
+  @ApiPropertyOptional({
+    description: 'Direct Telegram channel link (http/https)',
+  })
+  @ValidateIf(
+    (o) => o.telegramChannelLink !== undefined && o.telegramChannelLink !== ''
+  )
+  @IsUrl(HTTP_URL)
   telegramChannelLink?: string;
+
+  @ApiPropertyOptional({
+    description: 'Require the client to approve before the agency can',
+  })
+  @IsBoolean()
+  @IsOptional()
+  requiresClientApproval?: boolean;
 
   @ApiPropertyOptional({ description: 'Internal team notes' })
   @IsString()
@@ -145,13 +172,9 @@ export class UpdateCampaignDto {
 
   @ApiPropertyOptional()
   @IsNumber()
+  @Min(0)
   @IsOptional()
   budget?: number;
-
-  @ApiPropertyOptional({ enum: CampaignStatus })
-  @IsEnum(CampaignStatus)
-  @IsOptional()
-  status?: CampaignStatus;
 
   @ApiPropertyOptional()
   @IsDateString()
@@ -186,6 +209,7 @@ export class UpdateCampaignDto {
   @ApiPropertyOptional()
   @IsString()
   @IsOptional()
+  @MaxLength(10000)
   contentBody?: string;
 
   @ApiPropertyOptional()
@@ -194,8 +218,8 @@ export class UpdateCampaignDto {
   contentMedia?: string;
 
   @ApiPropertyOptional()
-  @IsString()
-  @IsOptional()
+  @ValidateIf((o) => o.ctaLink !== undefined && o.ctaLink !== '')
+  @IsUrl(HTTP_URL)
   ctaLink?: string;
 
   @ApiPropertyOptional()
@@ -204,9 +228,16 @@ export class UpdateCampaignDto {
   ctaText?: string;
 
   @ApiPropertyOptional()
-  @IsString()
-  @IsOptional()
+  @ValidateIf(
+    (o) => o.telegramChannelLink !== undefined && o.telegramChannelLink !== ''
+  )
+  @IsUrl(HTTP_URL)
   telegramChannelLink?: string;
+
+  @ApiPropertyOptional()
+  @IsBoolean()
+  @IsOptional()
+  requiresClientApproval?: boolean;
 
   @ApiPropertyOptional()
   @IsString()
@@ -220,4 +251,53 @@ export class UpdateCampaignDestinationsDto {
   @ValidateNested({ each: true })
   @Type(() => CampaignDestinationItemDto)
   destinations: CampaignDestinationItemDto[];
+}
+
+export class CancelCampaignDto {
+  @ApiPropertyOptional({ description: 'Why the campaign is being cancelled' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(300)
+  reason?: string;
+}
+
+export class ResolveJobDto {
+  @ApiProperty({
+    enum: ['POSTED', 'NOT_POSTED'],
+    description: 'What you found when checking the destination',
+  })
+  @IsIn(['POSTED', 'NOT_POSTED'])
+  outcome: 'POSTED' | 'NOT_POSTED';
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(300)
+  note?: string;
+}
+
+export class CreateTrackingLinkDto {
+  @ApiProperty({
+    description: 'Landing page the short link redirects to (http/https)',
+  })
+  @IsUrl(HTTP_URL)
+  destinationUrl: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  utmSource?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  utmMedium?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  utmCampaign?: string;
 }

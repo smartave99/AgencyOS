@@ -1,29 +1,44 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+  UsePipes,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AgencyService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.service';
-import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.request';
-import { Organization } from '@prisma/client';
+import { AgencyActor } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.access.service';
 import { CreateInvoiceDto } from '@gitroom/nestjs-libraries/dtos/agency/invoice.dto';
+import {
+  AgencyActorFromRequest,
+  AgencyActorGuard,
+  agencyValidationPipe,
+} from '@gitroom/backend/services/auth/permissions/agency.actor';
 
 @ApiTags('Agency Invoices')
 @Controller('/agency/invoices')
+@UseGuards(AgencyActorGuard)
+@UsePipes(agencyValidationPipe)
 export class AgencyInvoicesController {
   constructor(private agencyService: AgencyService) {}
 
   @Get('/')
   async getInvoices(
-    @GetOrgFromRequest() org: Organization,
+    @AgencyActorFromRequest() actor: AgencyActor,
     @Query('status') status?: string
   ) {
-    return this.agencyService.getInvoices(org.id, status);
+    return this.agencyService.getInvoices(actor, status);
   }
 
   @Post('/')
   async createInvoice(
-    @GetOrgFromRequest() org: Organization,
+    @AgencyActorFromRequest() actor: AgencyActor,
     @Body() body: CreateInvoiceDto
   ) {
-    return this.agencyService.createInvoice(org.id, {
+    return this.agencyService.createInvoice(actor, {
       customerId: body.customerId,
       amount: body.amount,
       currency: body.currency,
@@ -35,9 +50,9 @@ export class AgencyInvoicesController {
 
   @Post('/:id/pay')
   async markPaid(
-    @GetOrgFromRequest() org: Organization,
+    @AgencyActorFromRequest() actor: AgencyActor,
     @Param('id') id: string
   ) {
-    return this.agencyService.markInvoicePaid(org.id, id);
+    return this.agencyService.markInvoicePaid(actor, id);
   }
 }

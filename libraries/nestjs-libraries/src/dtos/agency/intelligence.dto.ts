@@ -1,11 +1,27 @@
-import { IsString, IsOptional, IsArray, IsNumber, IsIn } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsArray,
+  IsNumber,
+  IsIn,
+  IsBoolean,
+  MaxLength,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class IngestDocumentDto {
   @IsString()
+  @MaxLength(300)
   title: string;
 
   @IsString()
+  @MaxLength(20000)
   content: string;
+
+  /** The uploader attests the source authorized collection and participants were notified. */
+  @IsBoolean()
+  authorizationConfirmed: boolean;
 
   @IsOptional()
   @IsString()
@@ -22,11 +38,13 @@ export class IngestDocumentDto {
 
   @IsOptional()
   @IsArray()
+  @IsString({ each: true })
   tags?: string[];
 }
 
 export class SearchIntelligenceDto {
   @IsString()
+  @MaxLength(1000)
   query: string;
 
   @IsOptional()
@@ -35,9 +53,13 @@ export class SearchIntelligenceDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(1)
+  @Max(50)
   limit?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  @Max(1)
   threshold?: number;
 }

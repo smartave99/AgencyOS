@@ -1,89 +1,59 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { AgencyPlatformsService } from './agency.platforms.service';
-import { AgencyRepository } from './agency.repository';
 
-describe('AgencyPlatformsService', () => {
-  let service: AgencyPlatformsService;
-  let repo: jest.Mocked<AgencyRepository>;
+// Registry content only; account listing, ownership checks and tenancy are covered by the integration specs.
+describe('AgencyPlatformsService capability registry', () => {
+  const service = new AgencyPlatformsService({} as any, {} as any);
 
-  const mockRepo = {
-    getConnectedIntegrations: jest.fn(),
-    getIntegrationById: jest.fn(),
-    updateIntegrationCustomer: jest.fn(),
-  };
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        AgencyPlatformsService,
-        {
-          provide: AgencyRepository,
-          useValue: mockRepo,
-        },
-      ],
-    }).compile();
-
-    service = module.get<AgencyPlatformsService>(AgencyPlatformsService);
-    repo = module.get(AgencyRepository);
-    jest.clearAllMocks();
+  it('documents Telegram accurately: HTML formatting, channels and groups, and no direct messages', () => {
+    const telegram = service
+      .getPlatformCapabilities()
+      .find((c) => c.identifier === 'telegram');
+    expect(telegram).toMatchObject({
+      catalogued: true,
+      maxTextLength: 4096,
+      supportsFormatting: 'MARKDOWN_HTML',
+      supportsDirectMessage: false,
+    });
+    expect(telegram!.destinationTypes).toEqual(
+      expect.arrayContaining(['CHANNEL', 'GROUP'])
+    );
   });
 
-  describe('Capability Registry', () => {
-    it('should return complete official capability specifications for all networks', () => {
-      const capabilities = service.getPlatformCapabilities();
-      expect(capabilities.length).toBeGreaterThanOrEqual(8);
-
-      const telegram = capabilities.find((c) => c.identifier === 'telegram');
-      expect(telegram).toBeDefined();
-      expect(telegram?.supportsFormatting).toBe('MARKDOWN_HTML');
-      expect(telegram?.destinationTypes).toContain('CHANNEL');
-      expect(telegram?.destinationTypes).toContain('GROUP');
-      expect(telegram?.supportsDirectMessage).toBe(false); // anti-spam verification
-
-      const x = capabilities.find((c) => c.identifier === 'x');
-      expect(x?.maxTextLength).toBe(280);
-
-      const linkedin = capabilities.find((c) => c.identifier === 'linkedin');
-      expect(linkedin?.destinationTypes).toContain('PAGE');
-    });
+  it('covers the networks the product lists', () => {
+    const ids = service.getPlatformCapabilities().map((c) => c.identifier);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'telegram',
+        'x',
+        'linkedin',
+        'facebook',
+        'instagram',
+        'youtube',
+        'tiktok',
+      ])
+    );
   });
 
-  describe('Account Health Diagnostics', () => {
-    it('should mark active connections as HEALTHY', async () => {
-      mockRepo.getConnectedIntegrations.mockResolvedValue([
-        {
-          id: 'int-1',
-          name: 'Agency Telegram Bot',
-          customName: 'Main Agency Bot',
-          providerIdentifier: 'telegram',
-          disabled: false,
-          refreshNeeded: false,
-          tokenExpiration: new Date(Date.now() + 864000000),
-          customer: { id: 'cust-1', name: 'Acme Corp', companyName: 'Acme' },
-        },
-      ] as any);
+  it('never advertises direct messaging for any network', () => {
+    expect(
+      service.getPlatformCapabilities().some((c) => c.supportsDirectMessage)
+    ).toBe(false);
+  });
 
-      const accounts = await service.getConnectedAccounts('org-1');
-      expect(accounts[0].healthStatus).toBe('HEALTHY');
-      expect(accounts[0].name).toBe('Main Agency Bot');
-      expect(accounts[0].capabilities.identifier).toBe('telegram');
-    });
+  it('only quotes a rate limit where it has a documented figure', () => {
+    const quoted = service
+      .getPlatformCapabilities()
+      .filter((c) => c.rateLimitPerMinute !== undefined);
+    expect(quoted.map((c) => c.identifier)).toEqual(['telegram']);
+  });
 
-    it('should flag expired tokens as EXPIRED', async () => {
-      mockRepo.getConnectedIntegrations.mockResolvedValue([
-        {
-          id: 'int-2',
-          name: 'Old Twitter OAuth',
-          providerIdentifier: 'x',
-          disabled: false,
-          refreshNeeded: false,
-          tokenExpiration: new Date(Date.now() - 10000), // in the past
-          customer: null,
-        },
-      ] as any);
-
-      const accounts = await service.getConnectedAccounts('org-1');
-      expect(accounts[0].healthStatus).toBe('EXPIRED');
+  it('treats an unknown network as unknown, not as a generic capable one', () => {
+    expect(service.getCapability('mastodon-custom')).toMatchObject({
+      catalogued: false,
+      schedulingSupported: false,
+      supportsImages: false,
+      supportsVideos: false,
+      destinationTypes: [],
     });
   });
 });

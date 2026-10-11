@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
-import { CampaignStatus, Prisma } from '@prisma/client';
+import { CampaignStatus, DestinationAuthStatus, Prisma } from '@prisma/client';
 
 export interface CreateClientParams {
   name: string;
@@ -43,12 +43,14 @@ export interface CreateCampaignParams {
   ctaText?: string;
   telegramChannelLink?: string;
   internalNotes?: string;
+  requiresClientApproval?: boolean;
   createdById: string;
   destinations?: Array<{
     destinationType: 'TELEGRAM' | 'SOCIAL';
     telegramDestinationId?: string;
     integrationId?: string;
     customSettings?: string;
+    scheduledAt?: Date;
   }>;
 }
 
@@ -57,7 +59,6 @@ export interface UpdateCampaignParams {
   description?: string;
   objective?: string;
   budget?: number;
-  status?: CampaignStatus;
   startDate?: Date;
   endDate?: Date;
   timezone?: string;
@@ -70,6 +71,7 @@ export interface UpdateCampaignParams {
   ctaText?: string;
   telegramChannelLink?: string;
   internalNotes?: string;
+  requiresClientApproval?: boolean;
 }
 
 export interface CreateTelegramDestinationParams {
@@ -83,6 +85,29 @@ export interface CreateTelegramDestinationParams {
   permittedCategories?: string;
   postingFrequencyRules?: string;
   allowedPostingWindows?: string;
+  timezone?: string;
+  ownerName?: string;
+  ownerContact?: string;
+  verificationCodeHash: string;
+  verificationExpiresAt: Date;
+}
+
+export interface DestinationAuthorizationUpdate {
+  authorizationStatus: DestinationAuthStatus;
+  verificationCodeHash?: string | null;
+  verificationExpiresAt?: Date | null;
+  consentGrantedAt?: Date | null;
+  consentExpiresAt?: Date | null;
+  consentedByTelegramId?: string | null;
+  consentedByName?: string | null;
+  consentRevokedAt?: Date | null;
+  revokedReason?: string | null;
+  lastError?: string | null;
+  canPostMessages?: boolean;
+  canDeleteMessages?: boolean;
+  canInviteUsers?: boolean;
+  title?: string;
+  type?: string;
 }
 
 @Injectable()
@@ -133,7 +158,13 @@ export class AgencyRepository {
         },
         integrations: {
           where: { deletedAt: null },
-          select: { id: true, name: true, type: true, picture: true, disabled: true },
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            picture: true,
+            disabled: true,
+          },
         },
       },
     });
@@ -161,38 +192,58 @@ export class AgencyRepository {
   }
 
   async updateClient(orgId: string, id: string, params: UpdateClientParams) {
-    return this.prisma.customer.update({
-      where: { id },
+    await this.prisma.customer.updateMany({
+      where: { id, orgId, deletedAt: null },
       data: {
         ...(params.name ? { name: params.name } : {}),
         ...(params.email !== undefined ? { email: params.email } : {}),
         ...(params.phone !== undefined ? { phone: params.phone } : {}),
-        ...(params.companyName !== undefined ? { companyName: params.companyName } : {}),
+        ...(params.companyName !== undefined
+          ? { companyName: params.companyName }
+          : {}),
         ...(params.industry !== undefined ? { industry: params.industry } : {}),
         ...(params.website !== undefined ? { website: params.website } : {}),
         ...(params.status !== undefined ? { status: params.status } : {}),
         ...(params.notes !== undefined ? { notes: params.notes } : {}),
-        ...(params.assignedSalesUserId !== undefined ? { assignedSalesUserId: params.assignedSalesUserId } : {}),
-      },
-      include: {
-        assignedSalesUser: {
-          select: { id: true, name: true, email: true },
-        },
+        ...(params.assignedSalesUserId !== undefined
+          ? { assignedSalesUserId: params.assignedSalesUserId }
+          : {}),
       },
     });
+    return this.getClientById(orgId, id);
   }
 
   async deleteClient(orgId: string, id: string) {
-    return this.prisma.customer.update({
-      where: { id },
+    return this.prisma.customer.updateMany({
+      where: { id, orgId },
       data: { deletedAt: new Date() },
     });
+  }
+
+  async getOrganizationName(orgId: string) {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { name: true },
+    });
+    return org?.name ?? 'your agency';
+  }
+
+  /** Users that may be assigned work: active members of this organization only. */
+  async isActiveOrgMember(orgId: string, userId: string) {
+    const membership = await this.prisma.userOrganization.findFirst({
+      where: { organizationId: orgId, userId, disabled: false },
+      select: { id: true },
+    });
+    return !!membership;
   }
 
   // ==========================================
   // CAMPAIGNS
   // ==========================================
-  async getCampaigns(orgId: string, filters?: { status?: CampaignStatus; customerId?: string; search?: string }) {
+  async getCampaigns(
+    orgId: string,
+    filters?: { status?: CampaignStatus; customerId?: string; search?: string }
+  ) {
     return this.prisma.campaign.findMany({
       where: {
         orgId,
@@ -203,8 +254,18 @@ export class AgencyRepository {
           ? {
               OR: [
                 { name: { contains: filters.search, mode: 'insensitive' } },
-                { contentTitle: { contains: filters.search, mode: 'insensitive' } },
-                { contentBody: { contains: filters.search, mode: 'insensitive' } },
+                {
+                  contentTitle: {
+                    contains: filters.search,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  contentBody: {
+                    contains: filters.search,
+                    mode: 'insensitive',
+                  },
+                },
               ],
             }
           : {}),
@@ -219,7 +280,13 @@ export class AgencyRepository {
         destinations: {
           include: {
             telegramDestination: {
-              select: { id: true, title: true, chatId: true, type: true, isAuthorized: true },
+              select: {
+                id: true,
+                title: true,
+                chatId: true,
+                type: true,
+                isAuthorized: true,
+              },
             },
             integration: {
               select: { id: true, name: true, type: true, picture: true },
@@ -257,7 +324,9 @@ export class AgencyRepository {
         },
         publishingEvents: {
           include: {
-            telegramDestination: { select: { id: true, title: true, type: true } },
+            telegramDestination: {
+              select: { id: true, title: true, type: true },
+            },
             integration: { select: { id: true, name: true, type: true } },
           },
           orderBy: { createdAt: 'desc' },
@@ -281,7 +350,10 @@ export class AgencyRepository {
         description: params.description,
         objective: params.objective || 'BRAND_AWARENESS',
         status: CampaignStatus.DRAFT,
-        budget: params.budget !== undefined ? new Prisma.Decimal(params.budget) : null,
+        budget:
+          params.budget !== undefined
+            ? new Prisma.Decimal(params.budget)
+            : null,
         startDate: params.startDate,
         endDate: params.endDate,
         timezone: params.timezone || 'UTC',
@@ -294,6 +366,7 @@ export class AgencyRepository {
         ctaText: params.ctaText,
         telegramChannelLink: params.telegramChannelLink,
         internalNotes: params.internalNotes,
+        requiresClientApproval: params.requiresClientApproval ?? false,
         createdById: params.createdById,
         ...(params.destinations && params.destinations.length > 0
           ? {
@@ -303,6 +376,7 @@ export class AgencyRepository {
                   telegramDestinationId: d.telegramDestinationId,
                   integrationId: d.integrationId,
                   customSettings: d.customSettings,
+                  scheduledAt: d.scheduledAt,
                 })),
               },
             }
@@ -320,32 +394,61 @@ export class AgencyRepository {
     });
   }
 
-  async updateCampaign(orgId: string, id: string, params: UpdateCampaignParams) {
-    return this.prisma.campaign.update({
-      where: { id },
+  async updateCampaign(
+    orgId: string,
+    id: string,
+    params: UpdateCampaignParams
+  ) {
+    await this.prisma.campaign.updateMany({
+      where: { id, orgId, deletedAt: null },
       data: {
         ...(params.name ? { name: params.name } : {}),
-        ...(params.description !== undefined ? { description: params.description } : {}),
+        ...(params.description !== undefined
+          ? { description: params.description }
+          : {}),
         ...(params.objective ? { objective: params.objective } : {}),
-        ...(params.budget !== undefined ? { budget: params.budget !== null ? new Prisma.Decimal(params.budget) : null } : {}),
-        ...(params.status ? { status: params.status } : {}),
-        ...(params.startDate !== undefined ? { startDate: params.startDate } : {}),
+        ...(params.budget !== undefined
+          ? {
+              budget:
+                params.budget !== null
+                  ? new Prisma.Decimal(params.budget)
+                  : null,
+            }
+          : {}),
+        ...(params.startDate !== undefined
+          ? { startDate: params.startDate }
+          : {}),
         ...(params.endDate !== undefined ? { endDate: params.endDate } : {}),
         ...(params.timezone ? { timezone: params.timezone } : {}),
-        ...(params.postingFrequency !== undefined ? { postingFrequency: params.postingFrequency } : {}),
-        ...(params.postingWindows !== undefined ? { postingWindows: params.postingWindows } : {}),
-        ...(params.contentTitle !== undefined ? { contentTitle: params.contentTitle } : {}),
+        ...(params.postingFrequency !== undefined
+          ? { postingFrequency: params.postingFrequency }
+          : {}),
+        ...(params.postingWindows !== undefined
+          ? { postingWindows: params.postingWindows }
+          : {}),
+        ...(params.contentTitle !== undefined
+          ? { contentTitle: params.contentTitle }
+          : {}),
         ...(params.contentBody ? { contentBody: params.contentBody } : {}),
-        ...(params.contentMedia !== undefined ? { contentMedia: params.contentMedia } : {}),
+        ...(params.contentMedia !== undefined
+          ? { contentMedia: params.contentMedia }
+          : {}),
         ...(params.ctaLink !== undefined ? { ctaLink: params.ctaLink } : {}),
         ...(params.ctaText !== undefined ? { ctaText: params.ctaText } : {}),
-        ...(params.telegramChannelLink !== undefined ? { telegramChannelLink: params.telegramChannelLink } : {}),
-        ...(params.internalNotes !== undefined ? { internalNotes: params.internalNotes } : {}),
+        ...(params.telegramChannelLink !== undefined
+          ? { telegramChannelLink: params.telegramChannelLink }
+          : {}),
+        ...(params.internalNotes !== undefined
+          ? { internalNotes: params.internalNotes }
+          : {}),
+        ...(params.requiresClientApproval !== undefined
+          ? { requiresClientApproval: params.requiresClientApproval }
+          : {}),
       },
-      include: {
-        customer: true,
-        destinations: true,
-      },
+    });
+    return this.prisma.campaign.findFirst({
+      where: { id, orgId, deletedAt: null },
+      include: { customer: true, destinations: true },
     });
   }
 
@@ -356,23 +459,22 @@ export class AgencyRepository {
       telegramDestinationId?: string;
       integrationId?: string;
       customSettings?: string;
+      scheduledAt?: Date;
     }>
   ) {
-    await this.prisma.campaignDestination.deleteMany({
-      where: { campaignId },
-    });
-
-    if (destinations.length > 0) {
-      await this.prisma.campaignDestination.createMany({
+    await this.prisma.$transaction([
+      this.prisma.campaignDestination.deleteMany({ where: { campaignId } }),
+      this.prisma.campaignDestination.createMany({
         data: destinations.map((d) => ({
           campaignId,
           destinationType: d.destinationType,
           telegramDestinationId: d.telegramDestinationId,
           integrationId: d.integrationId,
           customSettings: d.customSettings,
+          scheduledAt: d.scheduledAt,
         })),
-      });
-    }
+      }),
+    ]);
 
     return this.prisma.campaignDestination.findMany({
       where: { campaignId },
@@ -381,8 +483,8 @@ export class AgencyRepository {
   }
 
   async deleteCampaign(orgId: string, id: string) {
-    return this.prisma.campaign.update({
-      where: { id },
+    return this.prisma.campaign.updateMany({
+      where: { id, orgId },
       data: { deletedAt: new Date() },
     });
   }
@@ -402,7 +504,9 @@ export class AgencyRepository {
             customer: { select: { id: true, name: true, companyName: true } },
             destinations: {
               include: {
-                telegramDestination: { select: { id: true, title: true, type: true } },
+                telegramDestination: {
+                  select: { id: true, title: true, type: true },
+                },
                 integration: { select: { id: true, name: true, type: true } },
               },
             },
@@ -415,7 +519,11 @@ export class AgencyRepository {
     });
   }
 
-  async createApprovalRequest(campaignId: string, submittedByUserId: string, notes?: string) {
+  async createApprovalRequest(
+    campaignId: string,
+    submittedByUserId: string,
+    notes?: string
+  ) {
     return this.prisma.approvalRequest.create({
       data: {
         campaignId,
@@ -433,7 +541,8 @@ export class AgencyRepository {
     approvalId: string,
     reviewedByUserId: string,
     decision: 'APPROVED' | 'CHANGES_REQUESTED',
-    notes?: string
+    notes?: string,
+    selfApproved = false
   ) {
     return this.prisma.approvalRequest.update({
       where: { id: approvalId },
@@ -441,6 +550,7 @@ export class AgencyRepository {
         status: decision,
         reviewedByUserId,
         reviewNotes: notes,
+        selfApproved,
         reviewedAt: new Date(),
       },
       include: {
@@ -471,7 +581,52 @@ export class AgencyRepository {
     });
   }
 
-  async createTelegramDestination(orgId: string, params: CreateTelegramDestinationParams) {
+  /** Destinations in this org matching the given IDs, used to validate references. */
+  async getTelegramDestinationsByIds(orgId: string, ids: string[]) {
+    return this.prisma.telegramDestination.findMany({
+      where: { orgId, id: { in: ids }, deletedAt: null },
+    });
+  }
+
+  async getTelegramDestinationByChat(orgId: string, chatId: string) {
+    return this.prisma.telegramDestination.findFirst({
+      where: { orgId, chatId, deletedAt: null },
+    });
+  }
+
+  /** Every tenant's registration of a chat. Used only by inbound Telegram updates. */
+  async getTelegramDestinationsByChatAcrossOrgs(chatId: string) {
+    return this.prisma.telegramDestination.findMany({
+      where: { chatId, deletedAt: null },
+    });
+  }
+
+  async getDestinationsPendingVerification(chatId: string, now: Date) {
+    return this.prisma.telegramDestination.findMany({
+      where: {
+        chatId,
+        deletedAt: null,
+        authorizationStatus: DestinationAuthStatus.PENDING_VERIFICATION,
+        verificationExpiresAt: { gt: now },
+      },
+    });
+  }
+
+  async getDestinationsWithExpiredConsent(now: Date) {
+    return this.prisma.telegramDestination.findMany({
+      where: {
+        deletedAt: null,
+        authorizationStatus: DestinationAuthStatus.ACTIVE,
+        consentExpiresAt: { lte: now },
+      },
+      select: { id: true, orgId: true, title: true },
+    });
+  }
+
+  async createTelegramDestination(
+    orgId: string,
+    params: CreateTelegramDestinationParams
+  ) {
     return this.prisma.telegramDestination.create({
       data: {
         orgId,
@@ -479,38 +634,111 @@ export class AgencyRepository {
         title: params.title,
         type: params.type || 'channel',
         botUsername: params.botUsername,
-        canPostMessages: params.canPostMessages ?? true,
+        canPostMessages: params.canPostMessages ?? false,
         canDeleteMessages: params.canDeleteMessages ?? false,
         canInviteUsers: params.canInviteUsers ?? false,
         permittedCategories: params.permittedCategories,
         postingFrequencyRules: params.postingFrequencyRules,
         allowedPostingWindows: params.allowedPostingWindows,
-        isAuthorized: true,
-        lastVerifiedAt: new Date(),
+        timezone: params.timezone || 'UTC',
+        ownerName: params.ownerName,
+        ownerContact: params.ownerContact,
+        // A new destination can never post: consent is only granted once a chat
+        // administrator proves control (see AgencyTelegramService).
+        isAuthorized: false,
+        authorizationStatus: DestinationAuthStatus.PENDING_VERIFICATION,
+        verificationCodeHash: params.verificationCodeHash,
+        verificationExpiresAt: params.verificationExpiresAt,
       },
     });
   }
 
-  async updateTelegramDestination(orgId: string, id: string, params: Partial<CreateTelegramDestinationParams & { isAuthorized?: boolean; lastError?: string }>) {
-    return this.prisma.telegramDestination.update({
-      where: { id },
+  async updateTelegramDestinationSettings(
+    orgId: string,
+    id: string,
+    params: {
+      permittedCategories?: string | null;
+      postingFrequencyRules?: string | null;
+      allowedPostingWindows?: string | null;
+      timezone?: string;
+      ownerName?: string | null;
+      ownerContact?: string | null;
+    }
+  ) {
+    await this.prisma.telegramDestination.updateMany({
+      where: { id, orgId, deletedAt: null },
+      data: params,
+    });
+    return this.getTelegramDestinationById(orgId, id);
+  }
+
+  /**
+   * The only writer of authorization state. Keeps the deprecated isAuthorized column
+   * in lock-step so the two can never disagree.
+   */
+  async setDestinationAuthorization(
+    orgId: string,
+    id: string,
+    update: DestinationAuthorizationUpdate
+  ) {
+    await this.prisma.telegramDestination.updateMany({
+      where: { id, orgId, deletedAt: null },
       data: {
-        ...(params.title ? { title: params.title } : {}),
-        ...(params.type ? { type: params.type } : {}),
-        ...(params.canPostMessages !== undefined ? { canPostMessages: params.canPostMessages } : {}),
-        ...(params.canDeleteMessages !== undefined ? { canDeleteMessages: params.canDeleteMessages } : {}),
-        ...(params.canInviteUsers !== undefined ? { canInviteUsers: params.canInviteUsers } : {}),
-        ...(params.isAuthorized !== undefined ? { isAuthorized: params.isAuthorized } : {}),
-        ...(params.lastError !== undefined ? { lastError: params.lastError } : {}),
+        ...update,
+        isAuthorized:
+          update.authorizationStatus === DestinationAuthStatus.ACTIVE,
         lastVerifiedAt: new Date(),
       },
+    });
+    return this.getTelegramDestinationById(orgId, id);
+  }
+
+  /** Replaces an @username reference with the canonical numeric chat id once Telegram tells us. */
+  async setDestinationChatId(orgId: string, id: string, chatId: string) {
+    await this.prisma.telegramDestination.updateMany({
+      where: { id, orgId },
+      data: { chatId },
+    });
+  }
+
+  async recordDestinationSuccess(orgId: string, id: string, at: Date) {
+    await this.prisma.telegramDestination.updateMany({
+      where: { id, orgId },
+      data: { lastSuccessfulPostAt: at, lastError: null },
+    });
+  }
+
+  async recordDestinationError(orgId: string, id: string, message: string) {
+    await this.prisma.telegramDestination.updateMany({
+      where: { id, orgId },
+      data: { lastError: message.slice(0, 500) },
     });
   }
 
   async deleteTelegramDestination(orgId: string, id: string) {
-    return this.prisma.telegramDestination.update({
-      where: { id },
-      data: { deletedAt: new Date() },
+    return this.prisma.telegramDestination.updateMany({
+      where: { id, orgId },
+      data: {
+        deletedAt: new Date(),
+        isAuthorized: false,
+        authorizationStatus: DestinationAuthStatus.REVOKED,
+        consentRevokedAt: new Date(),
+        revokedReason: 'Destination removed',
+      },
+    });
+  }
+
+  /** Integrations in this org matching the given IDs, used to validate references. */
+  async getIntegrationsByIds(orgId: string, ids: string[]) {
+    return this.prisma.integration.findMany({
+      where: { organizationId: orgId, id: { in: ids }, deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        providerIdentifier: true,
+        disabled: true,
+        refreshNeeded: true,
+      },
     });
   }
 
@@ -526,6 +754,8 @@ export class AgencyRepository {
     status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'SKIPPED';
     errorMessage?: string;
     idempotencyKey?: string;
+    postingJobId?: string;
+    attempt?: number;
   }) {
     return this.prisma.publishingEvent.create({
       data: {
@@ -537,14 +767,10 @@ export class AgencyRepository {
         status: params.status,
         errorMessage: params.errorMessage,
         idempotencyKey: params.idempotencyKey,
+        postingJobId: params.postingJobId,
+        attempt: params.attempt,
         executedAt: new Date(),
       },
-    });
-  }
-
-  async getPublishingEventByIdempotencyKey(idempotencyKey: string) {
-    return this.prisma.publishingEvent.findFirst({
-      where: { idempotencyKey },
     });
   }
 
@@ -574,8 +800,10 @@ export class AgencyRepository {
       totalCampaignsCount,
       pendingApprovalsCount,
       telegramDestinationsCount,
+      destinationsNeedingAttention,
+      campaignsNeedingAttention,
       connectedSocialCount,
-      publishingStats,
+      jobStats,
       recentCampaigns,
       recentEvents,
     ] = await Promise.all([
@@ -583,7 +811,17 @@ export class AgencyRepository {
         where: { orgId, deletedAt: null, status: 'ACTIVE' },
       }),
       this.prisma.campaign.count({
-        where: { orgId, deletedAt: null, status: { in: [CampaignStatus.APPROVED, CampaignStatus.SCHEDULED, CampaignStatus.PUBLISHING] } },
+        where: {
+          orgId,
+          deletedAt: null,
+          status: {
+            in: [
+              CampaignStatus.APPROVED,
+              CampaignStatus.SCHEDULED,
+              CampaignStatus.PUBLISHING,
+            ],
+          },
+        },
       }),
       this.prisma.campaign.count({
         where: { orgId, deletedAt: null },
@@ -592,14 +830,35 @@ export class AgencyRepository {
         where: { campaign: { orgId, deletedAt: null }, status: 'PENDING' },
       }),
       this.prisma.telegramDestination.count({
-        where: { orgId, deletedAt: null, isAuthorized: true },
+        where: {
+          orgId,
+          deletedAt: null,
+          authorizationStatus: DestinationAuthStatus.ACTIVE,
+        },
+      }),
+      this.prisma.telegramDestination.count({
+        where: {
+          orgId,
+          deletedAt: null,
+          authorizationStatus: {
+            in: [
+              DestinationAuthStatus.DISCONNECTED,
+              DestinationAuthStatus.REVOKED,
+              DestinationAuthStatus.EXPIRED,
+              DestinationAuthStatus.SUSPENDED,
+            ],
+          },
+        },
+      }),
+      this.prisma.campaign.count({
+        where: { orgId, deletedAt: null, requiresAttention: true },
       }),
       this.prisma.integration.count({
         where: { organizationId: orgId, deletedAt: null, disabled: false },
       }),
-      this.prisma.publishingEvent.groupBy({
+      this.prisma.postingJob.groupBy({
         by: ['status'],
-        where: { campaign: { orgId, deletedAt: null } },
+        where: { orgId, campaign: { deletedAt: null } },
         _count: { status: true },
       }),
       this.prisma.campaign.findMany({
@@ -622,10 +881,18 @@ export class AgencyRepository {
       }),
     ]);
 
-    const successfulPosts = publishingStats.find((s) => s.status === 'SUCCESS')?._count?.status || 0;
-    const failedPosts = publishingStats.find((s) => s.status === 'FAILED')?._count?.status || 0;
-    const totalPosts = successfulPosts + failedPosts;
-    const deliveryRate = totalPosts > 0 ? Math.round((successfulPosts / totalPosts) * 100) : 100;
+    const jobCount = (...statuses: string[]) =>
+      jobStats
+        .filter((j) => statuses.includes(j.status))
+        .reduce((sum, j) => sum + j._count.status, 0);
+    const successfulPosts = jobCount('SUCCEEDED');
+    const failedPosts = jobCount('DEAD', 'UNCERTAIN');
+    const blockedPosts = jobCount('BLOCKED');
+    const queuedPosts = jobCount('PENDING', 'SENDING');
+    const settled = successfulPosts + failedPosts;
+    // null (not 100) when nothing has been attempted: no data is not a perfect score.
+    const deliveryRate =
+      settled > 0 ? Math.round((successfulPosts / settled) * 100) : null;
 
     return {
       activeClientsCount,
@@ -633,9 +900,13 @@ export class AgencyRepository {
       totalCampaignsCount,
       pendingApprovalsCount,
       telegramDestinationsCount,
+      destinationsNeedingAttention,
+      campaignsNeedingAttention,
       connectedSocialCount,
       successfulPosts,
       failedPosts,
+      blockedPosts,
+      queuedPosts,
       deliveryRate,
       recentCampaigns,
       recentEvents,
@@ -702,15 +973,18 @@ export class AgencyRepository {
   // ==========================================
   // AGENCY INVOICING & BILLING
   // ==========================================
-  async createAgencyInvoice(orgId: string, params: {
-    customerId: string;
-    invoiceNumber: string;
-    amount: number;
-    currency?: string;
-    dueDate?: Date;
-    items?: string;
-    notes?: string;
-  }) {
+  async createAgencyInvoice(
+    orgId: string,
+    params: {
+      customerId: string;
+      invoiceNumber: string;
+      amount: number;
+      currency?: string;
+      dueDate?: Date;
+      items?: string;
+      notes?: string;
+    }
+  ) {
     return this.prisma.agencyInvoice.create({
       data: {
         orgId,
@@ -724,7 +998,9 @@ export class AgencyRepository {
         status: 'DRAFT',
       },
       include: {
-        customer: { select: { id: true, name: true, companyName: true, email: true } },
+        customer: {
+          select: { id: true, name: true, companyName: true, email: true },
+        },
       },
     });
   }
@@ -736,43 +1012,32 @@ export class AgencyRepository {
         ...(status ? { status } : {}),
       },
       include: {
-        customer: { select: { id: true, name: true, companyName: true, email: true } },
+        customer: {
+          select: { id: true, name: true, companyName: true, email: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async updateAgencyInvoiceStatus(orgId: string, id: string, status: string, paidAt?: Date) {
-    return this.prisma.agencyInvoice.update({
-      where: { id },
+  async updateAgencyInvoiceStatus(
+    orgId: string,
+    id: string,
+    status: string,
+    paidAt?: Date
+  ) {
+    await this.prisma.agencyInvoice.updateMany({
+      where: { id, orgId },
       data: {
         status,
         ...(paidAt ? { paidAt } : {}),
       },
-      include: {
-        customer: { select: { id: true, name: true, companyName: true, email: true } },
-      },
     });
-  }
-
-  // ==========================================
-  // SCHEDULED CAMPAIGNS FOR AUTONOMOUS DISPATCH
-  // ==========================================
-  async getScheduledCampaignsReadyToPublish() {
-    return this.prisma.campaign.findMany({
-      where: {
-        status: CampaignStatus.SCHEDULED,
-        deletedAt: null,
-        startDate: {
-          lte: new Date(),
-        },
-      },
+    return this.prisma.agencyInvoice.findFirst({
+      where: { id, orgId },
       include: {
-        destinations: {
-          include: {
-            telegramDestination: true,
-            integration: true,
-          },
+        customer: {
+          select: { id: true, name: true, companyName: true, email: true },
         },
       },
     });
@@ -832,6 +1097,23 @@ export class AgencyRepository {
     });
   }
 
+  async updateKnowledgeEmbedding(orgId: string, id: string, embedding: string) {
+    return this.prisma.agencyKnowledgeDocument.updateMany({
+      where: { id, orgId },
+      data: { embedding },
+    });
+  }
+
+  async purgeKnowledge(orgId: string, category?: string, before?: Date) {
+    return this.prisma.agencyKnowledgeDocument.deleteMany({
+      where: {
+        orgId,
+        ...(category ? { category } : {}),
+        ...(before ? { createdAt: { lt: before } } : {}),
+      },
+    });
+  }
+
   async getAllKnowledgeDocumentsForSearch(orgId: string, category?: string) {
     return this.prisma.agencyKnowledgeDocument.findMany({
       where: {
@@ -855,13 +1137,30 @@ export class AgencyRepository {
   // ==========================================
   // MODULE G & H: CONNECTED INTEGRATIONS MANAGEMENT
   // ==========================================
+  // Selected explicitly so OAuth tokens are never loaded into agency code paths.
+  private readonly integrationSafeSelect = {
+    id: true,
+    name: true,
+    customName: true,
+    picture: true,
+    providerIdentifier: true,
+    type: true,
+    profile: true,
+    disabled: true,
+    refreshNeeded: true,
+    tokenExpiration: true,
+    customerId: true,
+    createdAt: true,
+  } as const;
+
   async getConnectedIntegrations(orgId: string) {
     return this.prisma.integration.findMany({
       where: {
         organizationId: orgId,
         deletedAt: null,
       },
-      include: {
+      select: {
+        ...this.integrationSafeSelect,
         customer: {
           select: { id: true, name: true, companyName: true },
         },
@@ -877,22 +1176,296 @@ export class AgencyRepository {
         organizationId: orgId,
         deletedAt: null,
       },
-      include: {
-        customer: true,
+      select: {
+        ...this.integrationSafeSelect,
+        customer: {
+          select: { id: true, name: true, companyName: true },
+        },
       },
     });
   }
 
-  async updateIntegrationCustomer(orgId: string, id: string, customerId: string | null) {
-    return this.prisma.integration.update({
-      where: { id },
+  async updateIntegrationCustomer(
+    orgId: string,
+    id: string,
+    customerId: string | null
+  ) {
+    await this.prisma.integration.updateMany({
+      where: { id, organizationId: orgId },
+      data: { customerId },
+    });
+    return this.getIntegrationById(orgId, id);
+  }
+
+  // ==========================================
+  // WORKFLOW (atomic status + approval-record changes)
+  // ==========================================
+  async getApprovalById(orgId: string, id: string) {
+    return this.prisma.approvalRequest.findFirst({
+      where: { id, campaign: { orgId, deletedAt: null } },
+      include: { campaign: true },
+    });
+  }
+
+  /** DRAFT/CHANGES_REQUESTED → SUBMITTED and the approval request, as one unit. */
+  async submitForReview(
+    orgId: string,
+    campaignId: string,
+    userId: string,
+    notes?: string
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const moved = await tx.campaign.updateMany({
+        where: {
+          id: campaignId,
+          orgId,
+          deletedAt: null,
+          status: {
+            in: [CampaignStatus.DRAFT, CampaignStatus.CHANGES_REQUESTED],
+          },
+        },
+        data: {
+          status: CampaignStatus.SUBMITTED,
+          requiresAttention: false,
+          attentionReason: null,
+        },
+      });
+      if (moved.count !== 1) return null;
+      await tx.approvalRequest.updateMany({
+        where: { campaignId, status: 'PENDING' },
+        data: { status: 'WITHDRAWN', reviewedAt: new Date() },
+      });
+      return tx.approvalRequest.create({
+        data: {
+          campaignId,
+          submittedByUserId: userId,
+          status: 'PENDING',
+          submissionNotes: notes,
+        },
+        include: {
+          submittedByUser: { select: { id: true, name: true, email: true } },
+        },
+      });
+    });
+  }
+
+  /**
+   * Records a reviewer's decision and moves the campaign in the same transaction. If
+   * two reviewers race, or the campaign is no longer awaiting review, exactly one
+   * wins and the other gets null.
+   */
+  async decideApproval(params: {
+    orgId: string;
+    approvalId: string;
+    campaignId: string;
+    reviewerUserId: string;
+    decision: 'APPROVED' | 'CHANGES_REQUESTED';
+    notes?: string;
+    selfApproved: boolean;
+    contentHash?: string;
+  }) {
+    const approved = params.decision === 'APPROVED';
+    return this.prisma
+      .$transaction(async (tx) => {
+        const moved = await tx.campaign.updateMany({
+          where: {
+            id: params.campaignId,
+            orgId: params.orgId,
+            deletedAt: null,
+            status: {
+              in: [CampaignStatus.SUBMITTED, CampaignStatus.UNDER_REVIEW],
+            },
+          },
+          data: approved
+            ? {
+                status: CampaignStatus.APPROVED,
+                approvedContentHash: params.contentHash,
+                approvedAt: new Date(),
+                approvedByUserId: params.reviewerUserId,
+              }
+            : {
+                status: CampaignStatus.CHANGES_REQUESTED,
+                approvedContentHash: null,
+                approvedAt: null,
+                approvedByUserId: null,
+                clientApprovedAt: null,
+                clientApprovedByUserId: null,
+              },
+        });
+        if (moved.count !== 1) return null;
+        const resolved = await tx.approvalRequest.updateMany({
+          where: { id: params.approvalId, status: 'PENDING' },
+          data: {
+            status: params.decision,
+            reviewedByUserId: params.reviewerUserId,
+            reviewNotes: params.notes,
+            selfApproved: params.selfApproved,
+            reviewedAt: new Date(),
+          },
+        });
+        if (resolved.count !== 1) {
+          throw new Error('APPROVAL_ALREADY_RESOLVED');
+        }
+        return tx.approvalRequest.findUnique({
+          where: { id: params.approvalId },
+          include: {
+            campaign: true,
+            reviewedByUser: { select: { id: true, name: true, email: true } },
+          },
+        });
+      })
+      .catch((err) => {
+        if (err?.message === 'APPROVAL_ALREADY_RESOLVED') return null;
+        throw err;
+      });
+  }
+
+  async withdrawPendingApprovals(campaignId: string) {
+    return this.prisma.approvalRequest.updateMany({
+      where: { campaignId, status: 'PENDING' },
+      data: { status: 'WITHDRAWN', reviewedAt: new Date() },
+    });
+  }
+
+  /** Back to an editable draft: approval evidence and client sign-off no longer apply. */
+  async resetToDraft(
+    orgId: string,
+    campaignId: string,
+    from: CampaignStatus[]
+  ) {
+    const res = await this.prisma.campaign.updateMany({
+      where: { id: campaignId, orgId, deletedAt: null, status: { in: from } },
       data: {
+        status: CampaignStatus.DRAFT,
+        revision: { increment: 1 },
+        approvedContentHash: null,
+        approvedAt: null,
+        approvedByUserId: null,
+        clientApprovedAt: null,
+        clientApprovedByUserId: null,
+        requiresAttention: false,
+        attentionReason: null,
+      },
+    });
+    return res.count === 1;
+  }
+
+  async recordClientApproval(
+    orgId: string,
+    campaignId: string,
+    userId: string
+  ) {
+    const res = await this.prisma.campaign.updateMany({
+      where: {
+        id: campaignId,
+        orgId,
+        deletedAt: null,
+        status: { in: [CampaignStatus.SUBMITTED, CampaignStatus.UNDER_REVIEW] },
+      },
+      data: { clientApprovedAt: new Date(), clientApprovedByUserId: userId },
+    });
+    return res.count === 1;
+  }
+
+  async clientRequestChanges(orgId: string, campaignId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const moved = await tx.campaign.updateMany({
+        where: {
+          id: campaignId,
+          orgId,
+          deletedAt: null,
+          status: {
+            in: [CampaignStatus.SUBMITTED, CampaignStatus.UNDER_REVIEW],
+          },
+        },
+        data: {
+          status: CampaignStatus.CHANGES_REQUESTED,
+          clientApprovedAt: null,
+          clientApprovedByUserId: null,
+        },
+      });
+      if (moved.count !== 1) return false;
+      await tx.approvalRequest.updateMany({
+        where: { campaignId, status: 'PENDING' },
+        data: { status: 'CHANGES_REQUESTED', reviewedAt: new Date() },
+      });
+      return true;
+    });
+  }
+
+  async archiveOrCancel(
+    orgId: string,
+    campaignId: string,
+    from: CampaignStatus[],
+    to: CampaignStatus
+  ) {
+    const res = await this.prisma.campaign.updateMany({
+      where: { id: campaignId, orgId, deletedAt: null, status: { in: from } },
+      data: {
+        status: to,
+        ...(to === CampaignStatus.CANCELLED
+          ? { requiresAttention: false, attentionReason: null }
+          : {}),
+      },
+    });
+    return res.count === 1;
+  }
+
+  async countLiveCampaignsForClient(orgId: string, customerId: string) {
+    return this.prisma.campaign.count({
+      where: {
+        orgId,
         customerId,
+        deletedAt: null,
+        status: {
+          in: [
+            CampaignStatus.SCHEDULED,
+            CampaignStatus.PUBLISHING,
+            CampaignStatus.PAUSED,
+          ],
+        },
       },
-      include: {
-        customer: true,
+    });
+  }
+
+  // ==========================================
+  // INVOICES
+  // ==========================================
+  async getLastInvoiceNumber(orgId: string, prefix: string) {
+    const last = await this.prisma.agencyInvoice.findFirst({
+      where: { orgId, invoiceNumber: { startsWith: prefix } },
+      orderBy: { invoiceNumber: 'desc' },
+      select: { invoiceNumber: true },
+    });
+    return last?.invoiceNumber ?? null;
+  }
+
+  // ==========================================
+  // CLIENT PORTAL (client-safe projection only)
+  // ==========================================
+  async getPortalCampaigns(orgId: string, customerId: string) {
+    return this.prisma.campaign.findMany({
+      where: { orgId, customerId, deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        objective: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+        contentTitle: true,
+        contentBody: true,
+        contentMedia: true,
+        ctaLink: true,
+        ctaText: true,
+        telegramChannelLink: true,
+        requiresClientApproval: true,
+        clientApprovedAt: true,
+        trackingLinks: { select: { totalClicks: true } },
+        postingJobs: { select: { status: true } },
+        _count: { select: { destinations: true, leads: true } },
       },
+      orderBy: { createdAt: 'desc' },
     });
   }
 }
-

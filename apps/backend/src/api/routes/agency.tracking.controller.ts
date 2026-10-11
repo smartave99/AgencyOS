@@ -3,6 +3,10 @@ import { ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { AgencyService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.service';
 
+/**
+ * Public by design: the people clicking a tracked link in an ad are not logged in.
+ * This controller must NOT be registered under AuthMiddleware.
+ */
 @ApiTags('Agency Tracking')
 @Controller('/')
 export class AgencyTrackingController {
@@ -17,12 +21,15 @@ export class AgencyTrackingController {
     @Res() res: Response
   ) {
     try {
-      const destinationUrl = await this.agencyService.resolveTrackingLinkAndRecordClick(
-        code,
-        ip,
-        userAgent,
-        referer
-      );
+      const destinationUrl =
+        await this.agencyService.resolveTrackingLinkAndRecordClick(
+          code,
+          ip,
+          userAgent,
+          referer
+        );
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Referrer-Policy', 'no-referrer');
       return res.redirect(302, destinationUrl);
     } catch {
       return res.status(404).send('Tracking link not found or expired');

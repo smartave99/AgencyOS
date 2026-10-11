@@ -1,5 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { GenerateAdCopyDto, ImproveTextDto, CopyTone, CopyChannel } from '@gitroom/nestjs-libraries/dtos/agency/ai.dto';
+import {
+  GenerateAdCopyDto,
+  ImproveTextDto,
+  CopyTone,
+  CopyChannel,
+} from '@gitroom/nestjs-libraries/dtos/agency/ai.dto';
 
 export interface GeneratedAdVariants {
   headlines: string[];
@@ -11,8 +16,14 @@ export interface GeneratedAdVariants {
 @Injectable()
 export class AgencyAiService {
   private readonly logger = new Logger(AgencyAiService.name);
-  private readonly ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434';
-  private readonly ollamaModel = process.env.OLLAMA_MODEL || 'qwen2.5:3b';
+  // OLLAMA_HOST / AI_MODEL are the documented names (.env.agencyos.example); the
+  // older OLLAMA_URL / OLLAMA_MODEL are still honoured.
+  private readonly ollamaUrl =
+    process.env.OLLAMA_HOST ||
+    process.env.OLLAMA_URL ||
+    'http://localhost:11434';
+  private readonly ollamaModel =
+    process.env.AI_MODEL || process.env.OLLAMA_MODEL || 'qwen2.5:3b';
   private readonly openaiApiKey = process.env.OPENAI_API_KEY;
 
   async generateCopy(params: GenerateAdCopyDto): Promise<GeneratedAdVariants> {
@@ -47,12 +58,18 @@ export class AgencyAiService {
     return this.generateHeuristicCopy(params, tone, channel, client, objective);
   }
 
-  async improveText(params: ImproveTextDto): Promise<{ improvedText: string; providerUsed: string }> {
+  async improveText(
+    params: ImproveTextDto
+  ): Promise<{ improvedText: string; providerUsed: string }> {
     const tone = params.targetTone || CopyTone.DIRECT_RESPONSE;
 
     // Check Ollama or fallback to tone-enhanced text
     return {
-      improvedText: this.enhanceTextLocally(params.text, tone, params.instructions),
+      improvedText: this.enhanceTextLocally(
+        params.text,
+        tone,
+        params.instructions
+      ),
       providerUsed: 'heuristic_engine',
     };
   }
@@ -60,9 +77,15 @@ export class AgencyAiService {
   // ==========================================
   // OLLAMA PROVIDER
   // ==========================================
-  private async tryOllama(params: GenerateAdCopyDto): Promise<Omit<GeneratedAdVariants, 'providerUsed'> | null> {
+  private async tryOllama(
+    params: GenerateAdCopyDto
+  ): Promise<Omit<GeneratedAdVariants, 'providerUsed'> | null> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    // A 3B model on a CPU-only machine needs tens of seconds (model load + generation);
+    // a few seconds would make local AI always fall through to the template engine.
+    const timeoutMs =
+      Number.parseInt(process.env.AGENCY_AI_TIMEOUT_MS || '', 10) || 90000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     const prompt = this.buildPrompt(params);
 
@@ -84,8 +107,20 @@ export class AgencyAiService {
       if (!res.ok) return null;
       const data = await res.json();
       const parsed = JSON.parse(data.response);
-      if (parsed.headlines && parsed.bodyVariants && parsed.callToActions) {
-        return parsed;
+      const isTextList = (v: unknown) =>
+        Array.isArray(v) &&
+        v.length > 0 &&
+        v.every((x) => typeof x === 'string');
+      if (
+        isTextList(parsed.headlines) &&
+        isTextList(parsed.bodyVariants) &&
+        isTextList(parsed.callToActions)
+      ) {
+        return {
+          headlines: parsed.headlines,
+          bodyVariants: parsed.bodyVariants,
+          callToActions: parsed.callToActions,
+        };
       }
       return null;
     } catch {
@@ -97,7 +132,9 @@ export class AgencyAiService {
   // ==========================================
   // OPENAI PROVIDER
   // ==========================================
-  private async tryOpenAi(params: GenerateAdCopyDto): Promise<Omit<GeneratedAdVariants, 'providerUsed'> | null> {
+  private async tryOpenAi(
+    params: GenerateAdCopyDto
+  ): Promise<Omit<GeneratedAdVariants, 'providerUsed'> | null> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6000);
 
@@ -239,7 +276,11 @@ export class AgencyAiService {
     };
   }
 
-  private enhanceTextLocally(text: string, tone: CopyTone, instructions?: string): string {
+  private enhanceTextLocally(
+    text: string,
+    tone: CopyTone,
+    instructions?: string
+  ): string {
     const clean = text.trim();
     if (tone === CopyTone.URGENT) {
       return `⚡ <b>TIME SENSITIVE:</b> ${clean}\n\n<i>Act quickly before this opportunity closes.</i>`;
@@ -257,7 +298,10 @@ Client: ${params.clientName || 'General'}
 Industry: ${params.industry || 'General'}
 Objective: ${params.objective || 'Lead Generation'}
 Tone: ${params.tone || 'Direct Response'}
-Channel Format: ${params.channelType || 'Telegram (HTML formatting like <b>bold</b>, <i>italic</i>, and emojis)'}
+Channel Format: ${
+      params.channelType ||
+      'Telegram (HTML formatting like <b>bold</b>, <i>italic</i>, and emojis)'
+    }
 Target Audience: ${params.targetAudience || 'General'}`;
   }
 }

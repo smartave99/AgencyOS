@@ -3,54 +3,157 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
+  HttpCode,
   Param,
   Post,
+  Put,
+  UseGuards,
+  UsePipes,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { timingSafeEqual } from 'crypto';
 import { AgencyService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.service';
-import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.request';
-import { Organization } from '@prisma/client';
+import { AgencyTelegramService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.telegram.service';
+import { AgencyActor } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.access.service';
+import { TelegramInboundUpdate } from '@gitroom/nestjs-libraries/integrations/telegram/telegram.gateway';
 import {
+  DestinationReasonDto,
   RegisterTelegramDestinationDto,
+  UpdateTelegramDestinationDto,
   VerifyTelegramChatDto,
 } from '@gitroom/nestjs-libraries/dtos/agency/telegram.dto';
+import {
+  AgencyActorFromRequest,
+  AgencyActorGuard,
+  agencyValidationPipe,
+} from '@gitroom/backend/services/auth/permissions/agency.actor';
 
 @ApiTags('Agency Telegram Management')
 @Controller('/agency/telegram')
+@UseGuards(AgencyActorGuard)
+@UsePipes(agencyValidationPipe)
 export class AgencyTelegramController {
-  constructor(private agencyService: AgencyService) {}
+  constructor(
+    private telegramService: AgencyTelegramService,
+    private agencyService: AgencyService
+  ) {}
 
   @Get('/destinations')
-  async getDestinations(@GetOrgFromRequest() org: Organization) {
-    return this.agencyService.getTelegramDestinations(org.id);
+  async getDestinations(@AgencyActorFromRequest() actor: AgencyActor) {
+    return this.telegramService.listDestinations(actor);
   }
 
+  /** Live look at a chat (nothing is saved). */
   @Post('/verify')
   async verifyChat(
-    @GetOrgFromRequest() org: Organization,
+    @AgencyActorFromRequest() actor: AgencyActor,
     @Body() body: VerifyTelegramChatDto
   ) {
-    return this.agencyService.verifyTelegramChat(body.chatId);
+    return this.telegramService.previewChat(actor, body.chatId);
   }
 
   @Post('/destinations')
   async registerDestination(
-    @GetOrgFromRequest() org: Organization,
+    @AgencyActorFromRequest() actor: AgencyActor,
     @Body() body: RegisterTelegramDestinationDto
   ) {
-    return this.agencyService.registerTelegramDestination(org.id, body);
+    return this.telegramService.registerDestination(actor, body);
+  }
+
+  @Put('/destinations/:id')
+  async updateDestination(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Param('id') id: string,
+    @Body() body: UpdateTelegramDestinationDto
+  ) {
+    return this.telegramService.updateSettings(actor, id, body);
+  }
+
+  /** New one-time code, e.g. after revoke/expiry/disconnect or a lost code. */
+  @Post('/destinations/:id/reauthorize')
+  async reauthorize(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Param('id') id: string
+  ) {
+    return this.telegramService.restartVerification(actor, id);
+  }
+
+  @Post('/destinations/:id/refresh')
+  async refresh(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Param('id') id: string
+  ) {
+    return this.telegramService.refreshHealth(actor, id);
+  }
+
+  @Post('/destinations/:id/suspend')
+  async suspend(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Param('id') id: string,
+    @Body() body: DestinationReasonDto
+  ) {
+    return this.telegramService.suspend(actor, id, body.reason);
+  }
+
+  @Post('/destinations/:id/resume')
+  async resume(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Param('id') id: string
+  ) {
+    return this.telegramService.resume(actor, id);
+  }
+
+  @Post('/destinations/:id/revoke')
+  async revoke(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Param('id') id: string,
+    @Body() body: DestinationReasonDto
+  ) {
+    return this.telegramService.revoke(actor, id, body.reason);
   }
 
   @Delete('/destinations/:id')
   async deleteDestination(
-    @GetOrgFromRequest() org: Organization,
+    @AgencyActorFromRequest() actor: AgencyActor,
     @Param('id') id: string
   ) {
-    return this.agencyService.deleteTelegramDestination(org.id, id);
+    return this.telegramService.remove(actor, id);
   }
 
   @Get('/events')
-  async getPublishingEvents(@GetOrgFromRequest() org: Organization) {
-    return this.agencyService.getPublishingEvents(org.id);
+  async getPublishingEvents(@AgencyActorFromRequest() actor: AgencyActor) {
+    return this.agencyService.getPublishingEvents(actor);
+  }
+}
+
+/**
+ * Receives bot updates when AGENCY_TELEGRAM_WEBHOOK_URL is used. Public (Telegram is
+ * the caller) but authenticated by Telegram's secret-token header, and it must never
+ * throw: any failure is logged inside the service and Telegram still gets a 200, so it
+ * never enters a retry storm.
+ */
+@ApiTags('Agency Telegram Webhook')
+@Controller('/agency/telegram')
+export class AgencyTelegramWebhookController {
+  constructor(private telegramService: AgencyTelegramService) {}
+
+  @Post('/webhook')
+  @HttpCode(200)
+  async webhook(
+    @Headers('x-telegram-bot-api-secret-token') token: string | undefined,
+    @Body() update: TelegramInboundUpdate
+  ) {
+    try {
+      const secret = process.env.AGENCY_TELEGRAM_WEBHOOK_SECRET;
+      if (!secret || !token) return { ok: true };
+      const a = Buffer.from(token);
+      const b = Buffer.from(secret);
+      if (a.length !== b.length || !timingSafeEqual(a, b)) return { ok: true };
+      await this.telegramService.handleUpdate(update);
+    } catch {
+      // handleUpdate already logs; swallowing here is the point.
+    }
+    return { ok: true };
   }
 }

@@ -1,4 +1,10 @@
-import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class VerifyTelegramChatDto {
@@ -8,54 +14,122 @@ export class VerifyTelegramChatDto {
   chatId: string;
 }
 
+/**
+ * Permissions are deliberately absent: what the bot may do is read from Telegram,
+ * never accepted from the caller.
+ */
 export class RegisterTelegramDestinationDto {
-  @ApiProperty({ description: 'Telegram Chat ID (e.g. -100123456789 or @channelname)' })
+  @ApiProperty({
+    description: 'Telegram Chat ID (e.g. -100123456789 or @channelname)',
+  })
   @IsString()
   @IsNotEmpty()
+  @Matches(/^(-?\d{5,20}|@[A-Za-z][A-Za-z0-9_]{3,31})$/, {
+    message:
+      'Use a numeric chat ID (e.g. -1001234567890) or an @channelusername',
+  })
   chatId: string;
 
-  @ApiProperty({ description: 'Friendly title for the destination' })
-  @IsString()
-  @IsNotEmpty()
-  title: string;
-
-  @ApiPropertyOptional({ enum: ['channel', 'group', 'supergroup'], default: 'channel' })
+  @ApiPropertyOptional({
+    description: 'Friendly title (used until Telegram supplies the real one)',
+  })
   @IsString()
   @IsOptional()
-  type?: string;
+  @MaxLength(200)
+  title?: string;
 
-  @ApiPropertyOptional({ description: 'Bot username managing the destination' })
+  @ApiPropertyOptional({
+    description: 'Name of the person/organization that owns the destination',
+  })
   @IsString()
   @IsOptional()
-  botUsername?: string;
+  @MaxLength(200)
+  ownerName?: string;
 
-  @ApiPropertyOptional({ description: 'Allow text and media posting' })
-  @IsBoolean()
-  @IsOptional()
-  canPostMessages?: boolean;
-
-  @ApiPropertyOptional({ description: 'Allow message deletion for moderation' })
-  @IsBoolean()
-  @IsOptional()
-  canDeleteMessages?: boolean;
-
-  @ApiPropertyOptional({ description: 'Allow invite links creation' })
-  @IsBoolean()
-  @IsOptional()
-  canInviteUsers?: boolean;
-
-  @ApiPropertyOptional({ description: 'JSON array of allowed content categories' })
+  @ApiPropertyOptional({ description: 'How to reach the destination owner' })
   @IsString()
   @IsOptional()
+  @MaxLength(200)
+  ownerContact?: string;
+
+  @ApiPropertyOptional({
+    description: 'IANA time zone used for posting windows',
+    default: 'UTC',
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(64)
+  timezone?: string;
+
+  @ApiPropertyOptional({
+    description: 'JSON array of permitted content categories',
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(2000)
   permittedCategories?: string;
 
-  @ApiPropertyOptional({ description: 'Posting frequency limitations' })
+  @ApiPropertyOptional({
+    description: 'JSON: {"maxPerDay":3,"minIntervalMinutes":60}',
+  })
   @IsString()
   @IsOptional()
+  @MaxLength(500)
   postingFrequencyRules?: string;
 
-  @ApiPropertyOptional({ description: 'Allowed posting hours / windows' })
+  @ApiPropertyOptional({
+    description: 'JSON: [{"days":[1,2,3,4,5],"start":"09:00","end":"18:00"}]',
+  })
   @IsString()
   @IsOptional()
+  @MaxLength(2000)
   allowedPostingWindows?: string;
+}
+
+export class UpdateTelegramDestinationDto {
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  ownerName?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  ownerContact?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(64)
+  timezone?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(2000)
+  permittedCategories?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(500)
+  postingFrequencyRules?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(2000)
+  allowedPostingWindows?: string;
+}
+
+export class DestinationReasonDto {
+  @ApiPropertyOptional({
+    description: 'Why the destination is being suspended or revoked',
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(300)
+  reason?: string;
 }

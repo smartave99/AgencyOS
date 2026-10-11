@@ -1,5 +1,9 @@
 import { Global, Module } from '@nestjs/common';
-import { PrismaRepository, PrismaService, PrismaTransaction } from './prisma.service';
+import {
+  PrismaRepository,
+  PrismaService,
+  PrismaTransaction,
+} from './prisma.service';
 import { OrganizationRepository } from '@gitroom/nestjs-libraries/database/prisma/organizations/organization.repository';
 import { OrganizationService } from '@gitroom/nestjs-libraries/database/prisma/organizations/organization.service';
 import { UsersService } from '@gitroom/nestjs-libraries/database/prisma/users/users.service';
@@ -51,6 +55,12 @@ import { ErrorsService } from '@gitroom/nestjs-libraries/database/prisma/errors/
 import { AdminStatsRepository } from '@gitroom/nestjs-libraries/database/prisma/admin-stats/admin-stats.repository';
 import { AdminStatsService } from '@gitroom/nestjs-libraries/database/prisma/admin-stats/admin-stats.service';
 import { AgencyRepository } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.repository';
+import { AgencyAccessRepository } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.access.repository';
+import { AgencyAccessService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.access.service';
+import { AgencyPublishingRepository } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.publishing.repository';
+import { AgencyPublishingService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.publishing.service';
+import { AgencyTelegramService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.telegram.service';
+import { TelegramGateway } from '@gitroom/nestjs-libraries/integrations/telegram/telegram.gateway';
 import { AgencyService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.service';
 import { AgencyAiService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.service';
 import { AgencySchedulerService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.scheduler.service';
@@ -117,6 +127,12 @@ import { AgencyPortalService } from '@gitroom/nestjs-libraries/database/prisma/a
     AdminStatsRepository,
     AdminStatsService,
     AgencyRepository,
+    AgencyAccessRepository,
+    AgencyAccessService,
+    AgencyPublishingRepository,
+    AgencyPublishingService,
+    AgencyTelegramService,
+    TelegramGateway,
     AgencyService,
     AgencyAiService,
     AgencySchedulerService,

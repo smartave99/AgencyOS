@@ -1,35 +1,47 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+  UsePipes,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AgencyService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.service';
-import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.request';
-import { GetUserFromRequest } from '@gitroom/nestjs-libraries/user/user.from.request';
-import { Organization, User } from '@prisma/client';
+import { AgencyActor } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.access.service';
 import { ReviewApprovalDto } from '@gitroom/nestjs-libraries/dtos/agency/approval.dto';
+import {
+  AgencyActorFromRequest,
+  AgencyActorGuard,
+  agencyValidationPipe,
+} from '@gitroom/backend/services/auth/permissions/agency.actor';
 
 @ApiTags('Agency Approvals')
 @Controller('/agency/approvals')
+@UseGuards(AgencyActorGuard)
+@UsePipes(agencyValidationPipe)
 export class AgencyApprovalsController {
   constructor(private agencyService: AgencyService) {}
 
   @Get('/')
   async getApprovals(
-    @GetOrgFromRequest() org: Organization,
+    @AgencyActorFromRequest() actor: AgencyActor,
     @Query('status') status?: string
   ) {
-    return this.agencyService.getApprovals(org.id, status);
+    return this.agencyService.getApprovals(actor, status);
   }
 
   @Post('/:id/review')
   async reviewApproval(
-    @GetOrgFromRequest() org: Organization,
-    @GetUserFromRequest() user: User,
+    @AgencyActorFromRequest() actor: AgencyActor,
     @Param('id') id: string,
     @Body() body: ReviewApprovalDto
   ) {
     return this.agencyService.reviewCampaign(
-      org.id,
+      actor,
       id,
-      user.id,
       body.decision,
       body.notes
     );

@@ -1916,6 +1916,11 @@ model Campaign {
   approvedByUserId    String?
   requiresAttention   Boolean               @default(false)
   attentionReason     String?
+  // Optional client sign-off. When required, agency approval is refused until the
+  // client (a real CLIENT-role user) has approved this exact content.
+  requiresClientApproval Boolean            @default(false)
+  clientApprovedAt    DateTime?
+  clientApprovedByUserId String?
   createdById         String
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt

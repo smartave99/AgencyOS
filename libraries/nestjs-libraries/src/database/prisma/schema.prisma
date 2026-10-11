@@ -50,6 +50,9 @@ model Organization {
   leads               LeadCapture[]
   agencyInvoices      AgencyInvoice[]
   agencyKnowledge     AgencyKnowledgeDocument[]
+  agencyMembers       AgencyMember[]
+  auditEvents         AuditEvent[]
+  postingJobs         PostingJob[]
 
   @@index([apiKey])
   @@index([streakSince])
@@ -126,6 +129,7 @@ model User {
   assignedCustomers     Customer[]           @relation("AssignedSalesUser")
   submittedApprovals    ApprovalRequest[]    @relation("ApprovalSubmittedBy")
   reviewedApprovals     ApprovalRequest[]    @relation("ApprovalReviewedBy")
+  agencyMemberships     AgencyMember[]
 
   @@unique([email, providerName])
   @@index([lastReadNotifications])
@@ -380,6 +384,7 @@ model Customer {
   assignedSalesUser   User?                @relation("AssignedSalesUser", fields: [assignedSalesUserId], references: [id])
   campaigns           Campaign[]
   agencyInvoices      AgencyInvoice[]
+  agencyMembers       AgencyMember[]
 
   @@unique([orgId, name, deletedAt])
   @@index([orgId])
@@ -419,6 +424,7 @@ model Integration {
   posts                 Post[]
   campaignDestinations  CampaignDestination[]
   publishingEvents      PublishingEvent[]
+  postingJobs           PostingJob[]
 
   @@unique([organizationId, internalId])
   @@index([rootInternalId])
@@ -1872,6 +1878,7 @@ enum CampaignStatus {
   SCHEDULED
   PUBLISHING
   COMPLETED
+  PARTIALLY_FAILED
   PAUSED
   FAILED
   CANCELLED
@@ -1899,6 +1906,16 @@ model Campaign {
   ctaText             String?
   telegramChannelLink String?
   internalNotes       String?
+  // Bumped each time an approved/scheduled campaign is reopened, so a re-approved
+  // run gets fresh posting-job idempotency keys instead of colliding with the old run.
+  revision            Int                   @default(1)
+  // SHA-256 of the publishable content captured at approval. Publishing refuses
+  // to send if the content no longer matches what a reviewer approved.
+  approvedContentHash String?
+  approvedAt          DateTime?
+  approvedByUserId    String?
+  requiresAttention   Boolean               @default(false)
+  attentionReason     String?
   createdById         String
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
@@ -1912,10 +1929,12 @@ model Campaign {
   publishingEvents    PublishingEvent[]
   leads               LeadCapture[]
   trackingLinks       TrackingLink[]
+  postingJobs         PostingJob[]
 
   @@index([orgId])
   @@index([customerId])
   @@index([status])
+  @@index([requiresAttention])
   @@index([createdAt])
 }
 
@@ -1926,7 +1945,24 @@ model TelegramDestination {
   title                 String
   type                  String                @default("channel")
   botUsername           String?
-  isAuthorized          Boolean               @default(true)
+  // DEPRECATED mirror of (authorizationStatus === ACTIVE). Kept so older readers
+  // keep working; written only by AgencyTelegramService.setAuthorization().
+  isAuthorized          Boolean               @default(false)
+  authorizationStatus   DestinationAuthStatus @default(PENDING_VERIFICATION)
+  // Only a hash of the one-time code is stored; the group admin proves control
+  // of the chat by sending `/authorize <code>` inside it.
+  verificationCodeHash  String?
+  verificationExpiresAt DateTime?
+  consentGrantedAt      DateTime?
+  consentExpiresAt      DateTime?
+  consentedByTelegramId String?
+  consentedByName       String?
+  consentRevokedAt      DateTime?
+  revokedReason         String?
+  ownerName             String?
+  ownerContact          String?
+  timezone              String                @default("UTC")
+  lastSuccessfulPostAt  DateTime?
   canPostMessages       Boolean               @default(true)
   canDeleteMessages     Boolean               @default(false)
   canInviteUsers        Boolean               @default(false)
@@ -1942,11 +1978,13 @@ model TelegramDestination {
   organization          Organization          @relation(fields: [orgId], references: [id])
   campaignDestinations  CampaignDestination[]
   publishingEvents      PublishingEvent[]
+  postingJobs           PostingJob[]
 
   @@unique([orgId, chatId, deletedAt])
   @@index([orgId])
   @@index([chatId])
   @@index([isAuthorized])
+  @@index([authorizationStatus])
 }
 
 model CampaignDestination {
@@ -1956,13 +1994,18 @@ model CampaignDestination {
   telegramDestinationId String?
   integrationId         String?
   customSettings        String?
+  // Optional per-destination start; falls back to Campaign.startDate.
+  scheduledAt           DateTime?
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 
   campaign              Campaign              @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   telegramDestination   TelegramDestination?  @relation(fields: [telegramDestinationId], references: [id])
   integration           Integration?          @relation(fields: [integrationId], references: [id])
+  postingJobs           PostingJob[]
 
+  @@unique([campaignId, telegramDestinationId])
+  @@unique([campaignId, integrationId])
   @@index([campaignId])
   @@index([telegramDestinationId])
   @@index([integrationId])
@@ -1976,6 +2019,7 @@ model ApprovalRequest {
   status              String                @default("PENDING")
   submissionNotes     String?
   reviewNotes         String?
+  selfApproved        Boolean               @default(false)
   reviewedAt          DateTime?
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
@@ -2002,17 +2046,21 @@ model PublishingEvent {
   retryCount            Int                   @default(0)
   executedAt            DateTime?
   idempotencyKey        String?
+  postingJobId          String?
+  attempt               Int?
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 
   campaign              Campaign              @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   telegramDestination   TelegramDestination?  @relation(fields: [telegramDestinationId], references: [id])
   integration           Integration?          @relation(fields: [integrationId], references: [id])
+  postingJob            PostingJob?           @relation(fields: [postingJobId], references: [id])
 
   @@index([campaignId])
   @@index([telegramDestinationId])
   @@index([status])
   @@index([idempotencyKey])
+  @@index([postingJobId])
 }
 
 model LeadCapture {
@@ -2113,4 +2161,124 @@ model AgencyKnowledgeDocument {
   @@index([orgId])
   @@index([category])
   @@index([telegramDestId])
+}
+
+enum DestinationAuthStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  REVOKED
+  EXPIRED
+  DISCONNECTED
+}
+
+enum PostingJobStatus {
+  PENDING
+  SENDING
+  SUCCEEDED
+  BLOCKED
+  DEAD
+  CANCELLED
+  UNCERTAIN
+}
+
+enum AgencyRole {
+  AGENCY_OWNER
+  AGENCY_ADMIN
+  SALES_MANAGER
+  SALES_EXECUTIVE
+  CAMPAIGN_MANAGER
+  CONTENT_EDITOR
+  ANALYST
+  CLIENT
+}
+
+// One unit of publishing work: a campaign (at a given revision) delivered to a
+// single destination. This row is the mutable state machine (claim, lease, retry,
+// dead-letter); PublishingEvent is the append-only log of each attempt.
+model PostingJob {
+  id                    String                @id @default(cuid())
+  orgId                 String
+  campaignId            String
+  campaignDestinationId String?
+  telegramDestinationId String?
+  integrationId         String?
+  destinationType       String
+  idempotencyKey        String                @unique
+  status                PostingJobStatus      @default(PENDING)
+  scheduledFor          DateTime
+  nextAttemptAt         DateTime
+  attempts              Int                   @default(0)
+  maxAttempts           Int                   @default(5)
+  lockedUntil           DateTime?
+  lockedBy              String?
+  contentHash           String
+  lastError             String?
+  lastErrorCode         String?
+  externalMessageId     String?
+  releaseUrl            String?
+  receipt               Json?
+  completedAt           DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  organization          Organization          @relation(fields: [orgId], references: [id])
+  campaign              Campaign              @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignDestination   CampaignDestination?  @relation(fields: [campaignDestinationId], references: [id], onDelete: SetNull)
+  telegramDestination   TelegramDestination?  @relation(fields: [telegramDestinationId], references: [id])
+  integration           Integration?          @relation(fields: [integrationId], references: [id])
+  events                PublishingEvent[]
+
+  @@index([orgId])
+  @@index([campaignId])
+  @@index([telegramDestinationId])
+  @@index([status, nextAttemptAt])
+}
+
+// Agency-level role layered on top of Postiz's coarse Role (SUPERADMIN/ADMIN/USER),
+// which is left untouched. Users without a row fall back to a role derived from
+// their organization Role (see AgencyAccessService.resolveRole).
+model AgencyMember {
+  id         String       @id @default(cuid())
+  orgId      String
+  userId     String
+  role       AgencyRole
+  // Set only for CLIENT members: the one Customer they may see.
+  customerId String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+  customer     Customer?    @relation(fields: [customerId], references: [id])
+
+  @@unique([orgId, userId])
+  @@index([orgId])
+  @@index([customerId])
+}
+
+model AuditEvent {
+  id          String       @id @default(cuid())
+  orgId       String
+  actorUserId String?
+  actorRole   String?
+  action      String
+  entityType  String
+  entityId    String?
+  summary     String?
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, createdAt])
+  @@index([entityType, entityId])
+}
+
+// Single-row-per-name lease used so only one process consumes Telegram getUpdates.
+model LeaderLease {
+  name       String   @id
+  holder     String
+  leaseUntil DateTime
+  updatedAt  DateTime @updatedAt
 }

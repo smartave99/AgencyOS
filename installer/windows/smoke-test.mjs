@@ -269,7 +269,7 @@ async function main() {
       await waitFor('local AI to finish setting up', async () => {
         const r = await getJson(`http://127.0.0.1:${port}/api/status`);
         ai = r.json?.ai;
-        return ai && ['ready', 'off', 'error'].includes(ai.phase);
+        return ai && ['ready', 'off'].includes(ai.phase); // an 'error' phase is retried by the app itself
       }, {
         timeoutMs: aiMinutes * 60000,
         intervalMs: 5000,

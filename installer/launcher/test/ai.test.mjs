@@ -178,6 +178,17 @@ describe('AiManager', () => {
     assert.equal(rt.installs, 2);
   });
 
+  it('retries a transient registry error (503) soon instead of giving up', async () => {
+    let failed = false;
+    const client = fakeOllama({ failPull: () => (failed ? null : ((failed = true), new Error('503: '))) });
+    const sleeps = [];
+    const { mgr } = make({ client, sleepFn: async (ms) => { sleeps.push(ms); } });
+    await mgr.planModels();
+    assert.equal(await mgr.run(), 'ready');
+    assert.deepEqual(sleeps, [20000]);
+    assert.ok(client.installed.has('embeddinggemma'));
+  });
+
   it('does nothing on a machine that is too small and says so', async () => {
     const { mgr, rt } = make({ hw: hardware({ ramGB: 3 }) });
     await mgr.planModels();

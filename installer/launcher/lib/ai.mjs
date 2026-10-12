@@ -13,7 +13,10 @@ import { selectModels, lowerTier, judgeSpeed } from './models.mjs';
 import { OllamaClient, OllamaRuntime, registryInfo, tokensPerSecond, waitForOllama } from './ollama.mjs';
 import { sleep } from './net.mjs';
 
-const RETRY_MS = 5 * 60 * 1000;
+// A failed download is retried quickly at first (a registry hiccup, a dropped connection) and then
+// every five minutes.
+const RETRY_DELAYS_MS = [20_000, 45_000, 90_000, 180_000, 5 * 60 * 1000];
+const TRANSIENT = /fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|timeout|network|dial tcp|no such host|i\/o|\b5\d\d\b|\b429\b|rate limit|temporar|unavailable|reset/i;
 
 export const fingerprint = (hw) =>
   JSON.stringify([
@@ -199,12 +202,14 @@ export class AiManager extends EventEmitter {
 
   async run() {
     this.stopped = false;
+    let failures = 0;
     while (!this.stopped) {
       try {
         const outcome = await this.#once();
         if (outcome === 'retry-now') continue; // stepped down a tier: set up the lighter model straight away
         return outcome;
       } catch (error) {
+        failures += 1;
         this.log(`AI setup: ${error.message}`);
         this.#set({
           phase: error.network ? 'waiting-network' : 'error',
@@ -214,7 +219,7 @@ export class AiManager extends EventEmitter {
           progress: null,
         });
       }
-      await this.sleep(RETRY_MS);
+      await this.sleep(RETRY_DELAYS_MS[Math.min(failures - 1, RETRY_DELAYS_MS.length - 1)]);
     }
     return 'stopped';
   }
@@ -281,7 +286,7 @@ export class AiManager extends EventEmitter {
       });
     } catch (error) {
       this.#setModel(kind, { state: 'failed', id, error: error.message });
-      error.network = /fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|timeout|network|dial tcp|no such host|i\/o/i.test(error.message);
+      error.network = TRANSIENT.test(error.message);
       throw error;
     }
     if (kind === 'embedding') {

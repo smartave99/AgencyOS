@@ -486,4 +486,25 @@ export class AgencyPublishingRepository {
       return false;
     }
   }
+
+  /** Liveness signal: any process may renew it; "online" means the lease has not lapsed. */
+  async recordHeartbeat(name: string, holder: string, ttlMs: number) {
+    const leaseUntil = new Date(Date.now() + ttlMs);
+    await this.prisma.leaderLease.upsert({
+      where: { name },
+      create: { name, holder, leaseUntil },
+      update: { holder, leaseUntil },
+    });
+  }
+
+  async getHeartbeat(name: string) {
+    const row = await this.prisma.leaderLease.findUnique({ where: { name } });
+    return row
+      ? {
+          online: row.leaseUntil > new Date(),
+          lastSeenAt: row.updatedAt,
+          holder: row.holder,
+        }
+      : { online: false, lastSeenAt: null, holder: null };
+  }
 }

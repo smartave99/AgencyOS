@@ -1,273 +1,549 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { FC, useEffect, useState } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
+import { useToaster } from '@gitroom/react/toaster/toaster';
+import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
+import {
+  Deal,
+  useAgencyApi,
+  useCan,
+  useDealSummary,
+  useDeals,
+} from '@gitroom/frontend/components/agency/agency.hooks';
+import {
+  Btn,
+  EmptyState,
+  humanize,
+  inputClass,
+  labelClass,
+  LoadError,
+  Loading,
+  money,
+  PageHeader,
+  PageShell,
+} from '@gitroom/frontend/components/agency/agency.ui';
 
-interface Lead {
-  id: string;
-  name: string;
-  company: string;
-  email: string;
-  phone?: string;
-  value: number;
-  stage: 'PROSPECT' | 'CONTACTED' | 'PROPOSAL_SENT' | 'WON';
-}
+type Stage = Deal['stage'];
 
-export const AgencyCrmComponent = () => {
-  const [leads, setLeads] = useState<Lead[]>([
-    {
-      id: 'lead-1',
-      name: 'Michael Scott',
-      company: 'Dunder Mifflin Tech',
-      email: 'michael@dunder.com',
-      value: 1200,
-      stage: 'PROSPECT',
-    },
-    {
-      id: 'lead-2',
-      name: 'Sarah Connor',
-      company: 'Cyberdyne AI',
-      email: 'sarah@cyberdyne.io',
-      value: 3500,
-      stage: 'PROPOSAL_SENT',
-    },
-    {
-      id: 'lead-3',
-      name: 'Bruce Wayne',
-      company: 'Wayne Enterprises',
-      email: 'bruce@wayne.corp',
-      value: 8000,
-      stage: 'WON',
-    },
-    {
-      id: 'lead-4',
-      name: 'Elena Rostova',
-      company: 'CryptoPulse Media',
-      email: 'elena@cryptopulse.net',
-      value: 2400,
-      stage: 'CONTACTED',
-    },
-  ]);
+const STAGES: Array<{ key: Stage; label: string; accent: string }> = [
+  { key: 'PROSPECT', label: 'Prospects', accent: 'border-slate-500' },
+  { key: 'CONTACTED', label: 'Contacted', accent: 'border-blue-500' },
+  { key: 'PROPOSAL_SENT', label: 'Proposal sent', accent: 'border-amber-500' },
+  { key: 'WON', label: 'Won', accent: 'border-emerald-500' },
+  { key: 'LOST', label: 'Lost', accent: 'border-rose-500' },
+];
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newLeadName, setNewLeadName] = useState('');
-  const [newLeadCompany, setNewLeadCompany] = useState('');
-  const [newLeadEmail, setNewLeadEmail] = useState('');
-  const [newLeadValue, setNewLeadValue] = useState('');
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  const stages = [
-    { key: 'PROSPECT', label: 'Prospects / Inquiries', color: 'border-slate-500' },
-    { key: 'CONTACTED', label: 'Initial Contact Made', color: 'border-blue-500' },
-    { key: 'PROPOSAL_SENT', label: 'Campaign Proposal Sent', color: 'border-amber-500' },
-    { key: 'WON', label: 'Won / Active Client', color: 'border-emerald-500' },
-  ];
+// ---------------------------------------------------------------------------
+// New deal
+// ---------------------------------------------------------------------------
+const DealDialog: FC<{ onClose: () => void; onSaved: () => void }> = ({
+  onClose,
+  onSaved,
+}) => {
+  const api = useAgencyApi();
+  const toaster = useToaster();
+  const [form, setForm] = useState({
+    contactName: '',
+    companyName: '',
+    contactEmail: '',
+    value: '',
+    currency: 'USD',
+    notes: '',
+  });
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState(false);
 
-  const handleAddLead = (e: React.FormEvent) => {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) =>
+      e.key === 'Escape' && !busy && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy, onClose]);
+
+  const set =
+    (key: keyof typeof form) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setForm((f) => ({ ...f, [key]: e.target.value }));
+  const blur = (key: string) => () =>
+    setTouched((t) => ({ ...t, [key]: true }));
+
+  const errors: Record<string, string | null> = {
+    contactName: form.contactName.trim() ? null : 'Who is the contact?',
+    contactEmail:
+      form.contactEmail && !EMAIL.test(form.contactEmail)
+        ? 'That doesn’t look like an email address.'
+        : null,
+    value:
+      form.value && !(Number(form.value) >= 0)
+        ? 'Enter a number, or leave empty.'
+        : null,
+    currency: /^[A-Za-z]{3}$/.test(form.currency)
+      ? null
+      : 'Use a 3-letter code.',
+  };
+  const invalid = Object.values(errors).some(Boolean);
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newLeadName.trim()) return;
-
-    const newLead: Lead = {
-      id: `lead-${Date.now()}`,
-      name: newLeadName.trim(),
-      company: newLeadCompany.trim() || 'Direct Client',
-      email: newLeadEmail.trim(),
-      value: newLeadValue ? parseFloat(newLeadValue) : 1000,
-      stage: 'PROSPECT',
-    };
-
-    setLeads((prev) => [newLead, ...prev]);
-    setIsModalOpen(false);
-    setNewLeadName('');
-    setNewLeadCompany('');
-    setNewLeadEmail('');
-    setNewLeadValue('');
+    setTouched({
+      contactName: true,
+      contactEmail: true,
+      value: true,
+      currency: true,
+    });
+    if (invalid) return;
+    setBusy(true);
+    try {
+      await api.post('/agency/crm/deals', {
+        contactName: form.contactName.trim(),
+        companyName: form.companyName.trim() || undefined,
+        contactEmail: form.contactEmail.trim() || undefined,
+        value: form.value ? Number(form.value) : undefined,
+        currency: form.currency.toUpperCase(),
+        notes: form.notes.trim() || undefined,
+      });
+      toaster.show('Deal added to Prospects', 'success');
+      onSaved();
+    } catch (err) {
+      toaster.show((err as Error).message, 'warning');
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const moveLead = (id: string, newStage: Lead['stage']) => {
-    setLeads((prev) =>
-      prev.map((l) => (l.id === id ? { ...l, stage: newStage } : l))
-    );
+  const field = (
+    key: keyof typeof form,
+    label: string,
+    props: React.InputHTMLAttributes<HTMLInputElement> = {}
+  ) => (
+    <div>
+      <label htmlFor={`deal-${key}`} className={labelClass}>
+        {label}
+      </label>
+      <input
+        id={`deal-${key}`}
+        value={form[key]}
+        onChange={set(key)}
+        onBlur={blur(key)}
+        aria-invalid={touched[key] && !!errors[key]}
+        className={inputClass}
+        {...props}
+      />
+      {touched[key] && errors[key] && (
+        <p className="text-[11px] text-rose-400 mt-1">{errors[key]}</p>
+      )}
+    </div>
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="deal-title"
+    >
+      <form
+        onSubmit={submit}
+        className="bg-newBgColorInner border border-newBgLineColor rounded-2xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4"
+      >
+        <h3 id="deal-title" className="text-base font-bold text-newTextColor">
+          New deal
+        </h3>
+        {field('contactName', 'Contact name', { autoFocus: true })}
+        {field('companyName', 'Company (optional)')}
+        {field('contactEmail', 'Email (optional)', { type: 'email' })}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="col-span-2">
+            {field('value', 'Expected value (optional)', {
+              type: 'number',
+              min: 0,
+              step: '0.01',
+            })}
+          </div>
+          {field('currency', 'Currency', { maxLength: 3 })}
+        </div>
+        <div>
+          <label htmlFor="deal-notes" className={labelClass}>
+            Notes (optional)
+          </label>
+          <textarea
+            id="deal-notes"
+            rows={2}
+            value={form.notes}
+            onChange={set('notes')}
+            className={clsx(inputClass, 'resize-none')}
+          />
+        </div>
+        <div className="flex justify-end gap-2 pt-3 border-t border-newBgLineColor">
+          <Btn type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </Btn>
+          <Btn type="submit" variant="primary" busy={busy}>
+            Add deal
+          </Btn>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Lost reason
+// ---------------------------------------------------------------------------
+const LostDialog: FC<{
+  deal: Deal;
+  onClose: () => void;
+  onConfirm: (reason: string) => Promise<void>;
+}> = ({ deal, onClose, onConfirm }) => {
+  const [reason, setReason] = useState('');
+  const [touched, setTouched] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const error = reason.trim() ? null : 'Say why this deal was lost.';
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) =>
+      e.key === 'Escape' && !busy && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy, onClose]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTouched(true);
+    if (error) return;
+    setBusy(true);
+    try {
+      await onConfirm(reason.trim());
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
-    <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto w-full">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-newBgLineColor pb-5">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="lost-title"
+    >
+      <form
+        onSubmit={submit}
+        className="bg-newBgColorInner border border-newBgLineColor rounded-2xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4"
+      >
         <div>
-          <div className="flex items-center gap-2">
-            <Link href="/agency/dashboard" className="text-xs text-blue-400 hover:underline">
-              ← Dashboard
-            </Link>
-            <span className="text-xs text-textItemBlur">/</span>
-            <span className="text-xs text-textItemBlur">Sales & Opportunities</span>
-          </div>
-          <h1 className="text-2xl font-bold text-newTextColor tracking-tight mt-1">
-            Agency CRM & Sales Pipeline
-          </h1>
-          <p className="text-xs text-textItemBlur mt-0.5">
-            Manage sales opportunities, advertising proposals, and deal progressions.
+          <h3 id="lost-title" className="text-base font-bold text-newTextColor">
+            Mark as lost
+          </h3>
+          <p className="text-xs text-textItemBlur mt-1">
+            {deal.companyName || deal.contactName}
           </p>
         </div>
+        <div>
+          <label htmlFor="lost-reason" className={labelClass}>
+            Reason
+          </label>
+          <input
+            id="lost-reason"
+            autoFocus
+            maxLength={300}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            onBlur={() => setTouched(true)}
+            aria-invalid={touched && !!error}
+            className={inputClass}
+          />
+          {touched && error && (
+            <p className="text-[11px] text-rose-400 mt-1">{error}</p>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 pt-3 border-t border-newBgLineColor">
+          <Btn type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </Btn>
+          <Btn type="submit" variant="danger" busy={busy}>
+            Mark as lost
+          </Btn>
+        </div>
+      </form>
+    </div>
+  );
+};
 
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-all"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12h14M12 5v14" />
-          </svg>
-          Add New Lead
-        </button>
-      </div>
+// ---------------------------------------------------------------------------
+// Board
+// ---------------------------------------------------------------------------
+export const AgencyCrmComponent = () => {
+  const api = useAgencyApi();
+  const toaster = useToaster();
+  const { can } = useCan();
+  const deals = useDeals();
+  const summary = useDealSummary();
+  const [adding, setAdding] = useState(false);
+  const [losing, setLosing] = useState<Deal | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overStage, setOverStage] = useState<Stage | null>(null);
 
-      {/* Pipeline Kanban Board */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stages.map((stage) => {
-          const stageLeads = leads.filter((l) => l.stage === stage.key);
-          const totalValue = stageLeads.reduce((acc, l) => acc + l.value, 0);
+  const canWrite = can('crm:write');
+  const reload = () => Promise.all([deals.mutate(), summary.mutate()]);
 
-          return (
-            <div
-              key={stage.key}
-              className="bg-newBgColorInner border border-newBgLineColor rounded-2xl p-4 flex flex-col gap-3 min-h-[450px]"
-            >
-              {/* Stage Header */}
-              <div className="flex items-center justify-between border-b border-newBgLineColor pb-2.5">
-                <div className="flex items-center gap-2">
-                  <span className={clsx('w-2 h-2 rounded-full border-2', stage.color)} />
-                  <span className="text-xs font-bold text-newTextColor">{stage.label}</span>
-                </div>
-                <span className="text-[11px] font-semibold text-textItemBlur bg-newBgColor px-2 py-0.5 rounded">
-                  {stageLeads.length}
-                </span>
-              </div>
+  const move = async (deal: Deal, stage: Stage, lostReason?: string) => {
+    if (deal.stage === stage) return;
+    if (stage === 'LOST' && lostReason === undefined) {
+      setLosing(deal);
+      return;
+    }
+    try {
+      await api.post(`/agency/crm/deals/${deal.id}/stage`, {
+        stage,
+        lostReason,
+      });
+      toaster.show(`Moved to ${humanize(stage)}`, 'success');
+      setLosing(null);
+      await reload();
+    } catch (err) {
+      toaster.show((err as Error).message, 'warning');
+      await reload();
+    }
+  };
 
-              <div className="text-[11px] text-textItemBlur font-medium">
-                Stage Pipeline: <strong className="text-newTextColor">${totalValue.toLocaleString()}</strong>
-              </div>
+  const convert = async (deal: Deal) => {
+    if (
+      !(await deleteDialog(
+        `Create a client from ${
+          deal.companyName || deal.contactName
+        }? Their contact details carry over.`,
+        'Create client',
+        undefined,
+        undefined,
+        true
+      ))
+    )
+      return;
+    try {
+      await api.post(`/agency/crm/deals/${deal.id}/convert`);
+      toaster.show('Client created', 'success');
+      await reload();
+    } catch (err) {
+      toaster.show((err as Error).message, 'warning');
+    }
+  };
 
-              {/* Lead Cards */}
-              <div className="flex flex-col gap-2.5 flex-1">
-                {stageLeads.map((lead) => (
-                  <div
-                    key={lead.id}
-                    className="p-3.5 rounded-xl bg-newBgColor border border-newBgLineColor/60 flex flex-col gap-2 hover:border-slate-600 transition-all shadow-sm"
+  const remove = async (deal: Deal) => {
+    if (
+      !(await deleteDialog(
+        `Delete the deal with ${
+          deal.companyName || deal.contactName
+        }? This can’t be undone.`
+      ))
+    )
+      return;
+    try {
+      await api.del(`/agency/crm/deals/${deal.id}`);
+      toaster.show('Deal deleted', 'success');
+      await reload();
+    } catch (err) {
+      toaster.show((err as Error).message, 'warning');
+    }
+  };
+
+  const error = deals.error || summary.error;
+  const list = deals.data ?? [];
+  const totals = (stage: Stage) =>
+    summary.data?.stages.find((s) => s.stage === stage);
+
+  return (
+    <PageShell>
+      <PageHeader
+        crumb="Sales pipeline"
+        title="Sales pipeline"
+        subtitle="Deals you are working before they become clients. Counts and values are totals of the deals stored here, not forecasts."
+        actions={
+          canWrite ? (
+            <Btn variant="primary" onClick={() => setAdding(true)}>
+              New deal
+            </Btn>
+          ) : undefined
+        }
+      />
+
+      {error ? (
+        <LoadError error={error} onRetry={reload} />
+      ) : !deals.data ? (
+        <Loading label="Loading pipeline…" />
+      ) : list.length === 0 ? (
+        <div className="bg-newBgColorInner border border-newBgLineColor rounded-2xl">
+          <EmptyState
+            title="No deals yet"
+            hint="Add a prospect to start tracking them from first contact to signed client."
+            action={
+              canWrite ? (
+                <Btn variant="primary" onClick={() => setAdding(true)}>
+                  New deal
+                </Btn>
+              ) : undefined
+            }
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4 items-start">
+          {STAGES.map((stage) => {
+            const column = list.filter((d) => d.stage === stage.key);
+            const t = totals(stage.key);
+            return (
+              <section
+                key={stage.key}
+                aria-label={stage.label}
+                onDragOver={(e) => {
+                  if (!canWrite || !dragId) return;
+                  e.preventDefault();
+                  setOverStage(stage.key);
+                }}
+                onDragLeave={() => setOverStage(null)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setOverStage(null);
+                  const deal = list.find((d) => d.id === dragId);
+                  setDragId(null);
+                  if (deal) void move(deal, stage.key);
+                }}
+                className={clsx(
+                  'bg-newBgColorInner border border-newBgLineColor rounded-xl p-3 flex flex-col gap-3 min-h-40 border-t-2',
+                  stage.accent,
+                  overStage === stage.key && 'ring-1 ring-blue-500'
+                )}
+              >
+                <header className="flex items-baseline justify-between px-1">
+                  <h2 className="text-xs font-bold text-newTextColor">
+                    {stage.label}
+                  </h2>
+                  <span className="text-[11px] text-textItemBlur">
+                    {column.length}
+                  </span>
+                </header>
+                {t && Object.keys(t.totals).length > 0 && (
+                  <p className="text-[11px] text-textItemBlur px-1">
+                    {Object.entries(t.totals)
+                      .map(([cur, amount]) => money(amount, cur))
+                      .join(' · ')}
+                  </p>
+                )}
+
+                {column.map((deal) => (
+                  <article
+                    key={deal.id}
+                    draggable={canWrite}
+                    onDragStart={() => setDragId(deal.id)}
+                    onDragEnd={() => {
+                      setDragId(null);
+                      setOverStage(null);
+                    }}
+                    className={clsx(
+                      'bg-newBgColor border border-newBgLineColor rounded-lg p-3 flex flex-col gap-2',
+                      canWrite && 'cursor-grab active:cursor-grabbing',
+                      dragId === deal.id && 'opacity-50'
+                    )}
                   >
                     <div>
-                      <div className="text-xs font-bold text-newTextColor">{lead.company}</div>
-                      <div className="text-[11px] text-textItemBlur">{lead.name}</div>
+                      <p className="text-xs font-semibold text-newTextColor break-words">
+                        {deal.companyName || deal.contactName}
+                      </p>
+                      {deal.companyName && (
+                        <p className="text-[11px] text-textItemBlur">
+                          {deal.contactName}
+                        </p>
+                      )}
                     </div>
+                    {deal.value && (
+                      <p className="text-xs text-newTextColor">
+                        {money(deal.value, deal.currency)}
+                      </p>
+                    )}
+                    {deal.stage === 'LOST' && deal.lostReason && (
+                      <p className="text-[11px] text-textItemBlur italic">
+                        “{deal.lostReason}”
+                      </p>
+                    )}
+                    {deal.owner && (
+                      <p className="text-[11px] text-textItemBlur">
+                        Owner: {deal.owner.name || deal.owner.email}
+                      </p>
+                    )}
 
-                    <div className="flex items-center justify-between text-xs pt-2 border-t border-newBgLineColor/40">
-                      <span className="font-semibold text-emerald-400">
-                        ${lead.value.toLocaleString()}
-                      </span>
-
-                      {/* Move selector */}
-                      <select
-                        value={lead.stage}
-                        onChange={(e) => moveLead(lead.id, e.target.value as any)}
-                        className="bg-newBgColorInner border border-newBgLineColor text-[10px] text-textItemBlur rounded px-1.5 py-0.5 focus:outline-none"
-                      >
-                        <option value="PROSPECT">Prospect</option>
-                        <option value="CONTACTED">Contacted</option>
-                        <option value="PROPOSAL_SENT">Proposal Sent</option>
-                        <option value="WON">Won</option>
-                      </select>
-                    </div>
-                  </div>
+                    {canWrite && (
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <label className="sr-only" htmlFor={`stage-${deal.id}`}>
+                          Move {deal.contactName} to stage
+                        </label>
+                        <select
+                          id={`stage-${deal.id}`}
+                          value={deal.stage}
+                          onChange={(e) =>
+                            void move(deal, e.target.value as Stage)
+                          }
+                          className="bg-newBgColorInner border border-newBgLineColor rounded-md px-1.5 py-1 text-[11px] text-newTextColor"
+                        >
+                          {STAGES.map((s) => (
+                            <option key={s.key} value={s.key}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                        {deal.stage === 'WON' &&
+                          !deal.customerId &&
+                          can('client:write') && (
+                            <button
+                              onClick={() => void convert(deal)}
+                              className="text-[11px] font-semibold text-blue-400 hover:underline"
+                            >
+                              Create client
+                            </button>
+                          )}
+                        {deal.customerId && (
+                          <Link
+                            href="/agency/clients"
+                            className="text-[11px] text-emerald-400 hover:underline"
+                          >
+                            Client created
+                          </Link>
+                        )}
+                        {can('crm:delete') && (
+                          <button
+                            onClick={() => void remove(deal)}
+                            className="ml-auto text-[11px] text-rose-400 hover:underline"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </article>
                 ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Add Lead Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-newBgColorInner border border-newBgLineColor rounded-2xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4">
-            <div className="flex items-center justify-between border-b border-newBgLineColor pb-3">
-              <h3 className="text-base font-bold text-newTextColor">Add New Sales Lead</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-textItemBlur hover:text-newTextColor">
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleAddLead} className="flex flex-col gap-3">
-              <div>
-                <label className="block text-[11px] font-semibold text-textItemBlur uppercase mb-1">
-                  Contact Person *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Alex Mercer"
-                  value={newLeadName}
-                  onChange={(e) => setNewLeadName(e.target.value)}
-                  className="w-full bg-newBgColor border border-newBgLineColor rounded-lg px-3 py-1.5 text-xs text-newTextColor focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-textItemBlur uppercase mb-1">
-                  Company Name
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Mercer Capital"
-                  value={newLeadCompany}
-                  onChange={(e) => setNewLeadCompany(e.target.value)}
-                  className="w-full bg-newBgColor border border-newBgLineColor rounded-lg px-3 py-1.5 text-xs text-newTextColor focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-textItemBlur uppercase mb-1">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  placeholder="alex@example.com"
-                  value={newLeadEmail}
-                  onChange={(e) => setNewLeadEmail(e.target.value)}
-                  className="w-full bg-newBgColor border border-newBgLineColor rounded-lg px-3 py-1.5 text-xs text-newTextColor focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-textItemBlur uppercase mb-1">
-                  Estimated Campaign Value ($)
-                </label>
-                <input
-                  type="number"
-                  placeholder="1500"
-                  value={newLeadValue}
-                  onChange={(e) => setNewLeadValue(e.target.value)}
-                  className="w-full bg-newBgColor border border-newBgLineColor rounded-lg px-3 py-1.5 text-xs text-newTextColor focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-newBgLineColor">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-3 py-1.5 rounded-lg border border-newBgLineColor text-xs text-textItemBlur hover:text-newTextColor"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-sm"
-                >
-                  Save Lead
-                </button>
-              </div>
-            </form>
-          </div>
+              </section>
+            );
+          })}
         </div>
       )}
-    </div>
+
+      {adding && (
+        <DealDialog
+          onClose={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false);
+            void reload();
+          }}
+        />
+      )}
+      {losing && (
+        <LostDialog
+          deal={losing}
+          onClose={() => setLosing(null)}
+          onConfirm={(reason) => move(losing, 'LOST', reason)}
+        />
+      )}
+    </PageShell>
   );
 };

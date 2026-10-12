@@ -301,3 +301,41 @@ export class CreateTrackingLinkDto {
   @MaxLength(100)
   utmCampaign?: string;
 }
+
+export class PreviewAdDto {
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(300)
+  contentTitle?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(20000)
+  contentBody?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(2000)
+  ctaLink?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  ctaText?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(2000)
+  telegramChannelLink?: string;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  media?: string[];
+}

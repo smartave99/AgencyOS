@@ -1,245 +1,400 @@
 'use client';
 
-import React, { useState } from 'react';
-import useSWR from 'swr';
-import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
-import { useToaster } from '@gitroom/react/toaster/toaster';
+import React, { FC, useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
-import Link from 'next/link';
+import { useToaster } from '@gitroom/react/toaster/toaster';
+import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
+import {
+  useAgencyApi,
+  useCan,
+  useClients,
+  useInvoices,
+} from '@gitroom/frontend/components/agency/agency.hooks';
+import {
+  Btn,
+  EmptyState,
+  formatDate,
+  inputClass,
+  labelClass,
+  LoadError,
+  Loading,
+  money,
+  PageHeader,
+  PageShell,
+  StatusBadge,
+} from '@gitroom/frontend/components/agency/agency.ui';
 
-interface AgencyInvoice {
-  id: string;
-  invoiceNumber: string;
-  amount: string;
-  currency: string;
-  status: string;
-  dueDate: string | null;
-  paidAt: string | null;
-  items: string | null;
-  notes: string | null;
-  createdAt: string;
-  customer: {
-    id: string;
-    name: string;
-    companyName: string | null;
-    email: string;
-  };
-}
+// Invoices are created as DRAFT and end as PAID; AgencyOS does not send them or track overdue.
+const FILTERS = ['ALL', 'DRAFT', 'PAID'] as const;
 
-interface Client {
-  id: string;
-  name: string;
-  companyName: string | null;
-}
+/** Totals are kept per currency. Amounts in different currencies are never added. */
+const sumByCurrency = (rows: Array<{ amount: string; currency: string }>) => {
+  const totals: Record<string, number> = {};
+  for (const r of rows) {
+    totals[r.currency] = (totals[r.currency] ?? 0) + Number(r.amount || 0);
+  }
+  return totals;
+};
 
-export const AgencyBillingComponent = () => {
-  const fetch = useFetch();
-  const toaster = useToaster();
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
-
-  // New Invoice Modal
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [customerId, setCustomerId] = useState('');
-  const [amount, setAmount] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [items, setItems] = useState('');
-  const [notes, setNotes] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Fetch Invoices
-  const { data: invoices, mutate, isLoading } = useSWR<AgencyInvoice[]>(
-    ['agency-invoices', statusFilter],
-    async () => {
-      const url = statusFilter === 'ALL' ? '/agency/invoices' : `/agency/invoices?status=${statusFilter}`;
-      const res = await fetch(url);
-      if (!res.ok) return [];
-      return res.json();
-    }
+const Total: FC<{
+  label: string;
+  hint: string;
+  totals: Record<string, number>;
+}> = ({ label, hint, totals }) => {
+  const entries = Object.entries(totals);
+  return (
+    <div className="p-4 rounded-xl bg-newBgColorInner border border-newBgLineColor">
+      <span className="text-[11px] font-semibold text-textItemBlur uppercase">
+        {label}
+      </span>
+      <div className="text-xl font-bold text-newTextColor mt-1">
+        {entries.length === 0
+          ? '—'
+          : entries.map(([cur, amount]) => (
+              <div key={cur}>{money(amount, cur)}</div>
+            ))}
+      </div>
+      <span className="text-[11px] text-textItemBlur mt-1 block">{hint}</span>
+    </div>
   );
+};
 
-  // Fetch Clients for dropdown
-  const { data: clients } = useSWR<Client[]>('agency-clients-billing', async () => {
-    const res = await fetch('/agency/clients');
-    if (!res.ok) return [];
-    return res.json();
+const InvoiceDialog: FC<{ onClose: () => void; onSaved: () => void }> = ({
+  onClose,
+  onSaved,
+}) => {
+  const api = useAgencyApi();
+  const toaster = useToaster();
+  const clients = useClients();
+  const [form, setForm] = useState({
+    customerId: '',
+    amount: '',
+    currency: 'USD',
+    dueDate: '',
+    items: '',
+    notes: '',
   });
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState(false);
 
-  const handleCreateInvoice = async (e: React.FormEvent) => {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) =>
+      e.key === 'Escape' && !busy && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy, onClose]);
+
+  const errors: Record<string, string | null> = {
+    customerId: form.customerId ? null : 'Choose a client.',
+    amount: Number(form.amount) > 0 ? null : 'Enter an amount above zero.',
+    currency: /^[A-Za-z]{3}$/.test(form.currency)
+      ? null
+      : 'Use a 3-letter code.',
+  };
+  const invalid = Object.values(errors).some(Boolean);
+  const blur = (key: string) => () =>
+    setTouched((t) => ({ ...t, [key]: true }));
+  const err = (key: string) =>
+    touched[key] && errors[key] ? (
+      <p className="text-[11px] text-rose-400 mt-1">{errors[key]}</p>
+    ) : null;
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customerId || !amount) {
-      toaster.show('Client and Amount are required', 'warning');
-      return;
-    }
-
-    setIsSubmitting(true);
+    setTouched({ customerId: true, amount: true, currency: true });
+    if (invalid) return;
+    setBusy(true);
     try {
-      const res = await fetch('/agency/invoices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerId,
-          amount: parseFloat(amount),
-          dueDate: dueDate || undefined,
-          items: items || undefined,
-          notes: notes || undefined,
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || 'Failed to create invoice');
-      }
-
-      toaster.show('Invoice generated successfully!', 'success');
-      setShowCreateModal(false);
-      setCustomerId('');
-      setAmount('');
-      setDueDate('');
-      setItems('');
-      setNotes('');
-      mutate();
-    } catch (err: any) {
-      toaster.show(err.message || 'Error creating invoice', 'warning');
+      const invoice = await api.post<{ invoiceNumber: string }>(
+        '/agency/invoices',
+        {
+          customerId: form.customerId,
+          amount: Number(form.amount),
+          currency: form.currency.toUpperCase(),
+          dueDate: form.dueDate || undefined,
+          items: form.items.trim() || undefined,
+          notes: form.notes.trim() || undefined,
+        }
+      );
+      toaster.show(`Invoice ${invoice.invoiceNumber} created`, 'success');
+      onSaved();
+    } catch (error) {
+      toaster.show((error as Error).message, 'warning');
     } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleMarkPaid = async (id: string, invoiceNumber: string) => {
-    try {
-      const res = await fetch(`/agency/invoices/${id}/pay`, { method: 'POST' });
-      if (!res.ok) throw new Error('Failed to mark invoice as paid');
-      toaster.show(`Invoice ${invoiceNumber} marked as PAID`, 'success');
-      mutate();
-    } catch (err: any) {
-      toaster.show(err.message || 'Action failed', 'warning');
-    }
-  };
-
-  // Metrics Calculation
-  const totalInvoiced = invoices?.reduce((sum, inv) => sum + parseFloat(inv.amount || '0'), 0) || 0;
-  const paidRevenue = invoices
-    ?.filter((inv) => inv.status === 'PAID')
-    .reduce((sum, inv) => sum + parseFloat(inv.amount || '0'), 0) || 0;
-  const pendingRevenue = invoices
-    ?.filter((inv) => inv.status === 'DRAFT' || inv.status === 'SENT')
-    .reduce((sum, inv) => sum + parseFloat(inv.amount || '0'), 0) || 0;
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'PAID':
-        return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-      case 'SENT':
-        return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
-      case 'OVERDUE':
-        return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
-      default:
-        return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+      setBusy(false);
     }
   };
 
   return (
-    <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto w-full">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-newBgLineColor pb-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <Link href="/agency/dashboard" className="text-xs text-blue-400 hover:underline">
-              ← Dashboard
-            </Link>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-newTextColor mt-1">
-            Agency Billing & Client Invoices
-          </h1>
-          <p className="text-xs text-textItemBlur mt-1">
-            Track client retainer payments, campaign package fees, and billing revenue.
-          </p>
-        </div>
-
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-all"
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="invoice-title"
+    >
+      <form
+        onSubmit={submit}
+        className="bg-newBgColorInner border border-newBgLineColor rounded-2xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4"
+      >
+        <h3
+          id="invoice-title"
+          className="text-base font-bold text-newTextColor"
         >
-          <span>+ Create Invoice</span>
-        </button>
-      </div>
+          New invoice
+        </h3>
 
-      {/* Financial KPI Cards */}
+        <div>
+          <label htmlFor="inv-client" className={labelClass}>
+            Client
+          </label>
+          <select
+            id="inv-client"
+            autoFocus
+            value={form.customerId}
+            onChange={(e) => setForm({ ...form, customerId: e.target.value })}
+            onBlur={blur('customerId')}
+            aria-invalid={touched.customerId && !!errors.customerId}
+            className={inputClass}
+          >
+            <option value="">Select…</option>
+            {(clients.data ?? []).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.companyName ? `${c.companyName} (${c.name})` : c.name}
+              </option>
+            ))}
+          </select>
+          {err('customerId')}
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div className="col-span-2">
+            <label htmlFor="inv-amount" className={labelClass}>
+              Amount
+            </label>
+            <input
+              id="inv-amount"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.amount}
+              onChange={(e) => setForm({ ...form, amount: e.target.value })}
+              onBlur={blur('amount')}
+              aria-invalid={touched.amount && !!errors.amount}
+              className={inputClass}
+            />
+            {err('amount')}
+          </div>
+          <div>
+            <label htmlFor="inv-currency" className={labelClass}>
+              Currency
+            </label>
+            <input
+              id="inv-currency"
+              maxLength={3}
+              value={form.currency}
+              onChange={(e) => setForm({ ...form, currency: e.target.value })}
+              onBlur={blur('currency')}
+              aria-invalid={touched.currency && !!errors.currency}
+              className={inputClass}
+            />
+            {err('currency')}
+          </div>
+        </div>
+
+        <div>
+          <label htmlFor="inv-due" className={labelClass}>
+            Due date (optional)
+          </label>
+          <input
+            id="inv-due"
+            type="date"
+            value={form.dueDate}
+            onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
+            className={inputClass}
+          />
+        </div>
+
+        <div>
+          <label htmlFor="inv-items" className={labelClass}>
+            What it covers (optional)
+          </label>
+          <input
+            id="inv-items"
+            value={form.items}
+            onChange={(e) => setForm({ ...form, items: e.target.value })}
+            placeholder="e.g. 10 Telegram placements + copywriting"
+            className={inputClass}
+          />
+        </div>
+
+        <div>
+          <label htmlFor="inv-notes" className={labelClass}>
+            Internal notes (optional)
+          </label>
+          <textarea
+            id="inv-notes"
+            rows={2}
+            value={form.notes}
+            onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            className={clsx(inputClass, 'resize-none')}
+          />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-3 border-t border-newBgLineColor">
+          <Btn type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </Btn>
+          <Btn type="submit" variant="primary" busy={busy}>
+            Create invoice
+          </Btn>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export const AgencyBillingComponent = () => {
+  const api = useAgencyApi();
+  const toaster = useToaster();
+  const { can } = useCan();
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]>('ALL');
+  const [creating, setCreating] = useState(false);
+  const invoices = useInvoices(filter === 'ALL' ? '' : filter);
+  const all = useInvoices('');
+
+  const canWrite = can('billing:write');
+  const rows = invoices.data ?? [];
+  const everything = all.data ?? [];
+
+  const totals = useMemo(
+    () => ({
+      invoiced: sumByCurrency(everything),
+      paid: sumByCurrency(everything.filter((i) => i.status === 'PAID')),
+      outstanding: sumByCurrency(everything.filter((i) => i.status !== 'PAID')),
+    }),
+    [everything]
+  );
+
+  const reload = () => Promise.all([invoices.mutate(), all.mutate()]);
+
+  const markPaid = async (invoice: any) => {
+    if (
+      !(await deleteDialog(
+        `Record ${invoice.invoiceNumber} (${money(
+          invoice.amount,
+          invoice.currency
+        )}) as paid? AgencyOS does not check with a bank; this records that you received the payment.`,
+        'Record as paid',
+        undefined,
+        undefined,
+        true
+      ))
+    )
+      return;
+    try {
+      await api.post(`/agency/invoices/${invoice.id}/pay`);
+      toaster.show(`${invoice.invoiceNumber} recorded as paid`, 'success');
+      await reload();
+    } catch (error) {
+      toaster.show((error as Error).message, 'warning');
+    }
+  };
+
+  return (
+    <PageShell>
+      <PageHeader
+        crumb="Billing"
+        title="Invoices"
+        subtitle="Invoice records for your clients and whether you have recorded them as paid. AgencyOS does not email invoices or process payments; payment is recorded by hand."
+        actions={
+          canWrite ? (
+            <Btn variant="primary" onClick={() => setCreating(true)}>
+              New invoice
+            </Btn>
+          ) : undefined
+        }
+      />
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-4 rounded-xl bg-seventh border border-newBgLineColor">
-          <span className="text-[11px] font-semibold text-textItemBlur uppercase">Total Invoiced</span>
-          <div className="text-2xl font-bold text-newTextColor mt-1">
-            ${totalInvoiced.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-          </div>
-          <span className="text-[10px] text-textItemBlur mt-1 block">Across all client accounts</span>
-        </div>
-
-        <div className="p-4 rounded-xl bg-seventh border border-emerald-500/20">
-          <span className="text-[11px] font-semibold text-emerald-400 uppercase">Collected Revenue (Paid)</span>
-          <div className="text-2xl font-bold text-emerald-400 mt-1">
-            ${paidRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-          </div>
-          <span className="text-[10px] text-emerald-400/70 mt-1 block">Verified received funds</span>
-        </div>
-
-        <div className="p-4 rounded-xl bg-seventh border border-amber-500/20">
-          <span className="text-[11px] font-semibold text-amber-400 uppercase">Outstanding Balance</span>
-          <div className="text-2xl font-bold text-amber-400 mt-1">
-            ${pendingRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-          </div>
-          <span className="text-[10px] text-amber-400/70 mt-1 block">Awaiting client payment</span>
-        </div>
+        <Total label="Invoiced" hint="All invoices" totals={totals.invoiced} />
+        <Total
+          label="Recorded as paid"
+          hint="Marked paid by your team"
+          totals={totals.paid}
+        />
+        <Total
+          label="Outstanding"
+          hint="Not yet recorded as paid"
+          totals={totals.outstanding}
+        />
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex items-center gap-2 border-b border-newBgLineColor pb-2">
-        {['ALL', 'PAID', 'SENT', 'DRAFT', 'OVERDUE'].map((status) => (
+      <div
+        className="flex items-center gap-2 border-b border-newBgLineColor pb-2"
+        role="tablist"
+      >
+        {FILTERS.map((status) => (
           <button
             key={status}
-            onClick={() => setStatusFilter(status)}
+            role="tab"
+            aria-selected={filter === status}
+            onClick={() => setFilter(status)}
             className={clsx(
               'px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
-              statusFilter === status
+              filter === status
                 ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
                 : 'text-textItemBlur hover:text-newTextColor'
             )}
           >
-            {status}
+            {status === 'ALL'
+              ? 'All'
+              : status.charAt(0) + status.slice(1).toLowerCase()}
           </button>
         ))}
       </div>
 
-      {/* Invoices Table */}
-      <div className="rounded-xl border border-newBgLineColor bg-seventh overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-newBgColor/40 border-b border-newBgLineColor text-textItemBlur uppercase text-[10px] font-semibold">
-              <tr>
-                <th className="py-3 px-4">Invoice #</th>
-                <th className="py-3 px-4">Client</th>
-                <th className="py-3 px-4">Amount</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Due Date</th>
-                <th className="py-3 px-4">Items Summary</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-newBgLineColor">
-              {isLoading ? (
+      {invoices.error ? (
+        <LoadError error={invoices.error} onRetry={() => invoices.mutate()} />
+      ) : !invoices.data ? (
+        <Loading label="Loading invoices…" />
+      ) : rows.length === 0 ? (
+        <div className="bg-newBgColorInner border border-newBgLineColor rounded-2xl">
+          <EmptyState
+            title="No invoices"
+            hint={
+              filter === 'ALL'
+                ? 'Create an invoice for a client to start tracking billing.'
+                : 'No invoices have this status.'
+            }
+            action={
+              canWrite && filter === 'ALL' ? (
+                <Btn variant="primary" onClick={() => setCreating(true)}>
+                  New invoice
+                </Btn>
+              ) : undefined
+            }
+          />
+        </div>
+      ) : (
+        <div className="rounded-xl border border-newBgLineColor bg-newBgColorInner overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-newBgLineColor text-textItemBlur uppercase text-[10px] font-semibold">
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-textItemBlur">
-                    Loading invoices...
-                  </td>
+                  <th className="py-3 px-4">Invoice</th>
+                  <th className="py-3 px-4">Client</th>
+                  <th className="py-3 px-4">Amount</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Due</th>
+                  <th className="py-3 px-4">Covers</th>
+                  <th className="py-3 px-4 text-right">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
-              ) : !invoices || invoices.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-textItemBlur">
-                    No invoices recorded for this filter.
-                  </td>
-                </tr>
-              ) : (
-                invoices.map((inv) => (
-                  <tr key={inv.id} className="hover:bg-newBgColor/20 transition-colors">
+              </thead>
+              <tbody className="divide-y divide-newBgLineColor">
+                {rows.map((inv) => (
+                  <tr key={inv.id}>
                     <td className="py-3.5 px-4 font-mono font-medium text-newTextColor">
                       {inv.invoiceNumber}
                     </td>
@@ -247,141 +402,46 @@ export const AgencyBillingComponent = () => {
                       {inv.customer.companyName || inv.customer.name}
                     </td>
                     <td className="py-3.5 px-4 font-bold text-newTextColor">
-                      ${parseFloat(inv.amount).toFixed(2)} {inv.currency}
+                      {money(inv.amount, inv.currency)}
                     </td>
                     <td className="py-3.5 px-4">
-                      <span className={clsx('px-2 py-0.5 rounded text-[10px] font-semibold border', getStatusBadge(inv.status))}>
-                        {inv.status}
-                      </span>
+                      <StatusBadge status={inv.status} />
+                      {inv.paidAt && (
+                        <span className="block text-[11px] text-textItemBlur mt-0.5">
+                          {formatDate(inv.paidAt)}
+                        </span>
+                      )}
                     </td>
                     <td className="py-3.5 px-4 text-textItemBlur">
-                      {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : 'Immediate'}
+                      {inv.dueDate ? formatDate(inv.dueDate) : '—'}
                     </td>
                     <td className="py-3.5 px-4 text-textItemBlur truncate max-w-xs">
-                      {inv.items || 'Advertising campaign retainer'}
+                      {inv.items || '—'}
                     </td>
                     <td className="py-3.5 px-4 text-right">
-                      {inv.status !== 'PAID' && (
-                        <button
-                          onClick={() => handleMarkPaid(inv.id, inv.invoiceNumber)}
-                          className="px-2.5 py-1 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white rounded text-[10px] font-semibold transition-all"
-                        >
-                          Mark Paid ✓
-                        </button>
+                      {canWrite && inv.status !== 'PAID' && (
+                        <Btn onClick={() => void markPaid(inv)}>
+                          Record as paid
+                        </Btn>
                       )}
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Modal: Create Invoice */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-seventh border border-newBgLineColor rounded-2xl w-full max-w-md p-6 shadow-2xl flex flex-col gap-4">
-            <div className="flex items-center justify-between border-b border-newBgLineColor pb-3">
-              <h3 className="text-base font-bold text-newTextColor">Create Client Invoice</h3>
-              <button onClick={() => setShowCreateModal(false)} className="text-textItemBlur hover:text-newTextColor">
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateInvoice} className="flex flex-col gap-3">
-              <div>
-                <label className="block text-[11px] font-semibold text-textItemBlur uppercase mb-1">
-                  Client Account *
-                </label>
-                <select
-                  value={customerId}
-                  onChange={(e) => setCustomerId(e.target.value)}
-                  required
-                  className="w-full bg-newBgColor border border-newBgLineColor rounded-lg px-3 py-2 text-xs text-newTextColor focus:outline-none focus:border-blue-500"
-                >
-                  <option value="">Select a client...</option>
-                  {clients?.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.companyName ? `${c.companyName} (${c.name})` : c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-textItemBlur uppercase mb-1">
-                  Amount (USD) *
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="e.g. 1500.00"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  required
-                  className="w-full bg-newBgColor border border-newBgLineColor rounded-lg px-3 py-2 text-xs text-newTextColor placeholder-textItemBlur focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-textItemBlur uppercase mb-1">
-                  Due Date
-                </label>
-                <input
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  className="w-full bg-newBgColor border border-newBgLineColor rounded-lg px-3 py-2 text-xs text-newTextColor focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-textItemBlur uppercase mb-1">
-                  Package / Line Items Summary
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. 10x Telegram Broadcasts + Content Copywriting"
-                  value={items}
-                  onChange={(e) => setItems(e.target.value)}
-                  className="w-full bg-newBgColor border border-newBgLineColor rounded-lg px-3 py-2 text-xs text-newTextColor placeholder-textItemBlur focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-textItemBlur uppercase mb-1">
-                  Internal Notes
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Billing terms, bank transfer reference, etc."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className="w-full bg-newBgColor border border-newBgLineColor rounded-lg px-3 py-2 text-xs text-newTextColor placeholder-textItemBlur focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-newBgLineColor mt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 border border-newBgLineColor text-xs text-textItemBlur rounded-lg hover:text-newTextColor"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-sm"
-                >
-                  {isSubmitting ? 'Creating...' : 'Create Invoice'}
-                </button>
-              </div>
-            </form>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
-    </div>
+
+      {creating && (
+        <InvoiceDialog
+          onClose={() => setCreating(false)}
+          onSaved={() => {
+            setCreating(false);
+            void reload();
+          }}
+        />
+      )}
+    </PageShell>
   );
 };

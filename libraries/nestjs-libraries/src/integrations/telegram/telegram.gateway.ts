@@ -63,8 +63,8 @@ export interface TelegramInboundUpdate {
   my_chat_member?: TelegramBot.ChatMemberUpdated;
 }
 
-const CAPTION_LIMIT = 1024;
-const MESSAGE_LIMIT = 4096;
+export const CAPTION_LIMIT = 1024;
+export const MESSAGE_LIMIT = 4096;
 const MEDIA_GROUP_LIMIT = 10;
 const ALLOWED_FORMAT_TAGS: Record<string, string> = {
   b: 'b',
@@ -148,7 +148,8 @@ export class TelegramGateway {
       return {
         isAdmin,
         canPostMessages: canPost,
-        canDeleteMessages: isAdmin && (isCreator || !!member.can_delete_messages),
+        canDeleteMessages:
+          isAdmin && (isCreator || !!member.can_delete_messages),
         canInviteUsers: isAdmin && (isCreator || !!member.can_invite_users),
       };
     });
@@ -231,7 +232,10 @@ export class TelegramGateway {
     const media = ad.media || [];
     const visible = this.visibleLength(html);
     if (!ad.body?.trim()) {
-      throw new TelegramGatewayError('BAD_REQUEST', 'Advertisement text is empty');
+      throw new TelegramGatewayError(
+        'BAD_REQUEST',
+        'Advertisement text is empty'
+      );
     }
     if (visible > MESSAGE_LIMIT) {
       throw new TelegramGatewayError(
@@ -245,7 +249,10 @@ export class TelegramGateway {
         `Telegram allows at most ${MEDIA_GROUP_LIMIT} media items per post`
       );
     }
-    if (media.length > 1 && media.some((m) => this.mediaKind(m) === 'document')) {
+    if (
+      media.length > 1 &&
+      media.some((m) => this.mediaKind(m) === 'document')
+    ) {
       throw new TelegramGatewayError(
         'BAD_REQUEST',
         'Only images and videos can be combined in one Telegram post'
@@ -472,7 +479,7 @@ export class TelegramGateway {
     }
   }
 
-  private visibleLength(html: string): number {
+  visibleLength(html: string): number {
     return html
       .replace(/<[^>]+>/g, '')
       .replace(/&lt;/g, '<')
@@ -507,7 +514,10 @@ export class TelegramGateway {
         );
       }
       if (code === 401) {
-        return new TelegramGatewayError('UNCONFIGURED', 'Telegram bot token was rejected');
+        return new TelegramGatewayError(
+          'UNCONFIGURED',
+          'Telegram bot token was rejected'
+        );
       }
       if (code === 403) {
         return new TelegramGatewayError('FORBIDDEN', description);
@@ -540,6 +550,9 @@ export class TelegramGateway {
     if (e?.code === 'EFATAL' || e?.code === 'EPARSE') {
       return new TelegramGatewayError('NETWORK', description);
     }
-    return new TelegramGatewayError('UNKNOWN', description || 'Unknown Telegram error');
+    return new TelegramGatewayError(
+      'UNKNOWN',
+      description || 'Unknown Telegram error'
+    );
   }
 }

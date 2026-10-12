@@ -1,12 +1,13 @@
 export const dynamic = 'force-dynamic';
 import { Metadata } from 'next';
-import { CampaignWizardComponent } from '@gitroom/frontend/components/agency/campaign-wizard.component';
+import { CampaignFormComponent } from '@gitroom/frontend/components/agency/campaign-form.component';
 
 export const metadata: Metadata = {
-  title: 'Campaign Builder | AgencyOS',
-  description: 'Create multi-destination advertising campaign wizard',
+  title: 'New Campaign | AgencyOS',
+  description:
+    'Create an advertising campaign for authorized Telegram destinations',
 };
 
 export default function NewCampaignPage() {
-  return <CampaignWizardComponent />;
+  return <CampaignFormComponent />;
 }

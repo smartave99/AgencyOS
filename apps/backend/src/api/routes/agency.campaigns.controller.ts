@@ -20,6 +20,7 @@ import {
   CancelCampaignDto,
   CreateCampaignDto,
   CreateTrackingLinkDto,
+  PreviewAdDto,
   ResolveJobDto,
   UpdateCampaignDestinationsDto,
   UpdateCampaignDto,
@@ -60,6 +61,15 @@ export class AgencyCampaignsController {
       customerId,
       search,
     });
+  }
+
+  /** What Telegram would actually receive for this content. */
+  @Post('/preview')
+  async preview(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Body() body: PreviewAdDto
+  ) {
+    return this.agencyService.previewAd(actor, body);
   }
 
   @Get('/:id')

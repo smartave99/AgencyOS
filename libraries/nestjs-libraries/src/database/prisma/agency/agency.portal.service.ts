@@ -108,7 +108,12 @@ export class AgencyPortalService {
 
       let media: string[] = [];
       try {
-        if (camp.contentMedia) media = JSON.parse(camp.contentMedia);
+        if (camp.contentMedia) {
+          const parsed = JSON.parse(camp.contentMedia);
+          media = (Array.isArray(parsed) ? parsed : [parsed])
+            .map((m) => (typeof m === 'string' ? m : m?.path || m?.url))
+            .filter(Boolean);
+        }
       } catch {
         media = [];
       }

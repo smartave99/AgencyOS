@@ -32,6 +32,7 @@ export class AgencyTeamController {
   @Get('/me')
   me(@AgencyActorFromRequest() actor: AgencyActor) {
     return {
+      userId: actor.userId,
       role: actor.role,
       customerId: actor.customerId,
       permissions: Object.entries(AGENCY_PERMISSIONS)

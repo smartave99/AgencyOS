@@ -860,6 +860,113 @@ describeDb('Publishing pipeline (real database, fake Telegram)', () => {
     });
   });
 
+  describe('composer preview shows exactly what would be sent', () => {
+    it('renders the real message, names the delivery format, and explains what would block it', async () => {
+      const ad = {
+        contentTitle: 'Spring sale',
+        contentBody: '<b>Fresh</b> fruit <script>x</script>',
+        ctaLink: 'https://example.com/',
+        ctaText: 'Order',
+        media: ['https://example.com/a.jpg'],
+      };
+      const ok = h.agency.previewAd(t.sales, ad);
+      expect(ok).toMatchObject({ format: 'MEDIA_WITH_CAPTION', problem: null });
+      expect(ok.html).toBe(
+        h.gateway.renderAdHtml({
+          title: ad.contentTitle,
+          body: ad.contentBody,
+          ctaLink: ad.ctaLink,
+          ctaText: ad.ctaText,
+        })
+      );
+      expect(ok.html).not.toContain('<script>');
+
+      const long = h.agency.previewAd(t.sales, {
+        ...ad,
+        contentBody: 'x'.repeat(1500),
+      });
+      expect(long.format).toBe('MEDIA_THEN_TEXT');
+      expect(long.problem).toBeNull();
+
+      const tooLong = h.agency.previewAd(t.sales, {
+        ...ad,
+        contentBody: 'x'.repeat(5000),
+      });
+      expect(tooLong.problem).toMatch(/4096/);
+
+      expect(
+        h.agency.previewAd(t.sales, { contentBody: '' }).problem
+      ).toBeNull(); // nothing typed yet
+      expect(
+        h.agency.previewAd(t.sales, {
+          contentBody: 'hi',
+          media: ['https://x.test/a.jpg', 'https://x.test/b.pdf'],
+        }).problem
+      ).toMatch(/Only images and videos/);
+    });
+
+    it('is for authors only', () => {
+      expect(() => h.agency.previewAd(t.analyst, { contentBody: 'x' })).toThrow(
+        /not allowed/
+      );
+      expect(() => h.agency.previewAd(t.client, { contentBody: 'x' })).toThrow(
+        /not allowed/
+      );
+    });
+  });
+
+  describe('system status shown on the dashboard is real', () => {
+    it('the dispatcher is offline until it beats, online after, and offline again once its lease lapses', async () => {
+      await h.prisma.leaderLease.deleteMany({
+        where: {
+          name: { in: ['agency-dispatcher', 'agency-telegram-updates'] },
+        },
+      });
+      let status = (await h.agency.getDashboard(t.owner)).system;
+      expect(status.dispatcher.online).toBe(false);
+      expect(status.telegram).toMatchObject({
+        configured: true,
+        listening: false,
+        updates: 'off',
+      });
+
+      await h.publishing.heartbeat(15000);
+      status = (await h.agency.getDashboard(t.owner)).system;
+      expect(status.dispatcher.online).toBe(true);
+      expect(status.dispatcher.lastSeenAt).not.toBeNull();
+
+      await h.prisma.leaderLease.update({
+        where: { name: 'agency-dispatcher' },
+        data: { leaseUntil: new Date(Date.now() - 1000) },
+      });
+      expect(
+        (await h.agency.getDashboard(t.owner)).system.dispatcher.online
+      ).toBe(false);
+    });
+
+    it('a live Telegram update listener is reported, and so is a webhook', async () => {
+      await h.prisma.leaderLease.upsert({
+        where: { name: 'agency-telegram-updates' },
+        create: {
+          name: 'agency-telegram-updates',
+          holder: 'test',
+          leaseUntil: new Date(Date.now() + 60000),
+        },
+        update: { holder: 'test', leaseUntil: new Date(Date.now() + 60000) },
+      });
+      expect(
+        (await h.agency.getDashboard(t.owner)).system.telegram
+      ).toMatchObject({ listening: true, updates: 'polling' });
+      process.env.AGENCY_TELEGRAM_WEBHOOK_URL = 'https://example.com/hook';
+      process.env.AGENCY_TELEGRAM_WEBHOOK_SECRET = 's';
+      expect(
+        (await h.agency.getDashboard(t.owner)).system.telegram
+      ).toMatchObject({ listening: true, updates: 'webhook' });
+      delete process.env.AGENCY_TELEGRAM_WEBHOOK_URL;
+      delete process.env.AGENCY_TELEGRAM_WEBHOOK_SECRET;
+    });
+  });
+
   const makeDue = (hh: Harness, id: string) =>
     hh.prisma.postingJob.updateMany({
       where: { campaignId: id },

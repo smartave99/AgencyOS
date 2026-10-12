@@ -1,301 +1,362 @@
 'use client';
 
-import React, { useCallback, useState } from 'react';
-import useSWR from 'swr';
-import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
-import { useToaster } from '@gitroom/react/toaster/toaster';
-import clsx from 'clsx';
+import React, { FC, useEffect, useState } from 'react';
 import Link from 'next/link';
+import clsx from 'clsx';
+import { useToaster } from '@gitroom/react/toaster/toaster';
+import {
+  useAgencyApi,
+  useApprovals,
+  useCan,
+} from '@gitroom/frontend/components/agency/agency.hooks';
+import {
+  Btn,
+  EmptyState,
+  formatDate,
+  inputClass,
+  labelClass,
+  LoadError,
+  Loading,
+  money,
+  PageHeader,
+  PageShell,
+  StatusBadge,
+} from '@gitroom/frontend/components/agency/agency.ui';
 
-interface ApprovalItem {
-  id: string;
-  status: string;
-  submissionNotes: string | null;
-  reviewNotes: string | null;
-  createdAt: string;
-  reviewedAt: string | null;
-  submittedByUser: { id: string; name: string; email: string };
-  reviewedByUser?: { id: string; name: string; email: string };
-  campaign: {
-    id: string;
-    name: string;
-    status: string;
-    contentTitle: string | null;
-    contentBody: string;
-    budget: string | null;
-    customer: { id: string; name: string; companyName: string | null };
-    destinations: Array<{
-      id: string;
-      telegramDestination?: { title: string; type: string };
-      integration?: { name: string; type: string };
-    }>;
-  };
-}
+const FILTERS = ['PENDING', 'APPROVED', 'CHANGES_REQUESTED', 'ALL'] as const;
+const FILTER_LABEL: Record<(typeof FILTERS)[number], string> = {
+  PENDING: 'Waiting for review',
+  APPROVED: 'Approved',
+  CHANGES_REQUESTED: 'Sent back',
+  ALL: 'All',
+};
 
-export const AgencyApprovalsComponent = () => {
-  const fetch = useFetch();
+type Decision = 'APPROVE' | 'REJECT';
+
+const ReviewDialog: FC<{
+  item: any;
+  decision: Decision;
+  selfReview: boolean;
+  onClose: () => void;
+  onDone: () => void;
+}> = ({ item, decision, selfReview, onClose, onDone }) => {
+  const api = useAgencyApi();
   const toaster = useToaster();
-  const [filter, setFilter] = useState<string>('PENDING');
+  const [notes, setNotes] = useState('');
+  const [touched, setTouched] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  // Review Dialog State
-  const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
-  const [decision, setDecision] = useState<'APPROVE' | 'REJECT'>('APPROVE');
-  const [reviewNotes, setReviewNotes] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) =>
+      e.key === 'Escape' && !busy && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy, onClose]);
 
-  const loadApprovals = useCallback(async () => {
-    const query = filter !== 'ALL' ? `?status=${filter}` : '';
-    const res = await fetch(`/agency/approvals${query}`);
-    if (!res.ok) throw new Error('Failed to load approvals');
-    return res.json() as Promise<ApprovalItem[]>;
-  }, [fetch, filter]);
+  const needsNotes = decision === 'REJECT';
+  const notesError =
+    needsNotes && !notes.trim()
+      ? 'Say what needs to change so the author can fix it.'
+      : null;
 
-  const { data: approvals, isLoading, mutate } = useSWR(['agency-approvals', filter], loadApprovals);
-
-  const handleReview = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeReviewId) return;
-
-    setIsSubmitting(true);
+    setTouched(true);
+    if (notesError) return;
+    setBusy(true);
     try {
-      const res = await fetch(`/agency/approvals/${activeReviewId}/review`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          decision,
-          notes: reviewNotes.trim() || undefined,
-        }),
+      await api.post(`/agency/approvals/${item.id}/review`, {
+        decision,
+        notes: notes.trim() || undefined,
       });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || 'Failed to submit review');
-      }
-
       toaster.show(
-        decision === 'APPROVE' ? 'Campaign approved!' : 'Changes requested from submitter',
+        decision === 'APPROVE'
+          ? 'Approved. The campaign can now be scheduled.'
+          : 'Sent back to the author with your feedback.',
         'success'
       );
-      setActiveReviewId(null);
-      setReviewNotes('');
-      mutate();
-    } catch (err: any) {
-      toaster.show(err.message || 'Review failed', 'warning');
+      onDone();
+    } catch (err) {
+      toaster.show((err as Error).message, 'warning');
     } finally {
-      setIsSubmitting(false);
+      setBusy(false);
     }
   };
 
   return (
-    <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto w-full">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-newBgLineColor pb-5">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="review-title"
+    >
+      <form
+        onSubmit={submit}
+        className="bg-newBgColorInner border border-newBgLineColor rounded-2xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4"
+      >
         <div>
-          <div className="flex items-center gap-2">
-            <Link href="/agency/dashboard" className="text-xs text-blue-400 hover:underline">
-              ← Dashboard
-            </Link>
-            <span className="text-xs text-textItemBlur">/</span>
-            <span className="text-xs text-textItemBlur">Governance & Reviews</span>
-          </div>
-          <h1 className="text-2xl font-bold text-newTextColor tracking-tight mt-1">
-            Campaign Approval Inbox
-          </h1>
-          <p className="text-xs text-textItemBlur mt-0.5">
-            Review submitted promotional copy, budgets, and target destinations before scheduling.
+          <h3
+            id="review-title"
+            className="text-base font-bold text-newTextColor"
+          >
+            {decision === 'APPROVE'
+              ? 'Approve this campaign'
+              : 'Send back for changes'}
+          </h3>
+          <p className="text-xs text-textItemBlur mt-1">
+            {decision === 'APPROVE'
+              ? `You are approving “${item.campaign.name}” exactly as it reads now. If anyone edits the ad afterwards, the approval no longer applies and it must be reviewed again.`
+              : `“${item.campaign.name}” returns to draft so ${
+                  item.submittedByUser?.name || 'the author'
+                } can revise it.`}
           </p>
         </div>
 
-        {/* Status Filter */}
-        <div className="flex items-center gap-1 bg-newBgColorInner border border-newBgLineColor p-1 rounded-xl">
-          {['PENDING', 'APPROVED', 'CHANGES_REQUESTED', 'ALL'].map((status) => (
-            <button
-              key={status}
-              onClick={() => setFilter(status)}
-              className={clsx(
-                'px-3 py-1.5 text-xs font-semibold rounded-lg transition-all',
-                filter === status
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-textItemBlur hover:text-newTextColor'
-              )}
-            >
-              {status.replace('_', ' ')}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Approvals List */}
-      {isLoading ? (
-        <div className="py-20 text-center text-xs text-textItemBlur">Loading approvals inbox...</div>
-      ) : !approvals || approvals.length === 0 ? (
-        <div className="bg-newBgColorInner border border-newBgLineColor rounded-2xl p-16 flex flex-col items-center justify-center text-center">
-          <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-3">
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-              <polyline points="22 4 12 14.01 9 11.01" />
-            </svg>
-          </div>
-          <p className="text-sm font-semibold text-newTextColor">Inbox Clear</p>
-          <p className="text-xs text-textItemBlur mt-1 max-w-sm">
-            There are no campaigns waiting for review in this category.
+        {decision === 'APPROVE' && selfReview && (
+          <p className="text-xs rounded-lg border border-amber-500/20 bg-amber-500/10 text-amber-400 p-3">
+            You submitted this campaign yourself. Your approval will be recorded
+            as a self-approval in the audit trail.
           </p>
+        )}
+
+        <div>
+          <label htmlFor="review-notes" className={labelClass}>
+            {needsNotes ? 'What needs to change' : 'Note (optional)'}
+          </label>
+          <textarea
+            id="review-notes"
+            rows={3}
+            autoFocus
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            onBlur={() => setTouched(true)}
+            aria-invalid={touched && !!notesError}
+            className={clsx(inputClass, 'resize-none')}
+          />
+          {touched && notesError && (
+            <p className="text-[11px] text-rose-400 mt-1">{notesError}</p>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 pt-3 border-t border-newBgLineColor">
+          <Btn type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </Btn>
+          <Btn
+            type="submit"
+            variant={decision === 'APPROVE' ? 'primary' : 'danger'}
+            busy={busy}
+          >
+            {decision === 'APPROVE' ? 'Approve' : 'Send back'}
+          </Btn>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export const AgencyApprovalsComponent = () => {
+  const { can, userId, isLoading: roleLoading } = useCan();
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]>('PENDING');
+  const { data, error, isLoading, mutate } = useApprovals(filter);
+  const [active, setActive] = useState<{
+    item: any;
+    decision: Decision;
+  } | null>(null);
+
+  const canReview = can('campaign:approve');
+
+  return (
+    <PageShell>
+      <PageHeader
+        crumb="Approvals"
+        title="Approvals"
+        subtitle="Nothing is published until a reviewer approves the exact content. Review the ad, its destinations and the sign-off requirements here."
+        actions={
+          <div className="flex items-center gap-1 bg-newBgColorInner border border-newBgLineColor p-1 rounded-xl">
+            {FILTERS.map((status) => (
+              <button
+                key={status}
+                onClick={() => setFilter(status)}
+                aria-pressed={filter === status}
+                className={clsx(
+                  'px-3 py-1.5 text-xs font-semibold rounded-lg transition-all',
+                  filter === status
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-textItemBlur hover:text-newTextColor'
+                )}
+              >
+                {FILTER_LABEL[status]}
+              </button>
+            ))}
+          </div>
+        }
+      />
+
+      {!roleLoading && !canReview && (
+        <p className="text-xs rounded-lg border border-newBgLineColor bg-newBgColorInner text-textItemBlur p-3">
+          Your role can see the queue but can’t approve or reject. Ask a manager
+          or admin to review.
+        </p>
+      )}
+
+      {error ? (
+        <LoadError error={error} onRetry={() => mutate()} />
+      ) : isLoading || !data ? (
+        <Loading label="Loading approvals…" />
+      ) : data.length === 0 ? (
+        <div className="bg-newBgColorInner border border-newBgLineColor rounded-2xl">
+          <EmptyState
+            title={
+              filter === 'PENDING'
+                ? 'Nothing waiting for review'
+                : 'Nothing here'
+            }
+            hint={
+              filter === 'PENDING'
+                ? 'When someone submits a campaign for review it will appear here.'
+                : 'No approvals match this view.'
+            }
+          />
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          {approvals.map((item) => (
-            <div
-              key={item.id}
-              className="bg-newBgColorInner border border-newBgLineColor rounded-xl p-5 flex flex-col lg:flex-row gap-6 justify-between hover:border-slate-700 transition-colors"
-            >
-              {/* Campaign Brief Info */}
-              <div className="flex-1 flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={clsx(
-                      'px-2.5 py-0.5 rounded text-[11px] font-semibold border',
-                      item.status === 'APPROVED'
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                        : item.status === 'PENDING'
-                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                        : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+          {data.map((item) => {
+            const c = item.campaign;
+            const destinations: any[] = c.destinations ?? [];
+            const selfReview = !!userId && item.submittedByUserId === userId;
+            return (
+              <article
+                key={item.id}
+                className="bg-newBgColorInner border border-newBgLineColor rounded-xl p-5 flex flex-col lg:flex-row gap-6 justify-between"
+              >
+                <div className="flex-1 flex flex-col gap-3 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge status={item.status} />
+                    {c.requiresClientApproval && (
+                      <span className="text-[11px] text-textItemBlur">
+                        {c.clientApprovedAt
+                          ? `Client signed off ${formatDate(
+                              c.clientApprovedAt
+                            )}`
+                          : 'Client sign-off required before scheduling'}
+                      </span>
                     )}
-                  >
-                    {item.status}
-                  </span>
-                  <span className="text-xs text-textItemBlur">
-                    Submitted by {item.submittedByUser?.name || 'Sales Rep'} on{' '}
-                    {new Date(item.createdAt).toLocaleDateString()}
-                  </span>
-                </div>
-
-                <div>
-                  <h3 className="text-base font-bold text-newTextColor">
-                    {item.campaign.name}
-                  </h3>
-                  <div className="text-xs text-textItemBlur mt-0.5">
-                    Client: <span className="text-newTextColor font-medium">{item.campaign.customer?.companyName || item.campaign.customer?.name}</span>
-                    {item.campaign.budget && ` • Budget: $${item.campaign.budget}`}
+                    <span className="text-xs text-textItemBlur">
+                      Submitted by {item.submittedByUser?.name || 'unknown'} on{' '}
+                      {formatDate(item.createdAt)}
+                      {selfReview && ' (you)'}
+                    </span>
                   </div>
-                </div>
 
-                {/* Promotional Copy Box */}
-                <div className="p-3.5 rounded-lg bg-newBgColor border border-newBgLineColor text-xs text-newTextColor whitespace-pre-wrap max-h-36 overflow-y-auto">
-                  {item.campaign.contentBody}
-                </div>
-
-                {item.submissionNotes && (
-                  <div className="text-xs text-textItemBlur italic">
-                    Notes: "{item.submissionNotes}"
+                  <div>
+                    <Link
+                      href={`/agency/campaigns/${c.id}`}
+                      className="text-base font-bold text-newTextColor hover:underline"
+                    >
+                      {c.name}
+                    </Link>
+                    <div className="text-xs text-textItemBlur mt-0.5">
+                      Client:{' '}
+                      <span className="text-newTextColor font-medium">
+                        {c.customer?.companyName || c.customer?.name}
+                      </span>
+                      {c.budget && ` • Budget ${money(c.budget)}`}
+                    </div>
                   </div>
-                )}
-              </div>
 
-              {/* Destinations & Action Controls */}
-              <div className="lg:w-72 flex flex-col justify-between border-t lg:border-t-0 lg:border-l border-newBgLineColor pt-4 lg:pt-0 lg:pl-6 gap-4">
-                <div>
-                  <span className="text-[11px] font-semibold text-textItemBlur uppercase">
-                    Target Destinations ({item.campaign.destinations?.length ?? 0})
-                  </span>
-                  <div className="flex flex-col gap-1.5 mt-2">
-                    {(item.campaign.destinations || []).slice(0, 4).map((d, i) => (
-                      <div key={i} className="text-xs text-newTextColor truncate flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                        {d.telegramDestination?.title || d.integration?.name || 'Social Account'}
-                      </div>
-                    ))}
-                    {(item.campaign.destinations?.length ?? 0) > 4 && (
-                      <div className="text-[11px] text-textItemBlur">
-                        + {item.campaign.destinations.length - 4} more
-                      </div>
+                  <div className="p-3.5 rounded-lg bg-newBgColor border border-newBgLineColor text-xs text-newTextColor whitespace-pre-wrap max-h-36 overflow-y-auto break-words">
+                    {c.contentTitle && (
+                      <div className="font-semibold mb-1">{c.contentTitle}</div>
                     )}
+                    {c.contentBody}
                   </div>
-                </div>
 
-                {/* Actions */}
-                {item.status === 'PENDING' ? (
-                  <div className="flex flex-col gap-2">
-                    <button
-                      onClick={() => {
-                        setActiveReviewId(item.id);
-                        setDecision('APPROVE');
-                      }}
-                      className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-all"
-                    >
-                      Approve Campaign
-                    </button>
-                    <button
-                      onClick={() => {
-                        setActiveReviewId(item.id);
-                        setDecision('REJECT');
-                      }}
-                      className="w-full py-2 bg-newBgColor hover:bg-slate-800 text-rose-400 border border-rose-500/20 text-xs font-semibold rounded-lg transition-all"
-                    >
-                      Request Changes
-                    </button>
-                  </div>
-                ) : (
-                  <div className="text-xs text-textItemBlur">
-                    Reviewed on {item.reviewedAt ? new Date(item.reviewedAt).toLocaleDateString() : 'N/A'}
-                    {item.reviewNotes && <div className="italic mt-1">"{item.reviewNotes}"</div>}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Review Confirmation Modal */}
-      {activeReviewId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-newBgColorInner border border-newBgLineColor rounded-2xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4">
-            <h3 className="text-base font-bold text-newTextColor">
-              {decision === 'APPROVE' ? 'Approve Advertising Campaign' : 'Request Changes'}
-            </h3>
-            <p className="text-xs text-textItemBlur">
-              {decision === 'APPROVE'
-                ? 'Approving this campaign unlocks scheduling and automated publishing.'
-                : 'Send the campaign back to the sales executive with change instructions.'}
-            </p>
-
-            <form onSubmit={handleReview} className="flex flex-col gap-3">
-              <div>
-                <label className="block text-[11px] font-semibold text-textItemBlur uppercase mb-1">
-                  Manager Review Notes
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder={decision === 'APPROVE' ? 'Optional approval notes...' : 'Explain required changes...'}
-                  value={reviewNotes}
-                  onChange={(e) => setReviewNotes(e.target.value)}
-                  className="w-full bg-newBgColor border border-newBgLineColor rounded-lg px-3 py-2 text-xs text-newTextColor placeholder-textItemBlur focus:outline-none focus:border-blue-500 resize-none"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-newBgLineColor">
-                <button
-                  type="button"
-                  onClick={() => setActiveReviewId(null)}
-                  className="px-3 py-1.5 rounded-lg border border-newBgLineColor text-xs text-textItemBlur hover:text-newTextColor"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className={clsx(
-                    'px-4 py-1.5 text-white text-xs font-semibold rounded-lg shadow-sm transition-all',
-                    decision === 'APPROVE' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'
+                  {item.submissionNotes && (
+                    <p className="text-xs text-textItemBlur italic">
+                      Author’s note: “{item.submissionNotes}”
+                    </p>
                   )}
-                >
-                  {isSubmitting ? 'Submitting...' : decision === 'APPROVE' ? 'Confirm Approval' : 'Submit Feedback'}
-                </button>
-              </div>
-            </form>
-          </div>
+                </div>
+
+                <div className="lg:w-72 flex flex-col justify-between border-t lg:border-t-0 lg:border-l border-newBgLineColor pt-4 lg:pt-0 lg:pl-6 gap-4">
+                  <div>
+                    <span className="text-[11px] font-semibold text-textItemBlur uppercase">
+                      Destinations ({destinations.length})
+                    </span>
+                    <ul className="flex flex-col gap-1.5 mt-2">
+                      {destinations.slice(0, 4).map((d) => (
+                        <li
+                          key={d.id}
+                          className="text-xs text-newTextColor truncate flex items-center gap-1.5"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                          {d.telegramDestination?.title ||
+                            d.integration?.name ||
+                            'Destination'}
+                        </li>
+                      ))}
+                      {destinations.length > 4 && (
+                        <li className="text-[11px] text-textItemBlur">
+                          + {destinations.length - 4} more
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+
+                  {item.status === 'PENDING' ? (
+                    canReview ? (
+                      <div className="flex flex-col gap-2">
+                        <Btn
+                          variant="primary"
+                          onClick={() =>
+                            setActive({ item, decision: 'APPROVE' })
+                          }
+                        >
+                          Approve
+                        </Btn>
+                        <Btn
+                          variant="danger"
+                          onClick={() =>
+                            setActive({ item, decision: 'REJECT' })
+                          }
+                        >
+                          Send back for changes
+                        </Btn>
+                      </div>
+                    ) : null
+                  ) : (
+                    <div className="text-xs text-textItemBlur">
+                      {item.reviewedByUser?.name
+                        ? `Reviewed by ${
+                            item.reviewedByUser.name
+                          } on ${formatDate(item.reviewedAt)}`
+                        : `Reviewed ${formatDate(item.reviewedAt)}`}
+                      {item.selfApproved && ' · self-approved'}
+                      {item.reviewNotes && (
+                        <div className="italic mt-1">“{item.reviewNotes}”</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
-    </div>
+
+      {active && (
+        <ReviewDialog
+          item={active.item}
+          decision={active.decision}
+          selfReview={!!userId && active.item.submittedByUserId === userId}
+          onClose={() => setActive(null)}
+          onDone={() => {
+            setActive(null);
+            mutate();
+          }}
+        />
+      )}
+    </PageShell>
   );
 };

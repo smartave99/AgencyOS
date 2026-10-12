@@ -7,6 +7,7 @@ import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { MenuItem } from '@gitroom/frontend/components/new-layout/menu-item';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { AgentMediaModal } from '@gitroom/frontend/components/layout/agent.media.modal';
+import { useAgencyMe } from '@gitroom/frontend/components/agency/agency.hooks';
 
 interface MenuItemInterface {
   name: string;
@@ -15,6 +16,8 @@ interface MenuItemInterface {
   role?: string[];
   hide?: boolean;
   requireBilling?: boolean;
+  /** Agency items only: shown when the signed-in agency role holds this permission. */
+  agencyPermission?: string;
   onClick?: () => void;
 }
 
@@ -36,7 +39,17 @@ export const useMenuItem = () => {
     {
       name: 'Agency Hub',
       icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <rect width="7" height="9" x="3" y="3" rx="1" />
           <rect width="7" height="5" x="14" y="3" rx="1" />
           <rect width="7" height="9" x="14" y="12" rx="1" />
@@ -44,11 +57,22 @@ export const useMenuItem = () => {
         </svg>
       ),
       path: '/agency/dashboard',
+      agencyPermission: 'dashboard:read',
     },
     {
       name: 'Clients',
       icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
           <circle cx="9" cy="7" r="4" />
           <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
@@ -56,87 +80,197 @@ export const useMenuItem = () => {
         </svg>
       ),
       path: '/agency/clients',
+      agencyPermission: 'client:read',
     },
     {
       name: 'Campaigns',
       icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <path d="m3 11 18-5v12L3 14v-3z" />
           <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
         </svg>
       ),
       path: '/agency/campaigns',
+      agencyPermission: 'campaign:read',
     },
     {
       name: 'Approvals',
       icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <path d="m9 11 3 3L22 4" />
           <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
         </svg>
       ),
       path: '/agency/approvals',
+      agencyPermission: 'campaign:read',
     },
     {
       name: 'Telegram',
       icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <path d="m22 2-7 20-4-9-9-4Z" />
           <path d="M22 2 11 13" />
         </svg>
       ),
       path: '/agency/telegram',
+      agencyPermission: 'destination:read',
     },
     {
       name: 'Sales CRM',
       icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <path d="M3 3v18h18" />
           <path d="m19 9-5 5-4-4-3 3" />
         </svg>
       ),
       path: '/agency/crm',
+      agencyPermission: 'crm:read',
     },
     {
       name: 'Billing & Invoices',
       icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <rect width="20" height="14" x="2" y="5" rx="2" />
           <line x1="2" x2="22" y1="10" y2="10" />
         </svg>
       ),
       path: '/agency/billing',
+      agencyPermission: 'billing:read',
     },
     {
       name: 'Intelligence',
       icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <path d="M12 2a8 8 0 0 0-8 8c0 3.3 2 6.2 5 7.4V20a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-2.6c3-1.2 5-4.1 5-7.4a8 8 0 0 0-8-8z" />
           <path d="M9 22h6" />
         </svg>
       ),
       path: '/agency/intelligence',
+      agencyPermission: 'intelligence:read',
     },
     {
       name: 'Accounts',
       icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <rect width="18" height="18" x="3" y="3" rx="2" />
           <path d="M3 9h18" />
           <path d="M9 21V9" />
         </svg>
       ),
       path: '/agency/accounts',
+      agencyPermission: 'accounts:read',
+    },
+    {
+      name: 'Team',
+      icon: (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+      ),
+      path: '/agency/team',
+      agencyPermission: 'team:read',
     },
     {
       name: 'Client Portal',
       icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
           <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
         </svg>
       ),
       path: '/agency/portal',
+      agencyPermission: 'portal:view',
     },
     {
       name: isGeneral ? t('calendar', 'Calendar') : t('launches', 'Launches'),
@@ -442,10 +576,32 @@ export const useMenuItem = () => {
   };
 };
 
+/**
+ * Hides what the server would refuse anyway. This is a convenience, not a security
+ * boundary: every /agency endpoint enforces the role itself. While the role is
+ * loading (or unavailable) the menu is left unfiltered.
+ */
+const useAgencyMenuFilter = () => {
+  const { data } = useAgencyMe();
+  return useCallback(
+    (item: MenuItemInterface) => {
+      if (!data) return true;
+      if (data.role === 'CLIENT')
+        return item.agencyPermission === 'portal:view';
+      return (
+        !item.agencyPermission ||
+        data.permissions.includes(item.agencyPermission)
+      );
+    },
+    [data]
+  );
+};
+
 export const TopMenu: FC = () => {
   const user = useUser();
   const { firstMenu, secondMenu } = useMenuItem();
   const { isGeneral, billingEnabled } = useVariables();
+  const allowedForAgencyRole = useAgencyMenuFilter();
   return (
     <>
       <div className="flex flex-1 flex-col minCustom:gap-[20px] custom:gap-[8px] blurMe">
@@ -456,7 +612,7 @@ export const TopMenu: FC = () => {
             (user.tier !== 'FREE' || !isGeneral || !billingEnabled) &&
             firstMenu
               .filter((f) => {
-                if (f.hide) {
+                if (f.hide || !allowedForAgencyRole(f)) {
                   return false;
                 }
                 if (f.requireBilling && !billingEnabled) {
@@ -484,7 +640,7 @@ export const TopMenu: FC = () => {
       <div className="flex flex-col minCustom:gap-[20px] custom:gap-[8px] blurMe">
         {secondMenu
           .filter((f) => {
-            if (f.hide) {
+            if (f.hide || !allowedForAgencyRole(f)) {
               return false;
             }
             if (f.requireBilling && !billingEnabled) {

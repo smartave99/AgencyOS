@@ -283,6 +283,7 @@ describe(
       it("/agency/me reports the caller's role and what it may do", async () => {
         const sales = await call('GET', '/agency/me', { as: 'sales' });
         assert.equal(sales.json.role, 'SALES_EXECUTIVE');
+        assert.equal(sales.json.userId, ctx.users.sales.userId);
         assert.ok(sales.json.permissions.includes('campaign:write'));
         assert.ok(!sales.json.permissions.includes('campaign:approve'));
         assert.equal(

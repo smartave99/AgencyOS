@@ -23,6 +23,7 @@ export class AgencySchedulerService implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private stopped = false;
+  private intervalMs = 15000;
 
   constructor(
     private readonly publishing: AgencyPublishingService,
@@ -37,15 +38,15 @@ export class AgencySchedulerService implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
-    const intervalMs = Math.max(
+    this.intervalMs = Math.max(
       2000,
       Number.parseInt(process.env.AGENCY_DISPATCH_INTERVAL_MS || '', 10) ||
         15000
     );
     this.logger.log(
-      `Agency scheduler started (dispatch every ${intervalMs}ms).`
+      `Agency scheduler started (dispatch every ${this.intervalMs}ms).`
     );
-    this.timer = setInterval(() => void this.tick(), intervalMs);
+    this.timer = setInterval(() => void this.tick(), this.intervalMs);
     void this.tick();
     void this.startUpdateTransport();
   }
@@ -63,6 +64,7 @@ export class AgencySchedulerService implements OnModuleInit, OnModuleDestroy {
     if (this.running || this.stopped) return;
     this.running = true;
     try {
+      await this.publishing.heartbeat(this.intervalMs);
       const sent = await this.publishing.dispatchDue();
       if (sent > 0) this.logger.log(`Dispatched ${sent} posting job(s).`);
       await this.telegram.expireConsents();

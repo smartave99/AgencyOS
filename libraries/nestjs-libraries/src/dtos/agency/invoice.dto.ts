@@ -1,4 +1,11 @@
-import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsDateString,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Matches,
+  Min,
+} from 'class-validator';
 
 export class CreateInvoiceDto {
   @IsString()
@@ -9,11 +16,11 @@ export class CreateInvoiceDto {
   amount: number;
 
   @IsOptional()
-  @IsString()
+  @Matches(/^[A-Za-z]{3}$/, { message: 'Currency must be a 3-letter code' })
   currency?: string;
 
   @IsOptional()
-  @IsString()
+  @IsDateString({}, { message: 'Due date must be a valid date' })
   dueDate?: string;
 
   @IsOptional()

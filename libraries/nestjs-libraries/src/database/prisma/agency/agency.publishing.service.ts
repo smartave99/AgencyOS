@@ -17,6 +17,8 @@ import { AgencyPublishingRepository } from './agency.publishing.repository';
 import { AgencyAccessService, AgencyActor } from './agency.access.service';
 import { NotificationService } from '@gitroom/nestjs-libraries/database/prisma/notifications/notification.service';
 import {
+  CAPTION_LIMIT,
+  MESSAGE_LIMIT,
   TelegramAd,
   TelegramGateway,
   TelegramGatewayError,
@@ -107,6 +109,43 @@ export class AgencyPublishingService {
   }
 
   // ==========================================
+  // SYSTEM STATUS (what the dashboard may truthfully claim)
+  // ==========================================
+  static readonly DISPATCHER_HEARTBEAT = 'agency-dispatcher';
+
+  /** Called by the scheduler loop on every pass, even when idle. */
+  async heartbeat(intervalMs: number) {
+    await this.jobs.recordHeartbeat(
+      AgencyPublishingService.DISPATCHER_HEARTBEAT,
+      this.workerId,
+      Math.max(intervalMs * 3, 45_000)
+    );
+  }
+
+  async getSystemStatus() {
+    const [dispatcher, poller] = await Promise.all([
+      this.jobs.getHeartbeat(AgencyPublishingService.DISPATCHER_HEARTBEAT),
+      this.jobs.getHeartbeat('agency-telegram-updates'),
+    ]);
+    const webhook = !!(
+      process.env.AGENCY_TELEGRAM_WEBHOOK_URL &&
+      process.env.AGENCY_TELEGRAM_WEBHOOK_SECRET
+    );
+    return {
+      dispatcher: {
+        online: dispatcher.online,
+        lastSeenAt: dispatcher.lastSeenAt,
+      },
+      telegram: {
+        configured: this.gateway.isConfigured(),
+        // Whether a chat admin's /authorize can actually reach us right now.
+        listening: this.gateway.isConfigured() && (webhook || poller.online),
+        updates: webhook ? 'webhook' : poller.online ? 'polling' : 'off',
+      },
+    };
+  }
+
+  // ==========================================
   // CONTENT INTEGRITY
   // ==========================================
   /**
@@ -163,6 +202,39 @@ export class AgencyPublishingService {
       ctaLink: c.ctaLink,
       channelLink: c.telegramChannelLink,
       media,
+    };
+  }
+
+  /**
+   * Exactly what Telegram would receive for this content, plus anything that would stop
+   * it, so the composer's preview can never drift from what is actually sent.
+   */
+  previewAd(ad: TelegramAd) {
+    const html = this.gateway.renderAdHtml(ad);
+    const visibleLength = this.gateway.visibleLength(html);
+    const media = ad.media?.length ?? 0;
+    let problem: string | null = null;
+    try {
+      this.gateway.validateAd(ad);
+    } catch (err: any) {
+      problem = err?.message ?? 'This content cannot be sent to Telegram';
+    }
+    const format =
+      media === 0
+        ? 'TEXT'
+        : media === 1
+        ? visibleLength <= CAPTION_LIMIT
+          ? 'MEDIA_WITH_CAPTION'
+          : 'MEDIA_THEN_TEXT'
+        : visibleLength <= CAPTION_LIMIT
+        ? 'ALBUM_WITH_CAPTION'
+        : 'ALBUM_THEN_TEXT';
+    return {
+      html,
+      visibleLength,
+      format,
+      limits: { message: MESSAGE_LIMIT, caption: CAPTION_LIMIT },
+      problem: ad.body?.trim() ? problem : null,
     };
   }
 

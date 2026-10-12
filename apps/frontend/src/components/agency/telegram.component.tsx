@@ -1,442 +1,747 @@
 'use client';
 
-import React, { useCallback, useState } from 'react';
-import useSWR from 'swr';
-import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
-import { useToaster } from '@gitroom/react/toaster/toaster';
-import clsx from 'clsx';
+import React, { FC, useState } from 'react';
 import Link from 'next/link';
+import { useToaster } from '@gitroom/react/toaster/toaster';
+import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
+import {
+  DestinationView,
+  PostingJob,
+  useAgencyApi,
+  useCan,
+  usePublishingEvents,
+  usePublishingQueue,
+  useTelegramDestinations,
+} from './agency.hooks';
+import {
+  Btn,
+  Card,
+  EmptyState,
+  inputClass,
+  labelClass,
+  Loading,
+  LoadError,
+  PageHeader,
+  PageShell,
+  StatusBadge,
+  formatDate,
+  formatDateTime,
+  timeAgo,
+} from './agency.ui';
+import { SystemBanner } from './system-banner.component';
 
-interface TelegramDestination {
-  id: string;
-  chatId: string;
+const CHAT_REF = /^(-?\d{5,20}|@[A-Za-z][A-Za-z0-9_]{3,31})$/;
+
+interface Instructions {
+  verificationCode: string;
+  botUsername: string | null;
+  steps: string[];
+  title: string;
+}
+
+interface Preview {
+  valid: boolean;
   title: string;
   type: string;
-  botUsername: string | null;
-  isAuthorized: boolean;
+  botIsAdmin: boolean;
   canPostMessages: boolean;
-  canDeleteMessages: boolean;
-  canInviteUsers: boolean;
-  lastVerifiedAt: string;
-  lastError: string | null;
-  _count: { campaignDestinations: number; publishingEvents: number };
+  error?: string;
 }
 
-interface PublishingEvent {
-  id: string;
-  externalMessageId: string | null;
-  releaseUrl: string | null;
-  status: string;
-  errorMessage: string | null;
-  executedAt: string;
-  campaign?: { id: string; name: string };
-  telegramDestination?: { id: string; title: string; type: string };
-}
+/** What the status means for the person looking at the row, and what to do next. */
+const statusDetail = (d: DestinationView) => {
+  switch (d.authorizationStatus) {
+    case 'ACTIVE':
+      return `Authorized${
+        d.consentedByName ? ` by ${d.consentedByName}` : ''
+      } until ${formatDate(d.consentExpiresAt)}`;
+    case 'PENDING_VERIFICATION':
+      return d.hasPendingVerification
+        ? `Waiting for a group admin to send the code (valid until ${formatDate(
+            d.verificationExpiresAt
+          )})`
+        : 'Code expired. Issue a new one.';
+    case 'SUSPENDED':
+      return d.revokedReason || 'Suspended by your team. Posts are paused.';
+    case 'REVOKED':
+      return d.revokedReason || 'Consent was withdrawn. Posts are paused.';
+    case 'EXPIRED':
+      return 'Consent expired. A group admin must authorize again.';
+    case 'DISCONNECTED':
+      return (
+        d.revokedReason || d.lastError || 'The bot lost access to this chat.'
+      );
+  }
+};
 
-export const AgencyTelegramComponent = () => {
-  const fetch = useFetch();
+const CopyButton: FC<{ text: string; label: string }> = ({ text, label }) => {
   const toaster = useToaster();
+  return (
+    <Btn
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          toaster.show('Copied', 'success');
+        } catch {
+          toaster.show(
+            'Copy failed. Select the text and copy it manually.',
+            'warning'
+          );
+        }
+      }}
+    >
+      {label}
+    </Btn>
+  );
+};
 
-  // Onboarding Wizard State
-  const [chatIdInput, setChatIdInput] = useState('');
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [isRegistering, setIsRegistering] = useState(false);
-  const [verificationResult, setVerificationResult] = useState<{
-    valid: boolean;
-    title: string;
-    type: string;
-    botIsAdmin: boolean;
-    canPostMessages: boolean;
-    canDeleteMessages: boolean;
-    canInviteUsers: boolean;
-    error?: string;
-  } | null>(null);
+const InstructionsCard: FC<{ info: Instructions; onDone: () => void }> = ({
+  info,
+  onDone,
+}) => (
+  <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-4 flex flex-col gap-3">
+    <div>
+      <div className="text-xs font-bold text-newTextColor">
+        Almost there: ask a group admin to authorize {info.title}
+      </div>
+      <p className="text-[11px] text-textItemBlur mt-0.5">
+        This is shown once. You can issue a new code any time.
+      </p>
+    </div>
+    <ol className="list-decimal pl-4 text-xs text-newTextColor flex flex-col gap-1.5">
+      {info.steps.map((s) => (
+        <li key={s}>{s}</li>
+      ))}
+    </ol>
+    <div className="flex items-center gap-2">
+      <code className="flex-1 rounded-lg bg-newBgColor border border-newBgLineColor px-3 py-2 text-xs font-mono text-newTextColor select-all">
+        /authorize {info.verificationCode}
+      </code>
+      <CopyButton text={`/authorize ${info.verificationCode}`} label="Copy" />
+    </div>
+    <div className="flex justify-end">
+      <Btn variant="ghost" onClick={onDone}>
+        I’ve sent it
+      </Btn>
+    </div>
+  </div>
+);
 
-  // Load Destinations
-  const loadDestinations = useCallback(async () => {
-    const res = await fetch('/agency/telegram/destinations');
-    if (!res.ok) throw new Error('Failed to load Telegram destinations');
-    return res.json() as Promise<TelegramDestination[]>;
-  }, [fetch]);
+const RegisterPanel: FC<{ onRegistered: () => void }> = ({ onRegistered }) => {
+  const api = useAgencyApi();
+  const toaster = useToaster();
+  const [chatRef, setChatRef] = useState('');
+  const [owner, setOwner] = useState('');
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [instructions, setInstructions] = useState<Instructions | null>(null);
+  const [busy, setBusy] = useState<'check' | 'register' | null>(null);
 
-  const { data: destinations, isLoading, mutate } = useSWR('telegram-destinations', loadDestinations);
+  const trimmed = chatRef.trim();
+  const refError =
+    trimmed && !CHAT_REF.test(trimmed)
+      ? 'Use the numeric chat ID (like -1001234567890) or the public @username.'
+      : null;
 
-  // Load Events
-  const loadEvents = useCallback(async () => {
-    const res = await fetch('/agency/telegram/events');
-    if (!res.ok) return [];
-    return res.json() as Promise<PublishingEvent[]>;
-  }, [fetch]);
-
-  const { data: events } = useSWR('telegram-events', loadEvents, { refreshInterval: 10000 });
-
-  const handleVerifyChat = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatIdInput.trim()) {
-      toaster.show('Please enter a Telegram Chat ID or @channelname', 'warning');
-      return;
-    }
-
-    setIsVerifying(true);
-    setVerificationResult(null);
-
+  const check = async () => {
+    setBusy('check');
+    setPreview(null);
     try {
-      const res = await fetch('/agency/telegram/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatId: chatIdInput.trim() }),
-      });
-
-      const data = await res.json();
-      setVerificationResult(data);
-
-      if (data.valid) {
-        toaster.show('Chat verified! Bot permissions confirmed.', 'success');
-      } else {
-        toaster.show(data.error || 'Verification failed', 'warning');
-      }
-    } catch (err: any) {
-      toaster.show(err.message || 'Error verifying chat', 'warning');
+      setPreview(
+        await api.post<Preview>('/agency/telegram/verify', { chatId: trimmed })
+      );
+    } catch (e: any) {
+      toaster.show(e.message, 'warning');
     } finally {
-      setIsVerifying(false);
+      setBusy(null);
     }
   };
 
-  const handleRegisterDestination = async () => {
-    if (!verificationResult && !chatIdInput.trim()) return;
-
-    setIsRegistering(true);
+  const register = async () => {
+    setBusy('register');
     try {
-      const res = await fetch('/agency/telegram/destinations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chatId: chatIdInput.trim(),
-          title: verificationResult?.title || chatIdInput.trim(),
-          type: verificationResult?.type || 'channel',
-          canPostMessages: verificationResult?.canPostMessages ?? true,
-          canDeleteMessages: verificationResult?.canDeleteMessages ?? false,
-          canInviteUsers: verificationResult?.canInviteUsers ?? false,
-        }),
+      const res = await api.post<{
+        destination: DestinationView;
+        verificationCode: string;
+        botUsername: string | null;
+        steps: string[];
+      }>('/agency/telegram/destinations', {
+        chatId: trimmed,
+        ownerName: owner.trim() || undefined,
       });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || 'Failed to register destination');
-      }
-
-      toaster.show('Telegram destination registered and authorized!', 'success');
-      setChatIdInput('');
-      setVerificationResult(null);
-      mutate();
-    } catch (err: any) {
-      toaster.show(err.message || 'Registration failed', 'warning');
+      setInstructions({
+        verificationCode: res.verificationCode,
+        botUsername: res.botUsername,
+        steps: res.steps,
+        title: res.destination.title,
+      });
+      setChatRef('');
+      setOwner('');
+      setPreview(null);
+      onRegistered();
+    } catch (e: any) {
+      toaster.show(e.message, 'warning');
     } finally {
-      setIsRegistering(false);
-    }
-  };
-
-  const handleDeleteDestination = async (id: string, title: string) => {
-    if (!confirm(`Remove destination "${title}" from the authorized agency registry?`)) return;
-
-    try {
-      const res = await fetch(`/agency/telegram/destinations/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete destination');
-      toaster.show('Destination removed', 'success');
-      mutate();
-    } catch (err: any) {
-      toaster.show(err.message || 'Error deleting destination', 'warning');
+      setBusy(null);
     }
   };
 
   return (
-    <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto w-full">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-newBgLineColor pb-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <Link href="/agency/dashboard" className="text-xs text-blue-400 hover:underline">
-              ← Dashboard
-            </Link>
-            <span className="text-xs text-textItemBlur">/</span>
-            <span className="text-xs text-textItemBlur">Telegram Infrastructure</span>
+    <Card
+      title="Connect a group or channel"
+      subtitle="Ads are only ever sent to chats whose administrators have authorized you."
+    >
+      {instructions ? (
+        <InstructionsCard
+          info={instructions}
+          onDone={() => setInstructions(null)}
+        />
+      ) : (
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!refError && trimmed) void register();
+          }}
+        >
+          <div>
+            <label htmlFor="chat-ref" className={labelClass}>
+              Chat ID or public @username
+            </label>
+            <input
+              id="chat-ref"
+              className={inputClass + ' font-mono'}
+              placeholder="@yourchannel or -1001234567890"
+              value={chatRef}
+              onChange={(e) => {
+                setChatRef(e.target.value);
+                setPreview(null);
+              }}
+              aria-invalid={!!refError}
+            />
+            {refError && (
+              <p className="text-[11px] text-rose-400 mt-1">{refError}</p>
+            )}
           </div>
-          <h1 className="text-2xl font-bold text-newTextColor tracking-tight mt-1">
-            Telegram Destination Registry & Bot Authorization
-          </h1>
-          <p className="text-xs text-textItemBlur mt-0.5">
-            Explicitly authorized channels and supergroups with verified bot administrator privileges.
-          </p>
-        </div>
-      </div>
-
-      {/* Two Column Layout: Onboarding Wizard (Left) & Destination Registry (Right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Onboarding Wizard (5 cols) */}
-        <div className="lg:col-span-5 bg-newBgColorInner border border-newBgLineColor rounded-2xl p-6 flex flex-col gap-4">
-          <div className="border-b border-newBgLineColor pb-3">
-            <h2 className="text-sm font-bold text-newTextColor">
-              Onboard & Verify Telegram Destination
-            </h2>
-            <p className="text-xs text-textItemBlur mt-0.5">
-              Verify bot administrator status before adding to campaign destination options.
-            </p>
+          <div>
+            <label htmlFor="owner" className={labelClass}>
+              Who owns this chat? (optional)
+            </label>
+            <input
+              id="owner"
+              className={inputClass}
+              placeholder="e.g. Fruit Lovers community, Priya"
+              value={owner}
+              onChange={(e) => setOwner(e.target.value)}
+            />
           </div>
 
-          <form onSubmit={handleVerifyChat} className="flex flex-col gap-3">
-            <div>
-              <label className="block text-[11px] font-semibold text-textItemBlur uppercase mb-1">
-                Chat ID or Public Username *
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. @yourchannel or -100192837465"
-                  value={chatIdInput}
-                  onChange={(e) => setChatIdInput(e.target.value)}
-                  className="flex-1 bg-newBgColor border border-newBgLineColor rounded-lg px-3 py-2 text-xs text-newTextColor placeholder-textItemBlur focus:outline-none focus:border-blue-500 font-mono"
-                />
-                <button
-                  type="submit"
-                  disabled={isVerifying}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-all disabled:opacity-50"
-                >
-                  {isVerifying ? 'Verifying...' : 'Verify'}
-                </button>
-              </div>
-              <p className="text-[11px] text-textItemBlur mt-1">
-                Tip: Add your bot as Administrator in the group or channel first.
-              </p>
-            </div>
-          </form>
-
-          {/* Verification Results Panel */}
-          {verificationResult && (
-            <div className="p-4 rounded-xl bg-newBgColor border border-newBgLineColor flex flex-col gap-3 mt-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-newTextColor">
-                  {verificationResult.title || 'Chat Found'}
-                </span>
-                <span className="text-[11px] uppercase text-textItemBlur font-medium">
-                  {verificationResult.type}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="flex items-center gap-1.5">
-                  <span className={clsx('w-2 h-2 rounded-full', verificationResult.botIsAdmin ? 'bg-emerald-400' : 'bg-rose-400')} />
-                  <span>Admin Status:</span>
-                  <strong className={verificationResult.botIsAdmin ? 'text-emerald-400' : 'text-rose-400'}>
-                    {verificationResult.botIsAdmin ? 'Yes' : 'No'}
-                  </strong>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <span className={clsx('w-2 h-2 rounded-full', verificationResult.canPostMessages ? 'bg-emerald-400' : 'bg-rose-400')} />
-                  <span>Can Post:</span>
-                  <strong className={verificationResult.canPostMessages ? 'text-emerald-400' : 'text-rose-400'}>
-                    {verificationResult.canPostMessages ? 'Yes' : 'No'}
-                  </strong>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <span className={clsx('w-2 h-2 rounded-full', verificationResult.canDeleteMessages ? 'bg-emerald-400' : 'bg-slate-500')} />
-                  <span>Can Delete:</span>
-                  <strong className={verificationResult.canDeleteMessages ? 'text-emerald-400' : 'text-slate-400'}>
-                    {verificationResult.canDeleteMessages ? 'Yes' : 'No'}
-                  </strong>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <span className={clsx('w-2 h-2 rounded-full', verificationResult.canInviteUsers ? 'bg-emerald-400' : 'bg-slate-500')} />
-                  <span>Can Invite:</span>
-                  <strong className={verificationResult.canInviteUsers ? 'text-emerald-400' : 'text-slate-400'}>
-                    {verificationResult.canInviteUsers ? 'Yes' : 'No'}
-                  </strong>
-                </div>
-              </div>
-
-              {verificationResult.error && (
-                <div className="text-xs text-rose-400 bg-rose-500/10 p-2 rounded border border-rose-500/20">
-                  {verificationResult.error}
-                </div>
-              )}
-
-              {verificationResult.valid && (
-                <button
-                  onClick={handleRegisterDestination}
-                  disabled={isRegistering}
-                  className="w-full mt-2 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-all"
-                >
-                  {isRegistering ? 'Registering...' : '✓ Authorize & Save Destination'}
-                </button>
+          {preview && (
+            <div className="rounded-xl bg-newBgColor border border-newBgLineColor p-3 text-xs flex flex-col gap-1.5">
+              {preview.valid ? (
+                <>
+                  <div className="font-semibold text-newTextColor">
+                    {preview.title}{' '}
+                    <span className="text-textItemBlur font-normal">
+                      ({preview.type})
+                    </span>
+                  </div>
+                  <div
+                    className={
+                      preview.botIsAdmin ? 'text-emerald-400' : 'text-amber-400'
+                    }
+                  >
+                    {preview.botIsAdmin
+                      ? 'The bot is an administrator here.'
+                      : 'The bot is not an administrator yet. Add it as one before authorizing.'}
+                  </div>
+                  <div
+                    className={
+                      preview.canPostMessages
+                        ? 'text-emerald-400'
+                        : 'text-amber-400'
+                    }
+                  >
+                    {preview.canPostMessages
+                      ? 'It can post messages.'
+                      : 'It cannot post messages yet.'}
+                  </div>
+                </>
+              ) : (
+                <div className="text-amber-400">{preview.error}</div>
               )}
             </div>
           )}
-        </div>
 
-        {/* Right: Destination Registry (7 cols) */}
-        <div className="lg:col-span-7 bg-newBgColorInner border border-newBgLineColor rounded-2xl p-6 flex flex-col gap-4">
-          <div className="flex items-center justify-between border-b border-newBgLineColor pb-3">
-            <div>
-              <h2 className="text-sm font-bold text-newTextColor">
-                Authorized Destination Registry
-              </h2>
-              <p className="text-xs text-textItemBlur mt-0.5">
-                Destinations available for campaign targeting
-              </p>
-            </div>
-            <span className="text-xs text-textItemBlur font-medium">
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <Btn
+              type="button"
+              disabled={!trimmed || !!refError}
+              busy={busy === 'check'}
+              onClick={check}
+            >
+              Check chat
+            </Btn>
+            <Btn
+              type="submit"
+              variant="primary"
+              disabled={!trimmed || !!refError}
+              busy={busy === 'register'}
+            >
+              Get authorization code
+            </Btn>
+          </div>
+        </form>
+      )}
+    </Card>
+  );
+};
+
+const DestinationRow: FC<{
+  d: DestinationView;
+  canManage: boolean;
+  onChanged: () => void;
+  onInstructions: (i: Instructions) => void;
+}> = ({ d, canManage, onChanged, onInstructions }) => {
+  const api = useAgencyApi();
+  const toaster = useToaster();
+  const [busy, setBusy] = useState(false);
+
+  const run = async (fn: () => Promise<void>, done?: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      if (done) toaster.show(done, 'success');
+      onChanged();
+    } catch (e: any) {
+      toaster.show(e.message, 'warning');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const newCode = () =>
+    run(async () => {
+      const res = await api.post<{
+        verificationCode: string;
+        botUsername: string | null;
+        steps: string[];
+      }>(`/agency/telegram/destinations/${d.id}/reauthorize`);
+      onInstructions({
+        verificationCode: res.verificationCode,
+        botUsername: res.botUsername,
+        steps: res.steps,
+        title: d.title,
+      });
+    });
+
+  const confirmThen = async (
+    message: string,
+    confirm: string,
+    action: () => Promise<void>,
+    done: string
+  ) => {
+    if (await deleteDialog(message, confirm, undefined, undefined, true)) {
+      await run(action, done);
+    }
+  };
+
+  const status = d.authorizationStatus;
+  return (
+    <tr className="hover:bg-newBgColor/40 transition-colors align-top">
+      <td className="py-3 px-3">
+        <div className="font-semibold text-newTextColor">{d.title}</div>
+        <div className="font-mono text-[11px] text-textItemBlur">
+          {d.chatId}
+        </div>
+      </td>
+      <td className="py-3 px-3">
+        <StatusBadge status={status} />
+        <div className="text-[11px] text-textItemBlur mt-1 max-w-xs">
+          {statusDetail(d)}
+        </div>
+        {d.lastError && status === 'ACTIVE' && (
+          <div className="text-[11px] text-amber-400 mt-1 max-w-xs">
+            Last problem: {d.lastError}
+          </div>
+        )}
+      </td>
+      <td className="py-3 px-3 text-textItemBlur">
+        {d.lastSuccessfulPostAt
+          ? timeAgo(d.lastSuccessfulPostAt)
+          : 'No posts yet'}
+        <div className="text-[11px]">
+          {d._count.campaignDestinations} campaign(s)
+        </div>
+      </td>
+      <td className="py-3 px-3">
+        {canManage && (
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {status === 'ACTIVE' && (
+              <>
+                <Btn
+                  busy={busy}
+                  onClick={() =>
+                    run(async () => {
+                      await api.post(
+                        `/agency/telegram/destinations/${d.id}/refresh`
+                      );
+                    }, 'Checked just now')
+                  }
+                >
+                  Check health
+                </Btn>
+                <Btn
+                  busy={busy}
+                  onClick={() =>
+                    confirmThen(
+                      `Pause posting to "${d.title}"? Queued posts wait until you resume.`,
+                      'Yes, pause it',
+                      async () => {
+                        await api.post(
+                          `/agency/telegram/destinations/${d.id}/suspend`,
+                          {}
+                        );
+                      },
+                      'Destination paused'
+                    )
+                  }
+                >
+                  Pause
+                </Btn>
+                <Btn
+                  variant="danger"
+                  busy={busy}
+                  onClick={() =>
+                    confirmThen(
+                      `Revoke authorization for "${d.title}"? Queued posts are blocked and a group admin must authorize again.`,
+                      'Yes, revoke',
+                      async () => {
+                        await api.post(
+                          `/agency/telegram/destinations/${d.id}/revoke`,
+                          {}
+                        );
+                      },
+                      'Authorization revoked'
+                    )
+                  }
+                >
+                  Revoke
+                </Btn>
+              </>
+            )}
+            {status === 'SUSPENDED' && (
+              <Btn
+                variant="primary"
+                busy={busy}
+                onClick={() =>
+                  run(async () => {
+                    await api.post(
+                      `/agency/telegram/destinations/${d.id}/resume`
+                    );
+                  }, 'Destination resumed')
+                }
+              >
+                Resume
+              </Btn>
+            )}
+            {(status === 'PENDING_VERIFICATION' ||
+              status === 'REVOKED' ||
+              status === 'EXPIRED' ||
+              status === 'DISCONNECTED') && (
+              <Btn variant="primary" busy={busy} onClick={newCode}>
+                {status === 'PENDING_VERIFICATION'
+                  ? 'New code'
+                  : 'Re-authorize'}
+              </Btn>
+            )}
+            <Btn
+              variant="ghost"
+              busy={busy}
+              onClick={() =>
+                confirmThen(
+                  `Remove "${d.title}" from your registry? Its history stays in your reports.`,
+                  'Yes, remove it',
+                  async () => {
+                    await api.del(`/agency/telegram/destinations/${d.id}`);
+                  },
+                  'Destination removed'
+                )
+              }
+            >
+              Remove
+            </Btn>
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+};
+
+const QUEUE_CHIPS: Array<{ status: PostingJob['status']; label: string }> = [
+  { status: 'PENDING', label: 'Queued' },
+  { status: 'SENDING', label: 'Sending' },
+  { status: 'SUCCEEDED', label: 'Delivered' },
+  { status: 'BLOCKED', label: 'Paused' },
+  { status: 'DEAD', label: 'Failed' },
+  { status: 'UNCERTAIN', label: 'Needs check' },
+];
+
+const QueuePanel: FC = () => {
+  const [filter, setFilter] = useState('');
+  const { data, error, mutate } = usePublishingQueue(filter);
+  return (
+    <Card
+      title="Publishing queue"
+      subtitle="Every post waiting to go out, in flight, or needing attention."
+    >
+      <div
+        className="flex flex-wrap gap-2"
+        role="group"
+        aria-label="Filter queue"
+      >
+        <button
+          onClick={() => setFilter('')}
+          className={
+            'px-2.5 py-1 rounded-lg text-[11px] font-semibold border ' +
+            (filter === ''
+              ? 'bg-blue-600 text-white border-blue-600'
+              : 'border-newBgLineColor text-textItemBlur hover:text-newTextColor')
+          }
+        >
+          All
+        </button>
+        {QUEUE_CHIPS.map((chip) => (
+          <button
+            key={chip.status}
+            onClick={() => setFilter(chip.status)}
+            className={
+              'px-2.5 py-1 rounded-lg text-[11px] font-semibold border ' +
+              (filter === chip.status
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'border-newBgLineColor text-textItemBlur hover:text-newTextColor')
+            }
+          >
+            {chip.label} · {data?.counts?.[chip.status] ?? 0}
+          </button>
+        ))}
+      </div>
+      {error ? (
+        <LoadError error={error} onRetry={() => mutate()} />
+      ) : !data ? (
+        <Loading />
+      ) : data.jobs.length === 0 ? (
+        <EmptyState
+          title="Nothing in the queue"
+          hint="Scheduled and published campaigns show up here."
+        />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="text-textItemBlur font-medium border-b border-newBgLineColor">
+              <tr>
+                <th className="py-2 px-3">Campaign</th>
+                <th className="py-2 px-3">Destination</th>
+                <th className="py-2 px-3">Status</th>
+                <th className="py-2 px-3">Attempts</th>
+                <th className="py-2 px-3">Next / finished</th>
+                <th className="py-2 px-3">Detail</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-newBgLineColor/50">
+              {data.jobs.map((j) => (
+                <tr key={j.id}>
+                  <td className="py-2.5 px-3">
+                    <Link
+                      href={`/agency/campaigns/${j.campaign?.id}`}
+                      className="text-newTextColor hover:text-blue-400 font-medium"
+                    >
+                      {j.campaign?.name}
+                    </Link>
+                  </td>
+                  <td className="py-2.5 px-3 text-textItemBlur">
+                    {j.telegramDestination?.title ?? '—'}
+                  </td>
+                  <td className="py-2.5 px-3">
+                    <StatusBadge status={j.status} />
+                  </td>
+                  <td className="py-2.5 px-3 text-textItemBlur">
+                    {j.attempts}/{j.maxAttempts}
+                  </td>
+                  <td className="py-2.5 px-3 text-textItemBlur">
+                    {j.status === 'PENDING'
+                      ? timeAgo(j.nextAttemptAt)
+                      : timeAgo(j.completedAt)}
+                  </td>
+                  <td className="py-2.5 px-3 text-textItemBlur max-w-xs">
+                    {j.releaseUrl ? (
+                      <a
+                        href={j.releaseUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-400 hover:underline"
+                      >
+                        View on Telegram ↗
+                      </a>
+                    ) : (
+                      j.lastError || '—'
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+};
+
+const ReceiptsPanel: FC = () => {
+  const { data } = usePublishingEvents();
+  return (
+    <Card
+      title="Delivery receipts"
+      subtitle="Every send attempt, with Telegram’s own message ID."
+    >
+      {!data || data.length === 0 ? (
+        <EmptyState title="No delivery attempts yet" />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="text-textItemBlur font-medium border-b border-newBgLineColor">
+              <tr>
+                <th className="py-2 px-3">When</th>
+                <th className="py-2 px-3">Campaign</th>
+                <th className="py-2 px-3">Destination</th>
+                <th className="py-2 px-3">Message ID</th>
+                <th className="py-2 px-3">Result</th>
+                <th className="py-2 px-3">Detail</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-newBgLineColor/50">
+              {data.map((evt) => (
+                <tr key={evt.id}>
+                  <td className="py-2.5 px-3 text-textItemBlur">
+                    {formatDateTime(evt.executedAt)}
+                  </td>
+                  <td className="py-2.5 px-3 text-newTextColor font-medium">
+                    {evt.campaign?.name}
+                  </td>
+                  <td className="py-2.5 px-3 text-textItemBlur">
+                    {evt.telegramDestination?.title ?? '—'}
+                  </td>
+                  <td className="py-2.5 px-3 font-mono text-[11px] text-textItemBlur">
+                    {evt.externalMessageId || '—'}
+                  </td>
+                  <td className="py-2.5 px-3">
+                    <StatusBadge status={evt.status} />
+                  </td>
+                  <td className="py-2.5 px-3 text-textItemBlur max-w-xs">
+                    {evt.releaseUrl ? (
+                      <a
+                        href={evt.releaseUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-400 hover:underline"
+                      >
+                        View ↗
+                      </a>
+                    ) : (
+                      evt.errorMessage || '—'
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+};
+
+export const AgencyTelegramComponent: FC = () => {
+  const { can } = useCan();
+  const { data: destinations, error, mutate } = useTelegramDestinations();
+  const [instructions, setInstructions] = useState<Instructions | null>(null);
+  const canManage = can('destination:manage');
+
+  return (
+    <PageShell>
+      <PageHeader
+        crumb="Telegram"
+        title="Telegram destinations"
+        subtitle="A chat can receive your ads only after one of its administrators authorizes it, and they can withdraw that at any time."
+      />
+      <SystemBanner />
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {canManage && (
+          <div className="lg:col-span-5 flex flex-col gap-4">
+            <RegisterPanel onRegistered={() => mutate()} />
+            {instructions && (
+              <InstructionsCard
+                info={instructions}
+                onDone={() => setInstructions(null)}
+              />
+            )}
+          </div>
+        )}
+
+        <Card
+          title="Your destinations"
+          subtitle="Only authorized destinations can be chosen for a campaign."
+          right={
+            <span className="text-xs text-textItemBlur">
               {destinations?.length ?? 0} registered
             </span>
-          </div>
-
-          {isLoading ? (
-            <div className="py-16 text-center text-xs text-textItemBlur">Loading registry...</div>
-          ) : !destinations || destinations.length === 0 ? (
-            <div className="py-16 flex flex-col items-center justify-center text-center">
-              <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 mb-3">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" />
-                </svg>
-              </div>
-              <p className="text-sm font-medium text-newTextColor">No Telegram destinations yet</p>
-              <p className="text-xs text-textItemBlur mt-1">
-                Use the verification panel on the left to add your first channel or supergroup.
-              </p>
-            </div>
+          }
+          className={canManage ? 'lg:col-span-7' : 'lg:col-span-12'}
+        >
+          {error ? (
+            <LoadError error={error} onRetry={() => mutate()} />
+          ) : !destinations ? (
+            <Loading />
+          ) : destinations.length === 0 ? (
+            <EmptyState
+              title="No destinations yet"
+              hint={
+                canManage
+                  ? 'Connect your first group or channel on the left.'
+                  : 'A campaign manager can connect a group or channel here.'
+              }
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-newBgColor border-b border-newBgLineColor text-textItemBlur font-medium">
+                <thead className="text-textItemBlur font-medium border-b border-newBgLineColor">
                   <tr>
-                    <th className="py-2.5 px-3">Destination Title</th>
-                    <th className="py-2.5 px-3">Chat ID</th>
-                    <th className="py-2.5 px-3">Type</th>
-                    <th className="py-2.5 px-3">Status</th>
-                    <th className="py-2.5 px-3 text-right">Action</th>
+                    <th className="py-2 px-3">Chat</th>
+                    <th className="py-2 px-3">Authorization</th>
+                    <th className="py-2 px-3">Last post</th>
+                    <th className="py-2 px-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-newBgLineColor/50">
                   {destinations.map((d) => (
-                    <tr key={d.id} className="hover:bg-newBgColor/40 transition-colors">
-                      <td className="py-3 px-3 font-semibold text-newTextColor">
-                        {d.title}
-                      </td>
-                      <td className="py-3 px-3 font-mono text-[11px] text-textItemBlur">
-                        {d.chatId}
-                      </td>
-                      <td className="py-3 px-3 uppercase text-[10px] text-textItemBlur">
-                        {d.type}
-                      </td>
-                      <td className="py-3 px-3">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                          Authorized
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 text-right">
-                        <button
-                          onClick={() => handleDeleteDestination(d.id, d.title)}
-                          className="p-1 text-slate-500 hover:text-rose-400 rounded transition-colors"
-                          title="Remove Destination"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                          </svg>
-                        </button>
-                      </td>
-                    </tr>
+                    <DestinationRow
+                      key={d.id}
+                      d={d}
+                      canManage={canManage}
+                      onChanged={() => mutate()}
+                      onInstructions={setInstructions}
+                    />
                   ))}
                 </tbody>
               </table>
             </div>
           )}
-        </div>
+        </Card>
       </div>
 
-      {/* Real-Time Publishing Delivery Receipts Section */}
-      <div className="bg-newBgColorInner border border-newBgLineColor rounded-2xl p-6 flex flex-col gap-4">
-        <div className="flex items-center justify-between border-b border-newBgLineColor pb-3">
-          <div>
-            <h2 className="text-sm font-bold text-newTextColor">
-              Publishing Audit & Delivery Receipts
-            </h2>
-            <p className="text-xs text-textItemBlur mt-0.5">
-              Live broadcast telemetry with Telegram external message IDs and clickable links.
-            </p>
-          </div>
-          <span className="text-xs text-emerald-400 flex items-center gap-1.5 font-medium">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            Live Logging Active
-          </span>
-        </div>
-
-        {!events || events.length === 0 ? (
-          <div className="py-12 text-center text-xs text-textItemBlur">
-            No broadcast delivery events recorded yet.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-newBgColor border-b border-newBgLineColor text-textItemBlur font-medium">
-                <tr>
-                  <th className="py-2.5 px-3">Executed At</th>
-                  <th className="py-2.5 px-3">Campaign</th>
-                  <th className="py-2.5 px-3">Destination</th>
-                  <th className="py-2.5 px-3">Message ID</th>
-                  <th className="py-2.5 px-3">Status</th>
-                  <th className="py-2.5 px-3 text-right">Live Link</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-newBgLineColor/50">
-                {events.map((evt) => (
-                  <tr key={evt.id} className="hover:bg-newBgColor/40 transition-colors">
-                    <td className="py-3 px-3 text-textItemBlur">
-                      {new Date(evt.executedAt).toLocaleString()}
-                    </td>
-                    <td className="py-3 px-3 font-medium text-newTextColor">
-                      {evt.campaign?.name || 'Campaign'}
-                    </td>
-                    <td className="py-3 px-3 text-textItemBlur">
-                      {evt.telegramDestination?.title || 'Telegram'}
-                    </td>
-                    <td className="py-3 px-3 font-mono text-[11px] text-textItemBlur">
-                      {evt.externalMessageId || 'N/A'}
-                    </td>
-                    <td className="py-3 px-3">
-                      <span
-                        className={clsx(
-                          'px-2 py-0.5 rounded text-[10px] font-semibold border',
-                          evt.status === 'SUCCESS'
-                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                            : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                        )}
-                      >
-                        {evt.status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      {evt.releaseUrl ? (
-                        <a
-                          href={evt.releaseUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-blue-400 hover:underline font-medium"
-                        >
-                          View on Telegram ↗
-                        </a>
-                      ) : (
-                        <span className="text-textItemBlur">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
+      <QueuePanel />
+      <ReceiptsPanel />
+    </PageShell>
   );
 };

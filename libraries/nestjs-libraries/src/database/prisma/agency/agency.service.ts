@@ -246,6 +246,29 @@ export class AgencyService {
     return campaign;
   }
 
+  /** Live preview for the composer: the real rendering, never a lookalike. */
+  previewAd(
+    actor: AgencyActor,
+    input: {
+      contentTitle?: string;
+      contentBody?: string;
+      ctaLink?: string;
+      ctaText?: string;
+      telegramChannelLink?: string;
+      media?: string[];
+    }
+  ) {
+    this.access.assert(actor, 'campaign:write');
+    return this.publishing.previewAd({
+      title: input.contentTitle,
+      body: input.contentBody ?? '',
+      ctaLink: input.ctaLink,
+      ctaText: input.ctaText,
+      channelLink: input.telegramChannelLink,
+      media: input.media ?? [],
+    });
+  }
+
   async updateCampaign(actor: AgencyActor, id: string, input: CampaignInput) {
     this.access.assert(actor, 'campaign:write');
     const campaign = await this.requireCampaign(actor.orgId, id);
@@ -755,7 +778,11 @@ export class AgencyService {
   // ==========================================
   async getDashboard(actor: AgencyActor) {
     this.access.assert(actor, 'dashboard:read');
-    return this.agencyRepo.getDashboardMetrics(actor.orgId);
+    const [metrics, system] = await Promise.all([
+      this.agencyRepo.getDashboardMetrics(actor.orgId),
+      this.publishing.getSystemStatus(),
+    ]);
+    return { ...metrics, system };
   }
 
   async getPublishingEvents(actor: AgencyActor, campaignId?: string) {

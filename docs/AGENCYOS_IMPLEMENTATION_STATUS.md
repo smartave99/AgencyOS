@@ -14,7 +14,7 @@ limit. **Missing** = not built. **Unverified** = built, but could not be exercis
 | Not verified | Why | What would verify it |
 | --- | --- | --- |
 | Live delivery to Telegram | No bot token in the build environment. Delivery is tested against a fake gateway that behaves like Telegram (errors, rate limits, partial sends) and against the real message-rendering code. | Set `AGENCY_TELEGRAM_BOT_TOKEN`, authorize a test chat, send. |
-| Full backend boot with Temporal | The Temporal binary download was blocked (HTTP 403 from the sandbox proxy). The HTTP tests boot the real `ApiModule` with a stubbed Temporal client; every agency route works without a Temporal server. | Run against the Temporal in `docker-compose.dev.yaml`. |
+| Full backend boot with Temporal in the Linux sandbox | The Temporal download was blocked there (HTTP 403 from the sandbox proxy), so the HTTP tests use a stubbed Temporal client. The real backend and orchestrator did boot against a real Temporal server in the Windows CI run (see "Windows run"). | Run against the Temporal in `docker-compose.dev.yaml`. |
 | `docker-compose.agencyos.yml` | No container runtime daemon. The file passes `docker compose config` and is built from the repository's working compose file. | `docker compose … up -d --build`. |
 | `pnpm lint` | ESLint fails to start on this repository with a circular-structure error in its config, before any of this work. `tsc --noEmit` and Prettier are clean. | Fix the upstream ESLint config. |
 
@@ -110,12 +110,38 @@ hardware. How it works: [`installer/README.md`](../installer/README.md); how to 
 | Status page and control API (loopback only, token for state changes, Host check, Telegram token form) | Done | 14 tests |
 | Desktop shell (own window, tray, single instance, hardened navigation: only AgencyOS pages in the window, other web links open in the system browser, no Node access from pages) | Done (policy tested); window behaviour checked on a Windows runner, see below | 8 policy tests |
 | Staged app: dependency-closure `node_modules` (3.4 GB to about 1 GB) and standalone frontend | Done | `stage-app.mjs --verify` loads all 666 compiled files with only the staged modules; ran the staged tree on Linux against real PostgreSQL, Redis and the Prisma migrations (a stand-in held the Temporal port) |
-| Inno Setup installer, per user, no administrator rights | Built on a Windows runner | see "Windows run" |
+| Inno Setup installer, per user, no administrator rights | Done: built, installed, run and uninstalled on a Windows runner | see "Windows run" |
 
 ### Windows run
 
-(Filled in from the CI run that built and tested the installer; see the workflow
-`windows-installer` and the artifacts it keeps.)
+The workflow `windows-installer` builds the installer on a GitHub-hosted `windows-latest` runner
+(Windows Server 2025, 4 threads, 16 GB memory, no GPU, an AMD EPYC virtual machine) and then runs
+`installer/windows/smoke-test.mjs` against the finished installer. The run for commit `ecfd2d7`
+passed all nine steps:
+
+| Step | Result |
+| --- | --- |
+| Silent per-user install, no administrator prompt | Passed (99 s) |
+| First start on a machine with nothing installed: PostgreSQL, Redis, Temporal, migrations, backend, orchestrator, frontend | Passed (63 s to "ready") |
+| Every listener is bound to 127.0.0.1 only | Passed |
+| Native desktop window (Electron) loaded `http://localhost:4200/auth`; no browser process; the page has no Node access | Passed |
+| Product journey through the real server: sign up, sign in, create a client, read the dashboard, load the app's pages | Passed |
+| Local AI chose the **Light** tier for this machine (`gemma3:1b` + `embeddinggemma`), downloaded both, measured **38.7 tokens/s** | Passed (25 s) |
+| EmbeddingGemma returned 768-dimension vectors; ad copy came from the local model (`providerUsed: ollama`) in 3 s | Passed |
+| Quit, services stop cleanly, start again: sign-in works, data and both models kept without downloading | Passed (26 s) |
+| Uninstall with data purge: program, shortcuts, start-at-sign-in entry and data folder removed | Passed (14 s) |
+
+The earlier runs found and fixed real defects, in this order: Windows path handling in the launcher,
+`pg_ctl` leaving the database wrapper waiting on inherited pipes (first start never finished), a
+five-minute wait after a transient 503 from the model registry, ad copy silently falling back to
+templates because the prompt never named the JSON keys, and test races (restart status read too
+early, uninstall purge checked before it ran). This also means the backend and orchestrator were booted
+against a **real Temporal server** on Windows.
+
+What this run does **not** show: a Windows machine with a GPU (the NVIDIA and larger-tier paths are
+covered by unit tests of the selection logic only), Windows on ARM (the ARM runtime is pinned and its
+checksum recorded but was not run), the system-tray behaviour of the desktop shell, a laptop with a
+slow disk or a flaky connection, or an upgrade over a previous version.
 
 ## The 13 required scenarios
 

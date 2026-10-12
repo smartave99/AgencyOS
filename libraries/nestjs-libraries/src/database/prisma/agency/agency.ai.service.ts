@@ -315,7 +315,9 @@ export class AgencyAiService {
   }
 
   private buildPrompt(params: GenerateAdCopyDto): string {
-    return `Generate 3 ad headlines, 3 ad body variants, and 3 call-to-actions based on this brief:
+    return `You are an expert direct-response copywriter for advertising agencies.
+Reply with JSON only, in exactly this shape: {"headlines": ["...", "...", "..."], "bodyVariants": ["...", "...", "..."], "callToActions": ["...", "...", "..."]}
+Every list holds 3 plain strings. Generate 3 ad headlines, 3 ad body variants, and 3 call-to-actions based on this brief:
 Brief: ${params.brief}
 Client: ${params.clientName || 'General'}
 Industry: ${params.industry || 'General'}

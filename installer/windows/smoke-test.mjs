@@ -322,9 +322,12 @@ async function main() {
     const login = await fetch('http://127.0.0.1:3000/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider: 'LOCAL', email: user.email, password: user.password }) });
     assert(login.status === 200 && login.headers.get('auth'), `sign-in after restart -> ${login.status}`);
     if (!skipAi) {
-      const st = (await getJson(`http://127.0.0.1:${p}/api/status`)).json;
-      await waitFor('AI to be ready again without downloading', async () => (await getJson(`http://127.0.0.1:${p}/api/status`)).json?.ai?.phase === 'ready', { timeoutMs: 5 * 60000 });
+      const st = await waitFor('AI to be ready again without downloading', async () => {
+        const json = (await getJson(`http://127.0.0.1:${p}/api/status`)).json;
+        return json?.ai?.phase === 'ready' ? json : null;
+      }, { timeoutMs: 5 * 60000 });
       assert(st.ai.models.embedding?.state === 'ready', 'embedding model was not kept');
+      assert(st.ai.models.text?.state === 'ready', 'text model was not kept');
     }
   });
 

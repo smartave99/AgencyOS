@@ -338,6 +338,8 @@ async function main() {
     const r = spawnSync(path.join(installDir, 'unins000.exe'), ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/PURGEDATA=1', `/LOG=${path.join(artifacts, 'uninstall.log')}`], { encoding: 'utf8', timeout: 10 * 60000 });
     assert(r.status === 0, `uninstaller exited ${r.status}`);
     await waitFor('the install folder to be removed', () => !fs.existsSync(path.join(installDir, 'AgencyOS.exe')), { timeoutMs: 120000 });
+    // The silent uninstaller hands over to a second process that removes the data folder last.
+    await waitFor('the data folder to be purged', () => !fs.existsSync(dataDir), { timeoutMs: 90000 }).catch(() => {});
     if (fs.existsSync(dataDir)) {
       const left = spawnSync('cmd', ['/c', 'dir', '/s', '/b', dataDir], { encoding: 'utf8' }).stdout || '';
       const procs = spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf8' }).stdout || '';

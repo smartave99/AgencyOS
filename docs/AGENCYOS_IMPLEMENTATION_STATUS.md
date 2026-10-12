@@ -138,6 +138,21 @@ templates because the prompt never named the JSON keys, and test races (restart 
 early, uninstall purge checked before it ran). This also means the backend and orchestrator were booted
 against a **real Temporal server** on Windows.
 
+### Release
+
+`windows-v1.0.0` was published by the workflow's `release` job (only reachable after the smoke test
+passes) from commit `3ca06a5`: https://github.com/smartave99/AgencyOS/releases/tag/windows-v1.0.0
+(`AgencyOS-Setup-1.0.0.exe`, 365 MB, SHA-256 `550f80f21c636dd46661d64c09770b73d4fba5ca7993c62b74354d613d1a1d67`,
+plus a `.sha256` file). That final run passed all nine steps again; on that runner the Light tier measured
+22.7 tokens/s and the first ad-copy request took 95 s (model load plus generation on 4 shared threads).
+The build is **not code-signed**, so Windows SmartScreen warns on first run.
+
+One earlier publish attempt (on `584613f`) failed the ad-copy step: the 1B model answered but not in the
+expected shape, so the product fell back to template copy. The model is now given a JSON schema and
+retried once before the fallback. Because the same 1B model passed on some runs and failed on one, treat
+"copy from the local model" on the smallest tier as likely, not guaranteed; the template fallback keeps
+the feature working either way.
+
 What this run does **not** show: a Windows machine with a GPU (the NVIDIA and larger-tier paths are
 covered by unit tests of the selection logic only), Windows on ARM (the ARM runtime is pinned and its
 checksum recorded but was not run), the system-tray behaviour of the desktop shell, a laptop with a

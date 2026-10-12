@@ -179,7 +179,17 @@ function createMainWindow() {
 }
 
 function showMainWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createMainWindow();
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    // Started hidden (at sign-in): the window is created the first time it is asked for.
+    mainWindow = createMainWindow();
+    if (latestStatus && policy.windowPhase(latestStatus) === 'ready') {
+      appShown = true;
+      mainWindow.loadURL(latestStatus.url);
+    } else if (statusPort) {
+      appShown = false;
+      showStatusPage(mainWindow);
+    }
+  }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
@@ -331,7 +341,6 @@ function buildTray() {
       { label: 'Quit AgencyOS', click: () => quitAgencyOS({ confirm: true }) },
     ]);
   tray.on('click', showMainWindow);
-  tray.on('right-click', () => tray.popUpContextMenu(menu()));
   tray.setContextMenu(menu());
   updateTray();
 }

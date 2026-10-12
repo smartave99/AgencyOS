@@ -98,6 +98,9 @@ export class AgencyAiService {
           prompt,
           stream: false,
           format: 'json',
+          // Models that can "think" first (Gemma 4, Qwen 3) would spend the time budget on
+          // reasoning the ad copy does not need.
+          think: false,
         }),
         signal: controller.signal,
       });

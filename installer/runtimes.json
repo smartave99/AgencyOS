@@ -1,0 +1,26 @@
+{
+  "_comment": "Versions of the third-party runtimes shipped in (or downloaded by) the Windows installer. Each was fetched, unpacked and started on a clean Windows runner before being pinned here.",
+  "node": { "major": 22 },
+  "postgres": {
+    "maven": "16.15.0",
+    "mavenBase": "https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-windows-amd64",
+    "fallbackZip": "https://get.enterprisedb.com/postgresql/postgresql-16.9-1-windows-x64-binaries.zip"
+  },
+  "redis": { "repo": "redis-windows/redis-windows", "tag": "8.10.2", "asset": "Redis-8.10.2-Windows-x64-msys2.zip" },
+  "temporal": { "repo": "temporalio/cli", "tag": "v1.9.1", "asset": "temporal_cli_1.9.1_windows_amd64.zip" },
+  "ollama": {
+    "repo": "ollama/ollama",
+    "tag": "v0.40.3",
+    "assets": { "win32-x64": "ollama-windows-amd64.zip", "win32-arm64": "ollama-windows-arm64.zip" }
+  },
+  "vcRuntimeDlls": [
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "msvcp140_2.dll",
+    "msvcp140_atomic_wait.dll",
+    "msvcp140_codecvt_ids.dll",
+    "concrt140.dll"
+  ]
+}

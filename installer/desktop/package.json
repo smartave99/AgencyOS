@@ -1,0 +1,10 @@
+{
+  "name": "agencyos",
+  "productName": "AgencyOS",
+  "version": "0.0.0",
+  "description": "AgencyOS desktop shell: the native window, tray icon and service control for the local install.",
+  "main": "main.js",
+  "private": true,
+  "license": "AGPL-3.0",
+  "author": "AgencyOS"
+}

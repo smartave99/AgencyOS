@@ -80,9 +80,11 @@ async function start() {
   loadSwagger(app);
 
   const port = process.env.PORT || 3000;
+  // The Windows desktop install sets this to 127.0.0.1 so nothing is exposed on the network.
+  const host = process.env.BACKEND_BIND_HOST;
 
   try {
-    await app.listen(port);
+    await (host ? app.listen(port, host) : app.listen(port));
     console.log('Backend started successfully on port ' + port);
 
     checkConfiguration(); // Do this last, so that users will see obvious issues at the end of the startup log without having to scroll up.

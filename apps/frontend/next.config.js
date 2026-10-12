@@ -1,8 +1,22 @@
 // @ts-check
+import { fileURLToPath } from 'node:url';
 import { withSentryConfig } from '@sentry/nextjs';
+
+// The Windows desktop installer builds a self-contained server (output: 'standalone') and
+// skips source maps, which make the install several times larger. Every other build is unchanged.
+const standalone = process.env.AGENCYOS_STANDALONE === 'true';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  ...(standalone
+    ? {
+        output: 'standalone',
+        // Trace from the monorepo root so the shared libraries are included.
+        outputFileTracingRoot: fileURLToPath(
+          new URL('../../', import.meta.url)
+        ),
+      }
+    : {}),
   experimental: {
     proxyTimeout: 90_000,
   },
@@ -23,12 +37,12 @@ const nextConfig = {
   reactStrictMode: false,
   transpilePackages: ['crypto-hash'],
   // Enable production sourcemaps for Sentry
-  productionBrowserSourceMaps: true,
+  productionBrowserSourceMaps: !standalone,
 
   // Custom webpack config to ensure sourcemaps are generated properly
   webpack: (config, { buildId, dev, isServer, defaultLoaders }) => {
     // Enable sourcemaps for both client and server in production
-    if (!dev) {
+    if (!dev && !standalone) {
       config.devtool = isServer ? 'source-map' : 'hidden-source-map';
     }
 

@@ -1,80 +1,398 @@
-# Postiz → AgencyOS: Gap Analysis
 
-This compares what Postiz provides with what an advertising-agency platform needs, based
-on the code in this repository, and records what AgencyOS now adds. The first version of
-this document was a plan written before the work; it has been replaced with what was
-found and what was built. The module-by-module result is in
-[`AGENCYOS_IMPLEMENTATION_STATUS.md`](AGENCYOS_IMPLEMENTATION_STATUS.md).
+# Agency OS
+### Created by NextGen OS
 
-## What Postiz provides (verified by reading the code)
+**Architecture, Features, Implementation Status & Gap Analysis**
 
-| Capability | Where | Use for AgencyOS |
+Agency OS is an advertising agency management platform developed by **NextGen OS**. It brings campaign management, client relationships, Telegram publishing, approvals, reporting, sales pipelines, and business operations into a unified workspace.
+
+This document outlines the system's existing capabilities, implemented Agency OS modules, architectural decisions, operational limitations, and future development priorities.
+
+For detailed module-by-module implementation status, see [AGENCYOS_IMPLEMENTATION_STATUS.md](AGENCYOS_IMPLEMENTATION_STATUS.md).
+
+---
+
+## 1. Core Platform Architecture
+
+Agency OS combines an established application foundation with agency-specific services and workflows developed by NextGen OS.
+
+| Component | Technology | Purpose |
 | --- | --- | --- |
-| NestJS backend, Next.js (App Router) frontend, Prisma on PostgreSQL, Redis | `apps/*`, `libraries/*` | The base stack. |
-| Organizations with `SUPERADMIN` / `ADMIN` / `USER` and invitations | `Organization`, `UserOrganization` | Tenant boundary. The agency role model is layered on top; the Postiz role is only a fallback. |
-| Scheduling and publishing of social posts to many networks | `Post`, `Integration`, providers, Temporal workflows (`apps/orchestrator`) | Left as is. Campaign publishing does **not** reuse it (see below). |
-| A Telegram provider that posts text/media with a bot token | `telegram.provider.ts` | Not reused for campaigns: it has no consent model, receipts or retry semantics. |
-| `Customer` (a name tag on integrations and posts) | `schema.prisma` | Extended into the agency client. |
-| Calendar, media library, AI helpers, analytics, billing for Postiz plans | various | Unchanged. The media library is reused by the composer. |
+| Backend | NestJS | API services and business logic |
+| Frontend | Next.js App Router | Agency dashboard and client portal |
+| Database | PostgreSQL | Persistent application data |
+| ORM | Prisma | Database models and queries |
+| Cache | Redis | Caching and supporting services |
+| Background Processing | Database-backed job queue | Campaign delivery and retries |
+| Workflow Infrastructure | Temporal | Existing social publishing workflows |
+| Multi-Tenancy | Organization-based isolation | Separate agency workspaces |
+| Permissions | Role-based access control | Granular access management |
+| Media Management | Integrated media library | Campaign assets and content |
+| Reporting | Delivery records and click tracking | Campaign performance visibility |
 
-Postiz does **not** provide: an approval workflow, a destination consent model, delivery
-receipts per destination, a CRM, invoices, a client-facing portal, an audit trail,
-fine-grained roles, or tests for any of these.
+### Existing Foundation Capabilities
 
-## What the agency domain needed, and what was done
+The underlying platform provides:
 
-| Need | Postiz | AgencyOS |
-| --- | --- | --- |
-| Multi-tenant agencies | Organizations exist | Every agency query and write is scoped by `orgId`; tests prove one agency cannot read or change another's data. |
-| Roles beyond admin/user | Three roles | `AgencyMember` with 8 roles and a permission matrix; a client role restricted to a portal. |
-| Campaign with a lifecycle | Standalone posts | `Campaign`, `CampaignDestination`, workflow-only status changes, content frozen after approval. |
-| Approvals | None | Submit / review / send back, four-eyes, optional client sign-off, audit. |
-| Authorized Telegram destinations | One bot token, no consent | Registry with admin-proven consent (`/authorize CODE`), `/revoke`, expiry, health, pause on loss of access. |
-| Reliable publishing | Temporal workflows for social posts | A database-backed queue (`PostingJob`): idempotent, restart-safe, retried with backoff, dead-lettered, never auto-resent when uncertain. |
-| Reporting | Social analytics | Publishing reports from stored send results and tracked clicks. |
-| Sales pipeline and invoices | None | Deals and invoices (records). |
-| Client experience | None | Portal with the exact ad preview and approvals. |
-| Honest operations | n/a | A banner when no bot or no dispatcher is running. |
+- Organization and user management
+- User authentication and invitations
+- Social media scheduling and publishing
+- Multi-network integrations
+- Calendar management
+- Media library
+- AI-assisted content tools
+- Social media analytics
+- Subscription and billing infrastructure
 
-### Why the queue is not Temporal
+Agency OS extends this foundation with advertising-agency operations, client management, approval workflows, authorized Telegram destinations, and campaign delivery tracking.
 
-Temporal is already required for Postiz to start and was considered for campaign
-publishing. A database queue was chosen because the properties that matter here
-(unique key per destination, claim guarded by a single `UPDATE`, lease, a distinct
-"uncertain" state, and cancellation by status) are simple to state and test directly
-against PostgreSQL, and because the Temporal server could not be run in the build
-environment. The trade-off is that the dispatcher is a polling loop that must be enabled
-(`AGENCY_SCHEDULER_ENABLED=true`).
+---
 
-## Requests that cannot be built as originally written
+## 2. Agency OS Features & Implementation Status
 
-Some requirements in the project's own `RULES.md` ask for scraping group members,
-joining groups automatically, adding scraped users to groups, and rotating accounts when
-one is blocked. These are not implemented. The Telegram Bot API has no sanctioned way to do
-the first three at scale, and the last exists to avoid a platform's enforcement. What was
-built instead is **authorized** discussion analysis (a knowledge base the team loads
-itself, with an attestation that the source authorized it) and the consent registry. See
-[`AGENCYOS_RULES_CONFLICT.md`](AGENCYOS_RULES_CONFLICT.md).
+| Feature | Agency OS Implementation |
+| --- | --- |
+| Multi-Tenant Agencies | Every agency query and write is scoped by `orgId`, with isolation tests |
+| Agency Roles | `AgencyMember` with 8 roles and a permission matrix |
+| Campaign Management | Campaign lifecycle, destinations, controlled status changes |
+| Approval Workflow | Submit, review, send back, four-eyes review and optional client sign-off |
+| Telegram Destination Registry | Authorized destinations with consent verification |
+| Campaign Publishing | Database-backed queue with idempotency, retries and delivery safety |
+| Reporting | Stored publishing results and tracked clicks |
+| CRM | Client records and sales deals |
+| Invoicing | Invoice record management |
+| Client Portal | Client-facing campaign previews and approvals |
+| Audit Trail | Records of significant agency operations |
+| Operational Monitoring | Warnings when required publishing services are unavailable |
 
-## Remaining gaps against the original brief
+---
 
-* Social networks as campaign destinations (only Telegram dispatches).
-* Lead-capture funnel, invite links with QR codes, conversion tracking.
-* Recurring schedules; campaign content version history.
-* Per-agency bot tokens and encrypted storage of per-tenant secrets.
-* Server-generated PDF reports and PDF invoices.
-* Vector search with a vector database; meaning-based search currently needs Ollama.
-* A separate identity for clients that is not a workspace login.
-* Billing integrations; invoice sending.
+## 3. Campaign Management System
 
-## Compatibility with upstream Postiz
+Agency OS introduces a dedicated campaign management model.
 
-* Schema changes are additive, except that existing columns on `TelegramDestination` and
-  `CampaignDestination` introduced for this project were tightened by migration.
-* Edits to Postiz-owned code are limited to: the navigation (`top.menu.tsx`), the auth
-  middleware (portal-only clients), global styles (design tokens, print and motion rules in
-  `colors.scss` / `global.scss`), `pm2-run` and the new migration script, module
-  registrations (`api.module.ts`, `database.module.ts`), the Prisma schema, and the GitHub
-  workflow files, which an earlier commit in this repository moved to `.github/ci-workflows`.
-* Merging upstream changes that touch the schema requires adding a migration for them,
-  because the project now uses migrations.
+### Campaign Lifecycle
+
+1. Create campaign
+2. Add campaign content
+3. Select authorized destinations
+4. Submit for approval
+5. Review campaign
+6. Approve or return for changes
+7. Schedule or dispatch
+8. Record delivery results
+9. Generate campaign reports
+
+### Campaign Data Models
+
+- `Campaign`
+- `CampaignDestination`
+- `PostingJob`
+
+### Campaign Safety Controls
+
+- Campaign status changes are workflow-controlled.
+- Campaign content is frozen after approval.
+- Approval rules can require separate reviewers.
+- Optional client sign-off is supported.
+- Campaign actions are recorded for auditing.
+- Publishing operations use idempotency controls.
+
+---
+
+## 4. Telegram Advertising & Publishing
+
+Agency OS includes a consent-based Telegram campaign delivery system.
+
+### Authorized Destination Management
+
+Telegram destinations are registered through an authorization process.
+
+Supported capabilities include:
+
+- Administrator-proven destination consent
+- Authorization using `/authorize CODE`
+- Authorization revocation using `/revoke`
+- Authorization expiry
+- Destination health tracking
+- Publishing pause when required access is lost
+
+### Reliable Message Delivery
+
+Campaign delivery uses a PostgreSQL-backed job queue.
+
+Key features:
+
+- Unique delivery keys per destination
+- Atomic database job claiming
+- Processing leases
+- Restart-safe processing
+- Retry handling with backoff
+- Dead-letter handling
+- Explicit uncertain-delivery states
+- Cancellation using job status
+- Protection against automatic duplicate sending when delivery is uncertain
+
+### Dispatcher Configuration
+
+Campaign publishing requires the dispatcher to be enabled:
+
+`AGENCY_SCHEDULER_ENABLED=true`
+
+If the dispatcher or Telegram bot is unavailable, Agency OS displays an operational warning.
+
+---
+
+## 5. Publishing Architecture
+
+### Database-Backed Publishing Queue
+
+Agency OS uses a dedicated database queue for campaign publishing.
+
+This design provides direct control over:
+
+1. Per-destination idempotency
+2. Atomic job claiming
+3. Job processing leases
+4. Retry behavior
+5. Uncertain delivery states
+6. Cancellation
+7. Dead-letter handling
+
+### Architectural Trade-Off
+
+A database queue was selected for campaign publishing because these behaviors can be directly enforced and tested using PostgreSQL.
+
+The existing Temporal infrastructure continues to support the foundation's social publishing workflows.
+
+The Agency OS campaign dispatcher uses a polling process that must be enabled in the deployment environment.
+
+---
+
+## 6. Security, Permissions & Agency Isolation
+
+Agency OS uses organization-scoped access controls.
+
+### Multi-Tenant Architecture
+
+Each agency operates within its own organization boundary.
+
+- Agency data is scoped by `orgId`.
+- Cross-agency access is restricted.
+- Agency membership controls permissions.
+- Client portal users receive restricted access.
+- Tenant-isolation tests verify protection against unauthorized data access.
+
+### Role-Based Access Control
+
+The `AgencyMember` system provides eight agency roles with a dedicated permission matrix.
+
+Agency-specific permissions are applied on top of the existing organization access model.
+
+### Client Portal
+
+Client-facing capabilities include:
+
+- Viewing campaign previews
+- Reviewing proposed content
+- Approving campaigns where permitted
+- Accessing information authorized for that client
+
+Client users are restricted to the client portal.
+
+---
+
+## 7. CRM & Business Operations
+
+### Client Management
+
+Agency OS extends the existing customer model to support agency client relationships.
+
+### Sales Pipeline
+
+The CRM includes sales deal records.
+
+### Invoice Management
+
+Agency OS supports invoice records.
+
+Payment gateway integration, automated invoice delivery, and PDF invoice generation remain future development items.
+
+---
+
+## 8. Reporting & Analytics
+
+Agency OS provides campaign reporting using stored publishing information.
+
+### Implemented Reporting Sources
+
+- Publishing results
+- Destination delivery records
+- Tracked clicks
+
+### Current Reporting Scope
+
+Reports reflect recorded delivery outcomes and tracked interactions.
+
+Complete conversion attribution, advanced funnel analytics, and additional social-network campaign destinations are not yet implemented.
+
+---
+
+## 9. Responsible Telegram Operations
+
+Agency OS supports authorized Telegram marketing workflows.
+
+The system does not implement:
+
+- Unauthorized scraping of Telegram group members
+- Automatic joining of groups without authorization
+- Adding scraped users to groups
+- Rotating accounts to evade platform restrictions
+
+Instead, Agency OS uses:
+
+- Authorized destination registration
+- Consent verification
+- Revocation controls
+- Access monitoring
+- Authorized discussion-data analysis
+- Knowledge-base source authorization attestations
+
+For details, see [AGENCYOS_RULES_CONFLICT.md](AGENCYOS_RULES_CONFLICT.md).
+
+---
+
+## 10. Remaining Development Gaps
+
+The following capabilities are not yet fully implemented.
+
+### Campaign & Marketing
+
+- Social networks as additional Agency OS campaign destinations
+- Lead-capture funnels
+- Invite links and QR code generation
+- Conversion tracking and attribution
+- Recurring campaign schedules
+- Campaign content version history
+
+### Telegram Infrastructure
+
+- Per-agency Telegram bot tokens
+- Encrypted storage of tenant-specific credentials
+
+### Reporting & Finance
+
+- Server-generated PDF campaign reports
+- PDF invoices
+- Integrated payment processing
+- Automated invoice sending
+
+### AI & Knowledge Management
+
+- Dedicated vector database
+- Native vector search without an external Ollama dependency
+
+### Client Identity
+
+- Independent client authentication separate from workspace logins
+
+---
+
+## 11. Codebase Integration & Compatibility
+
+Agency OS introduces additive functionality while retaining compatibility with its existing application foundation.
+
+### Database Changes
+
+- New agency-specific database models
+- Organization-scoped agency records
+- Additional campaign and destination fields
+- Database migration support
+- Schema constraints tightened for selected existing project tables
+
+### Integration Points
+
+Agency OS modifies or extends:
+
+- `top.menu.tsx`
+- Authentication middleware
+- `colors.scss`
+- `global.scss`
+- `api.module.ts`
+- `database.module.ts`
+- Prisma schema
+- `pm2-run`
+- Migration scripts
+- CI workflow configuration
+
+Existing GitHub workflow files were previously moved into `.github/ci-workflows`.
+
+### Upstream Maintenance
+
+The application foundation originates from the Postiz open-source codebase. Agency OS is the agency-specific product layer created by NextGen OS.
+
+Future upstream schema changes must be integrated with appropriate database migrations.
+
+Agency-specific services should remain modular to minimize integration conflicts and simplify maintenance.
+
+---
+
+## 12. Development Priorities
+
+### Priority 1 — Production Readiness
+
+- Secure per-agency bot credentials
+- Verify publisher and dispatcher availability
+- Strengthen operational monitoring
+- Expand tenant isolation and permission tests
+
+### Priority 2 — Campaign Capabilities
+
+- Add additional authorized campaign destinations
+- Introduce recurring campaigns
+- Implement campaign version history
+- Build lead-capture and conversion workflows
+
+### Priority 3 — Reporting & Finance
+
+- Generate downloadable PDF reports
+- Generate PDF invoices
+- Add invoice delivery
+- Integrate billing and payment providers
+
+### Priority 4 — Advanced Intelligence
+
+- Introduce vector-based knowledge search
+- Expand authorized discussion analysis
+- Improve campaign reporting and analytics
+- Extend AI-assisted agency workflows
+
+---
+
+## 13. Product Vision
+
+**Agency OS — Created by NextGen OS**
+
+Agency OS aims to become a unified operating system for advertising agencies.
+
+The platform is designed to connect:
+
+- Campaign planning
+- Content management
+- Approval workflows
+- Authorized message publishing
+- Client relationships
+- Sales pipeline management
+- Invoicing
+- Reporting
+- AI-assisted operations
+
+The long-term goal is to provide agencies with one workspace for managing campaigns, clients, team collaboration, and business operations.
+
+---
+
+**Agency OS**
+
+**Created by NextGen OS**
+
+**Architecture & Implementation Documentation**

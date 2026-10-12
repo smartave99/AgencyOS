@@ -306,6 +306,17 @@ async function main() {
     report.facts.dashboardKeys = Object.keys(dash.json || {}).slice(0, 12);
     const page = await fetch(`${app}/agency/dashboard`, { headers: { cookie: `auth=${auth}` }, redirect: 'manual' });
     assert(page.status === 200, `the app's dashboard page -> ${page.status}`);
+    // The unified shell's own pages: guide, features, what's new, and the AI settings behind them.
+    for (const route of ['/guide', '/guide/features', '/guide/changelog', '/settings?tab=ai']) {
+      const res = await fetch(`${app}${route}`, { headers: { cookie: `auth=${auth}` }, redirect: 'manual' });
+      assert(res.status === 200, `${route} -> ${res.status}`);
+    }
+    const aiSettings = await getJson(`${api}/agency/ai/settings`, h);
+    assert(aiSettings.status === 200 && aiSettings.json?.localMode === true && aiSettings.json?.activeProvider === 'local', `ai settings -> ${aiSettings.status} ${JSON.stringify(aiSettings.json)?.slice(0, 200)}`);
+    assert(aiSettings.json.providers.find((p) => p.id === 'claude-cli')?.selectable === true, 'command-line tools should be usable in the desktop app');
+    assert(!JSON.stringify(aiSettings.json).includes('apiKey'), 'the AI settings must never carry key fields');
+    const aiTools = await getJson(`${api}/agency/ai/tools`, h);
+    assert(aiTools.status === 200 && aiTools.json?.available === true && aiTools.json.tools.length === 3, `ai tools -> ${aiTools.status}`);
     return { auth };
   });
 
@@ -345,8 +356,22 @@ async function main() {
       report.facts.copy = { ...copy, seconds: Math.round((Date.now() - t0) / 1000) };
       console.log(`   copy via ${copy.providerUsed} in ${report.facts.copy.seconds}s: ${JSON.stringify(copy.headlines)}`);
       assert(res.status === 201 || res.status === 200, `generate-copy -> ${res.status}`);
-      assert(copy.providerUsed === 'ollama', `ad copy came from "${copy.providerUsed}", not the local model`);
+      assert(copy.providerUsed === 'local', `ad copy came from "${copy.providerUsed}", not the local model`);
       assert(Array.isArray(copy.headlines) && copy.headlines.length >= 1, 'no headlines returned');
+    });
+
+    await step('the Copilot answers from the local model, and the Test button agrees', async () => {
+      const h = { auth: user.auth, 'content-type': 'application/json' };
+      const t0 = Date.now();
+      const chat = await fetch('http://127.0.0.1:3000/agency/ai/chat', { method: 'POST', headers: h, body: JSON.stringify({ messages: [{ role: 'user', content: 'In one short sentence, what is AgencyOS for?' }], page: 'Dashboard (/agency/dashboard)' }), signal: AbortSignal.timeout(180000) });
+      const reply = await chat.json();
+      assert(chat.status === 201 || chat.status === 200, `chat -> ${chat.status} ${JSON.stringify(reply)?.slice(0, 300)}`);
+      assert(reply.provider === 'local' && typeof reply.reply === 'string' && reply.reply.trim().length > 0, 'the Copilot gave no answer');
+      report.facts.copilot = { model: reply.model, seconds: Math.round((Date.now() - t0) / 1000) };
+      console.log(`   copilot via ${reply.model} in ${report.facts.copilot.seconds}s: ${reply.reply.slice(0, 120)}`);
+      const test = await fetch('http://127.0.0.1:3000/agency/ai/test', { method: 'POST', headers: h, body: JSON.stringify({ provider: 'local' }), signal: AbortSignal.timeout(180000) });
+      const outcome = await test.json();
+      assert(outcome.ok === true, `the Test button failed: ${JSON.stringify(outcome)}`);
     });
   }
 

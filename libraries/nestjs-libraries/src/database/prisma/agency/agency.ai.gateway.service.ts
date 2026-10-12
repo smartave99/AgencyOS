@@ -1115,7 +1115,9 @@ export class AgencyAiGatewayService {
     const [file, fileArgs, verbatim] = cmdShim
       ? [
           process.env.ComSpec || 'cmd.exe',
-          ['/d', '/s', '/c', `"${binary}" ${args.map(quote).join(' ')}`],
+          // With /s, cmd.exe drops the first and the last quote of the line, so the whole
+          // command is wrapped in one more pair to keep the program's own quotes.
+          ['/d', '/s', '/c', `""${binary}" ${args.map(quote).join(' ')}"`],
           true,
         ]
       : [

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   CHANGELOG_FILE,
   CHANGE_TYPES,
+  normalizeEol,
   loadReleases,
   renderBody,
   renderChangelog,
@@ -65,7 +66,7 @@ describe('changelog (what changed in every version)', () => {
 
   it('CHANGELOG.md is generated from releases.json and is up to date', () => {
     assert.equal(
-      fs.readFileSync(CHANGELOG_FILE, 'utf8'),
+      normalizeEol(fs.readFileSync(CHANGELOG_FILE, 'utf8')),
       renderChangelog(releases),
       'run: node installer/build/changelog.mjs'
     );

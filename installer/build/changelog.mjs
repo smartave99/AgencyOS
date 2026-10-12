@@ -35,6 +35,9 @@ export const CHANGE_TYPES = [
   ['security', 'Security'],
 ];
 
+// A Windows checkout may turn line endings into CRLF; the words are what must match.
+export const normalizeEol = (text) => text.replace(/\r\n/g, '\n');
+
 export const loadReleases = () =>
   JSON.parse(fs.readFileSync(RELEASES_FILE, 'utf8')).releases;
 
@@ -91,7 +94,7 @@ const main = () => {
     const current = fs.existsSync(CHANGELOG_FILE)
       ? fs.readFileSync(CHANGELOG_FILE, 'utf8')
       : '';
-    if (current !== text) {
+    if (normalizeEol(current) !== text) {
       console.error(
         'CHANGELOG.md is out of date. Run: node installer/build/changelog.mjs'
       );

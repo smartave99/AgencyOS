@@ -787,5 +787,116 @@ describe(
         );
       });
     });
+
+    describe('AI settings over HTTP', () => {
+      it('shows every provider to staff, keeps keys private, and limits changes to admins', async () => {
+        delete process.env.AGENCYOS_LOCAL;
+        process.env.OLLAMA_HOST = 'http://127.0.0.1:1'; // nothing listens here
+
+        const view = await call('GET', '/agency/ai/settings', { as: 'manager' });
+        assert.equal(view.status, 200, view.text);
+        matches(view.json, { activeProvider: 'local', thinking: 'auto', localMode: false });
+        assert.equal(view.json.providers.length, 8);
+        assert.equal(
+          view.json.providers.find((p) => p.id === 'claude-cli').selectable,
+          false,
+          'command-line tools are for the desktop app only'
+        );
+
+        assert.equal(
+          (await call('GET', '/agency/ai/settings', { as: 'client' })).status,
+          403
+        );
+        assert.equal(
+          (
+            await call('PUT', '/agency/ai/settings', {
+              as: 'manager',
+              body: { activeProvider: 'openai' },
+            })
+          ).status,
+          403
+        );
+
+        const saved = await call('PUT', '/agency/ai/settings', {
+          as: 'owner',
+          body: {
+            activeProvider: 'openai',
+            thinking: 'medium',
+            providers: { openai: { apiKey: 'sk-e2e-secret-key', model: 'gpt-5' } },
+            smuggled: 'ignored',
+          },
+        });
+        assert.equal(saved.status, 200, saved.text);
+        assert.ok(!saved.text.includes('sk-e2e-secret-key'), 'the key is never sent back');
+        matches(saved.json.providers.find((p) => p.id === 'openai'), {
+          hasKey: true,
+          model: 'gpt-5',
+        });
+        const row = await prisma.agencyAiConfig.findFirst({
+          where: { orgId: ctx.users.owner.orgId },
+        });
+        assert.ok(!JSON.stringify(row).includes('sk-e2e-secret-key'), 'stored sealed, not in clear');
+        assert.match(row.providers.openai.apiKey, /^v1\./);
+
+        // Another agency sees none of it.
+        const other = await call('GET', '/agency/ai/settings', { as: 'otherOwner' });
+        assert.equal(other.json.activeProvider, 'local');
+        assert.equal(other.json.providers.find((p) => p.id === 'openai').hasKey, false);
+
+        // The change is on the audit trail, without the key.
+        const audit = await call('GET', '/agency/audit?entityType=AgencyAiConfig', {
+          as: 'owner',
+        });
+        assert.ok(audit.json.some((e) => e.action === 'ai.settings_updated'));
+        assert.ok(!audit.text.includes('sk-e2e-secret-key'));
+      });
+
+      it('refuses what cannot work: command-line tools off the desktop app, unknown levels, bad names', async () => {
+        const put = (body) =>
+          call('PUT', '/agency/ai/settings', { as: 'owner', body });
+        assert.equal((await put({ activeProvider: 'claude-cli' })).status, 400);
+        assert.equal((await put({ activeProvider: 'robot' })).status, 400);
+        assert.equal((await put({ thinking: 'galaxy' })).status, 400);
+        assert.equal(
+          (await put({ providers: { local: { model: 'a; b' } } })).status,
+          400
+        );
+      });
+
+      it('Test and chat report a provider problem plainly instead of failing silently', async () => {
+        await call('PUT', '/agency/ai/settings', {
+          as: 'owner',
+          body: { activeProvider: 'local', thinking: 'auto' },
+        });
+        const test = await call('POST', '/agency/ai/test', {
+          as: 'manager',
+          body: { provider: 'local' },
+        });
+        assert.equal(test.status, 201, test.text);
+        matches(test.json, { ok: false, code: 'unreachable' });
+        assert.match(test.json.error, /Ollama is not running/);
+
+        const bad = await call('POST', '/agency/ai/chat', {
+          as: 'manager',
+          body: { messages: [] },
+        });
+        assert.equal(bad.status, 400);
+        const chat = await call('POST', '/agency/ai/chat', {
+          as: 'manager',
+          body: { messages: [{ role: 'user', content: 'How do I add a client?' }] },
+        });
+        assert.equal(chat.status, 502, chat.text);
+        assert.equal(chat.json.code, 'unreachable');
+
+        const status = await call('GET', '/agency/ai/status', { as: 'manager' });
+        assert.equal(status.status, 200);
+        assert.equal(
+          status.json.find((s) => s.id === 'claude-cli').detail,
+          'Only available in the AgencyOS desktop app.'
+        );
+        assert.equal(status.json.find((s) => s.id === 'openai').ready, true, 'the key saved earlier');
+        assert.equal(status.json.find((s) => s.id === 'anthropic').ready, false);
+      });
+    });
   }
 );

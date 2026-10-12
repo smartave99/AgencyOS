@@ -841,8 +841,7 @@ describeDb('Publishing pipeline (real database, fake Telegram)', () => {
           new Error('connect ECONNREFUSED 127.0.0.1:11434')
         ) as any;
       try {
-        const { AgencyAiService } = await import('./agency.ai.service');
-        const copy = await new AgencyAiService().generateCopy({
+        const copy = await h.ai.generateCopy(t.orgId, {
           brief: 'Fresh fruit delivery for offices',
           clientName: 'Acme',
         } as any);

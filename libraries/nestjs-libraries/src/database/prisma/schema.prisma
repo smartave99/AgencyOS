@@ -53,6 +53,7 @@ model Organization {
   agencyMembers       AgencyMember[]
   deals               Deal[]
   auditEvents         AuditEvent[]
+  agencyAiConfig      AgencyAiConfig?
   postingJobs         PostingJob[]
 
   @@index([apiKey])
@@ -2281,6 +2282,21 @@ model AuditEvent {
 
   @@index([orgId, createdAt])
   @@index([entityType, entityId])
+}
+
+// How AI is used for an organization: which provider answers, at what thinking level, and per
+// provider the chosen model, an optional base URL and the API key. Keys are sealed with
+// AES-256-GCM before they are stored and are never sent back to a client.
+model AgencyAiConfig {
+  id             String   @id @default(cuid())
+  orgId          String   @unique
+  activeProvider String   @default("local")
+  thinking       String   @default("auto")
+  providers      Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [orgId], references: [id])
 }
 
 // Single-row-per-name lease used so only one process consumes Telegram getUpdates.

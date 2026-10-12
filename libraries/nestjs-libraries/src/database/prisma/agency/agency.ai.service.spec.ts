@@ -1,19 +1,33 @@
 import { AgencyAiService } from './agency.ai.service';
+import { AgencyAiGatewayService } from './agency.ai.gateway.service';
 import {
   CopyTone,
   CopyChannel,
 } from '@gitroom/nestjs-libraries/dtos/agency/ai.dto';
 
+const realFetch = global.fetch;
+
 describe('AgencyAiService - Marketing Copy Copilot', () => {
+  const ORG = 'org-1';
   let service: AgencyAiService;
 
   beforeEach(() => {
-    service = new AgencyAiService();
+    // No saved settings: the local model is the chosen provider, as on a fresh install.
+    const repo = { get: async () => null, save: async () => null } as any;
+    service = new AgencyAiService(
+      new AgencyAiGatewayService(repo, { assert: () => undefined } as any)
+    );
+    global.fetch = jest
+      .fn()
+      .mockRejectedValue(new Error('connect ECONNREFUSED')) as any;
+  });
+  afterAll(() => {
+    global.fetch = realFetch;
   });
 
   describe('Copy Generation with Heuristic Engine Fallback', () => {
     it('should generate 3 headlines, 3 body variants, and 3 CTAs with DIRECT_RESPONSE tone', async () => {
-      const result = await service.generateCopy({
+      const result = await service.generateCopy(ORG, {
         brief:
           'Promote our SaaS analytics tool for crypto traders with 50% discount for early adopters',
         clientName: 'CoinTrack Pro',
@@ -30,7 +44,7 @@ describe('AgencyAiService - Marketing Copy Copilot', () => {
     });
 
     it('should generate urgency-focused copy when tone is URGENT', async () => {
-      const result = await service.generateCopy({
+      const result = await service.generateCopy(ORG, {
         brief: 'Enrollment closing tonight for the masterclass',
         clientName: 'Academy Alpha',
         tone: CopyTone.URGENT,
@@ -42,7 +56,7 @@ describe('AgencyAiService - Marketing Copy Copilot', () => {
     });
 
     it('should generate enterprise-style copy when tone is PROFESSIONAL', async () => {
-      const result = await service.generateCopy({
+      const result = await service.generateCopy(ORG, {
         brief: 'Enterprise supply chain consulting and logistics risk analysis',
         clientName: 'Nexus Global',
         tone: CopyTone.PROFESSIONAL,
@@ -54,7 +68,7 @@ describe('AgencyAiService - Marketing Copy Copilot', () => {
     });
 
     it('should generate friendly conversational copy when tone is CASUAL', async () => {
-      const result = await service.generateCopy({
+      const result = await service.generateCopy(ORG, {
         brief: 'New mobile app launch with gaming rewards',
         clientName: 'PlayPulse',
         tone: CopyTone.CASUAL,
@@ -66,14 +80,10 @@ describe('AgencyAiService - Marketing Copy Copilot', () => {
   });
 
   describe('Local model (Ollama) replies', () => {
-    const realFetch = global.fetch;
-    afterEach(() => {
-      global.fetch = realFetch;
-    });
     const reply = (obj: unknown) =>
       ({
         ok: true,
-        json: async () => ({ response: JSON.stringify(obj) }),
+        json: async () => ({ message: { content: JSON.stringify(obj) } }),
       } as any);
     const brief = { brief: 'Spring sale at a bakery', clientName: 'Bakery' };
 
@@ -84,8 +94,8 @@ describe('AgencyAiService - Marketing Copy Copilot', () => {
           reply({ headlines: ['a'], bodyVariants: ['b'], callToActions: ['c'] })
         );
       global.fetch = fetchMock as any;
-      const result = await service.generateCopy(brief);
-      expect(result.providerUsed).toBe('ollama');
+      const result = await service.generateCopy(ORG, brief);
+      expect(result.providerUsed).toBe('local');
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
       expect(body.format.required).toEqual([
         'headlines',
@@ -104,8 +114,8 @@ describe('AgencyAiService - Marketing Copy Copilot', () => {
             callToActions: ['three'],
           })
         ) as any;
-      const result = await service.generateCopy(brief);
-      expect(result.providerUsed).toBe('ollama');
+      const result = await service.generateCopy(ORG, brief);
+      expect(result.providerUsed).toBe('local');
       expect(result.headlines).toEqual(['one']);
       expect(result.bodyVariants).toEqual(['two']);
     });
@@ -118,13 +128,13 @@ describe('AgencyAiService - Marketing Copy Copilot', () => {
           reply({ headlines: ['a'], bodyVariants: ['b'], callToActions: ['c'] })
         );
       global.fetch = fetchMock as any;
-      expect((await service.generateCopy(brief)).providerUsed).toBe('ollama');
+      expect((await service.generateCopy(ORG, brief)).providerUsed).toBe('local');
       expect(fetchMock).toHaveBeenCalledTimes(2);
 
       global.fetch = jest
         .fn()
         .mockResolvedValue(reply({ title: 'wrong' })) as any;
-      expect((await service.generateCopy(brief)).providerUsed).toBe(
+      expect((await service.generateCopy(ORG, brief)).providerUsed).toBe(
         'heuristic_engine'
       );
     });
@@ -132,7 +142,7 @@ describe('AgencyAiService - Marketing Copy Copilot', () => {
 
   describe('Text Improvement', () => {
     it('should improve draft text locally with tone enhancements', async () => {
-      const result = await service.improveText({
+      const result = await service.improveText(ORG, {
         text: 'Join our special trading channel right now for signals.',
         targetTone: CopyTone.URGENT,
       });

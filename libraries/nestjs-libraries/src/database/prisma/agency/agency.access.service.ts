@@ -34,6 +34,7 @@ export type AgencyPermission =
   | 'intelligence:read'
   | 'intelligence:manage'
   | 'ai:use'
+  | 'ai:configure'
   | 'team:read'
   | 'team:manage'
   | 'audit:read'
@@ -104,6 +105,7 @@ export const AGENCY_PERMISSIONS: Record<AgencyPermission, AgencyRole[]> = {
   'intelligence:read': [OWNER, ADMIN, SALES_MANAGER, CAMPAIGN_MANAGER, ANALYST],
   'intelligence:manage': [OWNER, ADMIN, CAMPAIGN_MANAGER],
   'ai:use': ALL_STAFF,
+  'ai:configure': [OWNER, ADMIN],
   'team:read': ALL_STAFF,
   'team:manage': [OWNER, ADMIN],
   'audit:read': [OWNER, ADMIN],

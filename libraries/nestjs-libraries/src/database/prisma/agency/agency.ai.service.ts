@@ -1,167 +1,175 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  AiChatDto,
+  AiProviderId,
+} from '@gitroom/nestjs-libraries/dtos/agency/ai.settings.dto';
+import {
   GenerateAdCopyDto,
   ImproveTextDto,
   CopyTone,
   CopyChannel,
 } from '@gitroom/nestjs-libraries/dtos/agency/ai.dto';
+import {
+  AgencyAiGatewayService,
+  AiProviderError,
+} from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.gateway.service';
 
 export interface GeneratedAdVariants {
   headlines: string[];
   bodyVariants: string[];
   callToActions: string[];
-  providerUsed: 'ollama' | 'openai' | 'heuristic_engine';
+  providerUsed: AiProviderId | 'heuristic_engine';
+  model?: string | null;
+  /** Why the template engine answered instead of the chosen model. */
+  fallbackReason?: string;
 }
+
+const COPY_SHAPE = {
+  type: 'object',
+  properties: {
+    headlines: { type: 'array', items: { type: 'string' }, minItems: 3 },
+    bodyVariants: { type: 'array', items: { type: 'string' }, minItems: 3 },
+    callToActions: { type: 'array', items: { type: 'string' }, minItems: 3 },
+  },
+  required: ['headlines', 'bodyVariants', 'callToActions'],
+};
+
+const ASSISTANT_PERSONA = `You are the AgencyOS assistant, built into a desktop app that advertising agencies use to create ads for their clients, get client approval, deliver approved ads to the Telegram groups and channels the agency is authorized to post in, and report the results.
+You can explain, draft and advise; you cannot click buttons or change data, so say which page to open instead. Pages: Dashboard, Clients, Campaigns, Approvals, Telegram, Connected accounts, Reports, Sales pipeline, Knowledge base, Invoices, Calendar, Media library, Settings (AI and Copilot, Appearance, Storage) and Guide.
+Be brief and concrete. For how-to questions give numbered steps that name the exact pages.
+AgencyOS only delivers to destinations the agency is authorized to post in. Decline help with spam, unsolicited bulk messaging, getting around Telegram limits or posting where the agency has no permission, and say why.`;
 
 @Injectable()
 export class AgencyAiService {
   private readonly logger = new Logger(AgencyAiService.name);
-  // OLLAMA_HOST / AI_MODEL are the documented names (.env.agencyos.example); the
-  // older OLLAMA_URL / OLLAMA_MODEL are still honoured.
-  private readonly ollamaUrl =
-    process.env.OLLAMA_HOST ||
-    process.env.OLLAMA_URL ||
-    'http://localhost:11434';
-  private readonly ollamaModel =
-    process.env.AI_MODEL || process.env.OLLAMA_MODEL || 'qwen2.5:3b';
-  private readonly openaiApiKey = process.env.OPENAI_API_KEY;
 
-  async generateCopy(params: GenerateAdCopyDto): Promise<GeneratedAdVariants> {
+  constructor(private readonly gateway: AgencyAiGatewayService) {}
+
+  async generateCopy(
+    orgId: string,
+    params: GenerateAdCopyDto
+  ): Promise<GeneratedAdVariants> {
     const tone = params.tone || CopyTone.DIRECT_RESPONSE;
     const channel = params.channelType || CopyChannel.TELEGRAM;
     const client = params.clientName || 'our brand';
     const objective = params.objective || 'LEAD_GENERATION';
 
-    // 1. Try local Ollama if configured
+    let fallbackReason: string | undefined;
     try {
-      const ollamaResponse = await this.tryOllama(params);
-      if (ollamaResponse) {
-        return { ...ollamaResponse, providerUsed: 'ollama' };
+      // A small model now and then answers with the wrong shape; one more try is cheap.
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        const result = await this.gateway.complete(orgId, {
+          system:
+            'You are an expert direct-response copywriter for advertising agencies.',
+          messages: [{ role: 'user', content: this.buildPrompt(params) }],
+          json: COPY_SHAPE,
+          // Ad copy does not need the model to reason first, and a small local model would
+          // spend its whole time budget on it.
+          thinkingWhenAuto: 'off',
+        });
+        const variants = this.toVariants(this.gateway.parseJson(result.text));
+        if (variants) {
+          return {
+            ...variants,
+            providerUsed: result.provider,
+            model: result.model,
+          };
+        }
+        this.logger.warn(
+          `${result.provider} reply did not have the three lists (attempt ${attempt}): ${result.text.slice(
+            0,
+            300
+          )}`
+        );
+        fallbackReason = 'The model answered, but not in the form needed.';
       }
     } catch (e: any) {
-      this.logger.debug(`Ollama generation skipped: ${e.message}`);
+      fallbackReason =
+        e instanceof AiProviderError ? e.message : 'The AI request failed.';
+      this.logger.warn(`AI copy generation fell back to templates: ${e.message}`);
     }
 
-    // 2. Try OpenAI if API key provided
-    if (this.openaiApiKey) {
-      try {
-        const openAiResponse = await this.tryOpenAi(params);
-        if (openAiResponse) {
-          return { ...openAiResponse, providerUsed: 'openai' };
-        }
-      } catch (e: any) {
-        this.logger.warn(`OpenAI generation skipped: ${e.message}`);
-      }
-    }
-
-    // 3. High-quality Heuristic Copywriting Engine (zero-dependency fallback)
-    return this.generateHeuristicCopy(params, tone, channel, client, objective);
-  }
-
-  async improveText(
-    params: ImproveTextDto
-  ): Promise<{ improvedText: string; providerUsed: string }> {
-    const tone = params.targetTone || CopyTone.DIRECT_RESPONSE;
-
-    // Check Ollama or fallback to tone-enhanced text
+    // High-quality heuristic copywriting engine (zero-dependency fallback)
     return {
-      improvedText: this.enhanceTextLocally(
-        params.text,
-        tone,
-        params.instructions
-      ),
-      providerUsed: 'heuristic_engine',
+      ...this.generateHeuristicCopy(params, tone, channel, client, objective),
+      fallbackReason,
     };
   }
 
-  // ==========================================
-  // OLLAMA PROVIDER
-  // ==========================================
-  private async tryOllama(
-    params: GenerateAdCopyDto
-  ): Promise<Omit<GeneratedAdVariants, 'providerUsed'> | null> {
-    const prompt = this.buildPrompt(params);
-    // A small model now and then answers with the wrong shape; one more try is cheap.
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-      const result = await this.askOllama(prompt, attempt);
-      if (result) return result;
+  async improveText(
+    orgId: string,
+    params: ImproveTextDto
+  ): Promise<{ improvedText: string; providerUsed: string }> {
+    const tone = params.targetTone || CopyTone.DIRECT_RESPONSE;
+    try {
+      const result = await this.gateway.complete(orgId, {
+        system:
+          'You edit advertising text for Telegram. Keep the meaning and the language of the original, keep any HTML tags valid, and reply with the improved text only.',
+        messages: [
+          {
+            role: 'user',
+            content: `Tone: ${tone}\n${
+              params.instructions ? `Instructions: ${params.instructions}\n` : ''
+            }Text:\n${params.text}`,
+          },
+        ],
+        thinkingWhenAuto: 'off',
+      });
+      return { improvedText: result.text, providerUsed: result.provider };
+    } catch (e: any) {
+      this.logger.debug(`AI text improvement skipped: ${e.message}`);
+      return {
+        improvedText: this.enhanceTextLocally(
+          params.text,
+          tone,
+          params.instructions
+        ),
+        providerUsed: 'heuristic_engine',
+      };
     }
-    return null;
   }
 
-  private async askOllama(
-    prompt: string,
-    attempt: number
-  ): Promise<Omit<GeneratedAdVariants, 'providerUsed'> | null> {
-    const controller = new AbortController();
-    // A 3B model on a CPU-only machine needs tens of seconds (model load + generation);
-    // a few seconds would make local AI always fall through to the template engine.
-    const timeoutMs =
-      Number.parseInt(process.env.AGENCY_AI_TIMEOUT_MS || '', 10) || 90000;
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    const list = { type: 'array', items: { type: 'string' }, minItems: 3 };
-
-    try {
-      const res = await fetch(`${this.ollamaUrl}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: this.ollamaModel,
-          prompt,
-          stream: false,
-          // A JSON schema makes the model produce exactly these three lists.
-          format: {
-            type: 'object',
-            properties: {
-              headlines: list,
-              bodyVariants: list,
-              callToActions: list,
-            },
-            required: ['headlines', 'bodyVariants', 'callToActions'],
-          },
-          // Models that can "think" first (Gemma 4, Qwen 3) would spend the time budget on
-          // reasoning the ad copy does not need.
-          think: false,
-          options: { temperature: 0.7 },
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!res.ok) {
-        this.logger.warn(
-          `Ollama generate answered ${res.status} (attempt ${attempt}): ${(
-            await res.text()
-          ).slice(0, 200)}`
-        );
-        return null;
-      }
-      const data = await res.json();
-      const parsed = JSON.parse(data.response);
-      const headlines = this.toTextList(parsed.headlines);
-      const bodyVariants = this.toTextList(parsed.bodyVariants);
-      const callToActions = this.toTextList(parsed.callToActions);
-      if (headlines.length && bodyVariants.length && callToActions.length) {
-        return { headlines, bodyVariants, callToActions };
-      }
-      this.logger.warn(
-        `Ollama reply did not have the three lists (attempt ${attempt}): ${String(
-          data.response
-        ).slice(0, 300)}`
-      );
-      return null;
-    } catch (e: any) {
-      clearTimeout(timeoutId);
-      this.logger.warn(
-        `Ollama generation failed (attempt ${attempt}): ${e.message}`
-      );
-      return null;
+  /** The Copilot panel: answers a conversation with the chosen provider. */
+  async chat(orgId: string, dto: AiChatDto) {
+    const messages = dto.messages
+      .slice(-20)
+      .map((m) => ({ role: m.role, content: m.content }));
+    if (messages[messages.length - 1]?.role !== 'user') {
+      messages.push({ role: 'user', content: 'Please continue.' });
     }
+    const result = await this.gateway.complete(orgId, {
+      system: `${ASSISTANT_PERSONA}${
+        dto.page ? `\nThe person is on this page: ${dto.page}.` : ''
+      }`,
+      messages,
+      thinkingWhenAuto: 'off',
+    });
+    return {
+      reply: result.text,
+      provider: result.provider,
+      model: result.model,
+      ms: result.ms,
+      notes: result.notes,
+    };
   }
 
   // Small local models sometimes answer with one string or with {text: "..."} objects
   // instead of a plain list of strings; accept those, drop anything else.
+  private toVariants(
+    parsed: any
+  ): Pick<
+    GeneratedAdVariants,
+    'headlines' | 'bodyVariants' | 'callToActions'
+  > | null {
+    if (!parsed || typeof parsed !== 'object') return null;
+    const headlines = this.toTextList(parsed.headlines);
+    const bodyVariants = this.toTextList(parsed.bodyVariants);
+    const callToActions = this.toTextList(parsed.callToActions);
+    return headlines.length && bodyVariants.length && callToActions.length
+      ? { headlines, bodyVariants, callToActions }
+      : null;
+  }
+
   private toTextList(value: unknown): string[] {
     const items = Array.isArray(value) ? value : value ? [value] : [];
     return items
@@ -173,57 +181,6 @@ export class AgencyAiService {
           : ''
       )
       .filter((x: unknown): x is string => typeof x === 'string' && !!x.trim());
-  }
-
-  // ==========================================
-  // OPENAI PROVIDER
-  // ==========================================
-  private async tryOpenAi(
-    params: GenerateAdCopyDto
-  ): Promise<Omit<GeneratedAdVariants, 'providerUsed'> | null> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-    const prompt = this.buildPrompt(params);
-
-    try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.openaiApiKey}`,
-        },
-        body: JSON.stringify({
-          model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You are an expert direct-response copywriter for advertising agencies. Return valid JSON only with keys: headlines (array of 3 strings), bodyVariants (array of 3 formatted strings), callToActions (array of 3 strings).',
-            },
-            { role: 'user', content: prompt },
-          ],
-          response_format: { type: 'json_object' },
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!res.ok) return null;
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content;
-      if (!content) return null;
-
-      const parsed = JSON.parse(content);
-      if (parsed.headlines && parsed.bodyVariants && parsed.callToActions) {
-        return parsed;
-      }
-      return null;
-    } catch {
-      clearTimeout(timeoutId);
-      return null;
-    }
   }
 
   // ==========================================

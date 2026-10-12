@@ -1,6 +1,20 @@
-import { Body, Controller, Post, UseGuards, UsePipes } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpException,
+  Param,
+  Post,
+  Put,
+  UseGuards,
+  UsePipes,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AgencyAiService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.service';
+import {
+  AgencyAiGatewayService,
+  AiProviderError,
+} from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.gateway.service';
 import {
   AgencyAccessService,
   AgencyActor,
@@ -9,6 +23,13 @@ import {
   GenerateAdCopyDto,
   ImproveTextDto,
 } from '@gitroom/nestjs-libraries/dtos/agency/ai.dto';
+import {
+  AI_PROVIDER_IDS,
+  AiChatDto,
+  AiProviderId,
+  AiProviderRefDto,
+  UpdateAiSettingsDto,
+} from '@gitroom/nestjs-libraries/dtos/agency/ai.settings.dto';
 import {
   AgencyActorFromRequest,
   AgencyActorGuard,
@@ -22,6 +43,7 @@ import {
 export class AgencyAiController {
   constructor(
     private readonly aiService: AgencyAiService,
+    private readonly gateway: AgencyAiGatewayService,
     private readonly access: AgencyAccessService
   ) {}
 
@@ -31,7 +53,7 @@ export class AgencyAiController {
     @Body() body: GenerateAdCopyDto
   ) {
     this.access.assert(actor, 'ai:use');
-    return this.aiService.generateCopy(body);
+    return this.aiService.generateCopy(actor.orgId, body);
   }
 
   @Post('/improve-text')
@@ -40,6 +62,60 @@ export class AgencyAiController {
     @Body() body: ImproveTextDto
   ) {
     this.access.assert(actor, 'ai:use');
-    return this.aiService.improveText(body);
+    return this.aiService.improveText(actor.orgId, body);
+  }
+
+  @Post('/chat')
+  async chat(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Body() body: AiChatDto
+  ) {
+    this.access.assert(actor, 'ai:use');
+    try {
+      return await this.aiService.chat(actor.orgId, body);
+    } catch (error) {
+      // Provider problems carry advice the person can act on, so they are shown as they are.
+      if (error instanceof AiProviderError) {
+        throw new HttpException({ message: error.message, code: error.code }, 502);
+      }
+      throw error;
+    }
+  }
+
+  @Get('/settings')
+  settings(@AgencyActorFromRequest() actor: AgencyActor) {
+    return this.gateway.getSettings(actor);
+  }
+
+  @Put('/settings')
+  updateSettings(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Body() body: UpdateAiSettingsDto
+  ) {
+    return this.gateway.updateSettings(actor, body);
+  }
+
+  @Get('/status')
+  status(@AgencyActorFromRequest() actor: AgencyActor) {
+    return this.gateway.status(actor);
+  }
+
+  @Get('/models/:provider')
+  models(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Param('provider') provider: string
+  ) {
+    if (!AI_PROVIDER_IDS.includes(provider as AiProviderId)) {
+      throw new HttpException('Unknown AI provider', 400);
+    }
+    return this.gateway.listModels(actor, provider as AiProviderId);
+  }
+
+  @Post('/test')
+  test(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Body() body: AiProviderRefDto
+  ) {
+    return this.gateway.test(actor, body.provider);
   }
 }

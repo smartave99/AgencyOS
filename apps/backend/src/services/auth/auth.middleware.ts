@@ -1,4 +1,4 @@
-import { Injectable, NestMiddleware } from '@nestjs/common';
+import { ForbiddenException, Injectable, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { AuthService } from '@gitroom/helpers/auth/auth.service';
 import { User } from '@prisma/client';
@@ -8,6 +8,15 @@ import { getCookieUrlFromDomain } from '@gitroom/helpers/subdomain/subdomain.man
 import { HttpForbiddenException } from '@gitroom/nestjs-libraries/services/exception.filter';
 import { MastraService } from '@gitroom/nestjs-libraries/chat/mastra.service';
 import { setSentryUserContext } from '@gitroom/nestjs-libraries/sentry/initialize.sentry';
+import { AgencyAccessService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.access.service';
+
+/**
+ * What an agency CLIENT user may call: their own portal and the identity calls the app
+ * shell needs to render. Everything else belongs to the agency's workspace (connected
+ * social accounts, posts, notifications, settings) and is refused.
+ */
+const CLIENT_ALLOWED =
+  /^\/(agency\/(me|portal)(\/|$)|user\/(self|organizations)$|announcements$)/;
 
 export const removeAuth = (res: Response) => {
   res.cookie('auth', '', {
@@ -29,7 +38,8 @@ export const removeAuth = (res: Response) => {
 export class AuthMiddleware implements NestMiddleware {
   constructor(
     private _organizationService: OrganizationService,
-    private _userService: UsersService
+    private _userService: UsersService,
+    private _agencyAccess: AgencyAccessService
   ) {}
   async use(req: Request, res: Response, next: NextFunction) {
     const auth = req.headers.auth || req.cookies.auth;
@@ -47,7 +57,9 @@ export class AuthMiddleware implements NestMiddleware {
         throw new HttpForbiddenException();
       }
 
-      let user = (await this._userService.getUserById(payload.id)) as User | null;
+      let user = (await this._userService.getUserById(
+        payload.id
+      )) as User | null;
 
       if (!user) {
         throw new HttpForbiddenException();
@@ -123,6 +135,20 @@ export class AuthMiddleware implements NestMiddleware {
       });
     } catch (err) {
       throw new HttpForbiddenException();
+    }
+
+    // A CLIENT is a portal-only identity. This is a plain 403, not the logout response
+    // used for bad credentials: the person is signed in, just not allowed here.
+    const { org, user: signedIn } = req as any;
+    if (
+      org?.id &&
+      signedIn?.id &&
+      !CLIENT_ALLOWED.test(req.originalUrl.split('?')[0]) &&
+      (await this._agencyAccess.isClientUser(org.id, signedIn.id))
+    ) {
+      throw new ForbiddenException(
+        'Client accounts can only use the client portal'
+      );
     }
     next();
   }

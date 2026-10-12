@@ -185,6 +185,29 @@ export class AgencyAccessService {
   // ==========================================
   // TEAM MANAGEMENT
   // ==========================================
+  private readonly clientCache = new Map<
+    string,
+    { client: boolean; at: number }
+  >();
+
+  /**
+   * True when this person is a portal-only CLIENT in this agency. Used by the auth
+   * middleware to keep clients out of the workspace's own APIs (connected accounts,
+   * posts, notifications), which know nothing about agency roles. The answer is cached
+   * for a few seconds so that a request does not pay for a lookup every time; a role
+   * change takes effect here immediately and elsewhere within the cache window.
+   */
+  async isClientUser(orgId: string, userId: string) {
+    const key = `${orgId}:${userId}`;
+    const hit = this.clientCache.get(key);
+    if (hit && Date.now() - hit.at < 15000) return hit.client;
+    const member = await this.accessRepo.getMember(orgId, userId);
+    const client = member?.role === AgencyRole.CLIENT;
+    this.clientCache.set(key, { client, at: Date.now() });
+    if (this.clientCache.size > 5000) this.clientCache.clear();
+    return client;
+  }
+
   async listTeam(actor: AgencyActor) {
     this.assert(actor, 'team:read');
     const [users, members] = await Promise.all([
@@ -244,6 +267,7 @@ export class AgencyAccessService {
         throw new NotFoundException('Client not found');
       }
     }
+    this.clientCache.delete(`${actor.orgId}:${targetUserId}`);
     const member = await this.accessRepo.upsertMember(
       actor.orgId,
       targetUserId,

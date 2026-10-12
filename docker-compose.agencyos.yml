@@ -1,111 +1,176 @@
-version: '3.8'
+# AgencyOS on one host: the app (backend, frontend, orchestrator behind nginx), PostgreSQL,
+# Redis and the Temporal stack that Postiz needs to start.
+#
+#   cp .env.agencyos.example .env      # then fill in the REQUIRED values
+#   docker compose -f docker-compose.agencyos.yml --env-file .env up -d --build
+#
+# Open http://localhost:5000. Put a TLS-terminating proxy in front for real use.
+#
+# Notes
+#  - This file has not been run in the environment it was written in (no container
+#    runtime was available there). It is assembled from the working docker-compose.yaml
+#    in this repository; treat the first start as a test and read the logs.
+#  - Secrets come from your .env. Compose refuses to start if a required one is missing.
+#  - The database is not published to the host. Back up the agency_pg_data volume.
+#  - The first start applies Prisma migrations (var/docker/prisma-migrate.sh).
 
 services:
-  # ==========================================
-  # DATABASE: PostgreSQL 16 (Multi-Tenant & pgvector ready)
-  # ==========================================
-  agency-postgres:
-    image: pgvector/pgvector:pg16
-    container_name: agencyos-postgres
-    restart: always
+  agencyos:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: agencyos
+    restart: unless-stopped
+    depends_on:
+      agency-postgres:
+        condition: service_healthy
+      agency-redis:
+        condition: service_healthy
+      temporal:
+        condition: service_started
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-agency_admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-AgencyOS_SecurePass_2026!}
-      POSTGRES_DB: ${POSTGRES_DB:-agencyos_db}
+      NODE_ENV: production
+      MAIN_URL: ${FRONTEND_URL:-http://localhost:5000}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5000}
+      NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-http://localhost:5000/api}
+      BACKEND_INTERNAL_URL: http://localhost:3000
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 48)}
+      DATABASE_URL: postgresql://agencyos:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@agency-postgres:5432/agencyos
+      REDIS_URL: redis://agency-redis:6379
+      TEMPORAL_ADDRESS: temporal:7233
+      STORAGE_PROVIDER: local
+      UPLOAD_DIRECTORY: /uploads
+      NEXT_PUBLIC_UPLOAD_DIRECTORY: /uploads
+      IS_GENERAL: 'true'
+      DISABLE_REGISTRATION: ${DISABLE_REGISTRATION:-false}
+      # AgencyOS
+      AGENCY_TELEGRAM_BOT_TOKEN: ${AGENCY_TELEGRAM_BOT_TOKEN:-}
+      AGENCY_TELEGRAM_WEBHOOK_URL: ${AGENCY_TELEGRAM_WEBHOOK_URL:-}
+      AGENCY_TELEGRAM_WEBHOOK_SECRET: ${AGENCY_TELEGRAM_WEBHOOK_SECRET:-}
+      AGENCY_SCHEDULER_ENABLED: ${AGENCY_SCHEDULER_ENABLED:-true}
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://agency-ollama:11434}
+      AI_MODEL: ${AI_MODEL:-qwen2.5:3b}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma}
+      AGENCY_ALLOW_EXTERNAL_AI: ${AGENCY_ALLOW_EXTERNAL_AI:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
-      - '5432:5432'
+      - '5000:5000'
+    volumes:
+      - agency_uploads:/uploads
+    networks:
+      - agency-network
+      - temporal-network
+
+  agency-postgres:
+    image: postgres:16
+    container_name: agencyos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: agencyos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: agencyos
     volumes:
       - agency_pg_data:/var/lib/postgresql/data
+    networks:
+      - agency-network
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-agency_admin} -d ${POSTGRES_DB:-agencyos_db}']
+      test: ['CMD-SHELL', 'pg_isready -U agencyos -d agencyos']
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ==========================================
-  # QUEUE & CACHE: Redis 7
-  # ==========================================
   agency-redis:
-    image: redis:7-alpine
+    image: redis:7.2
     container_name: agencyos-redis
-    restart: always
-    command: redis-server --appendonly yes
-    ports:
-      - '6379:6379'
+    restart: unless-stopped
     volumes:
       - agency_redis_data:/data
+    networks:
+      - agency-network
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ==========================================
-  # OPTIONAL LOCAL AI: Ollama (qwen2.5:3b / embeddinggemma)
-  # Activated with: docker compose --profile with-ai up -d
-  # ==========================================
+  # Optional local AI:  docker compose -f docker-compose.agencyos.yml --profile with-ai up -d
+  # then: docker exec agencyos-ollama ollama pull qwen2.5:3b && docker exec agencyos-ollama ollama pull embeddinggemma
   agency-ollama:
     image: ollama/ollama:latest
     container_name: agencyos-ollama
     profiles:
       - with-ai
     restart: unless-stopped
-    ports:
-      - '11434:11434'
     volumes:
       - agency_ollama_models:/root/.ollama
+    networks:
+      - agency-network
 
-  # ==========================================
-  # BACKEND: AgencyOS NestJS Engine
-  # ==========================================
-  agency-backend:
-    build:
-      context: .
-      dockerfile: ./apps/backend/Dockerfile
-    container_name: agencyos-backend
-    restart: always
-    depends_on:
-      agency-postgres:
-        condition: service_healthy
-      agency-redis:
-        condition: service_healthy
+  # ---------------------------------------------------------------------------
+  # Temporal (required by Postiz to start). Same images and settings as the
+  # docker-compose.yaml shipped in this repository.
+  # ---------------------------------------------------------------------------
+  temporal-elasticsearch:
+    container_name: temporal-elasticsearch
+    image: elasticsearch:7.17.27
     environment:
-      NODE_ENV: production
-      PORT: 3000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-agency_admin}:${POSTGRES_PASSWORD:-AgencyOS_SecurePass_2026!}@agency-postgres:5432/${POSTGRES_DB:-agencyos_db}
-      REDIS_URL: redis://agency-redis:6379
-      JWT_SECRET: ${JWT_SECRET:-AgencyOS_SuperSecretJWT_Key_ReplaceInProd_2026}
-      BACKEND_INTERNAL_URL: http://agency-backend:3000
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5000}
-      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
-      OLLAMA_HOST: ${OLLAMA_HOST:-http://agency-ollama:11434}
-      AI_PROVIDER: ${AI_PROVIDER:-ollama}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-    ports:
-      - '3000:3000'
+      - cluster.routing.allocation.disk.threshold_enabled=true
+      - cluster.routing.allocation.disk.watermark.low=512mb
+      - cluster.routing.allocation.disk.watermark.high=256mb
+      - cluster.routing.allocation.disk.watermark.flood_stage=128mb
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms256m -Xmx256m
+      - xpack.security.enabled=false
+    networks:
+      - temporal-network
+    expose:
+      - 9200
     volumes:
-      - agency_uploads:/app/uploads
+      - temporal_es_data:/usr/share/elasticsearch/data
 
-  # ==========================================
-  # FRONTEND: AgencyOS Next.js Portal & App
-  # ==========================================
-  agency-frontend:
-    build:
-      context: .
-      dockerfile: ./apps/frontend/Dockerfile
-    container_name: agencyos-frontend
-    restart: always
-    depends_on:
-      - agency-backend
+  temporal-postgresql:
+    container_name: temporal-postgresql
+    image: postgres:16
     environment:
-      NODE_ENV: production
-      PORT: 5000
-      NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-http://localhost:3000}
-    ports:
-      - '5000:5000'
+      POSTGRES_PASSWORD: ${TEMPORAL_DB_PASSWORD:?set TEMPORAL_DB_PASSWORD in .env}
+      POSTGRES_USER: temporal
+    networks:
+      - temporal-network
+    expose:
+      - 5432
+    volumes:
+      - temporal_pg_data:/var/lib/postgresql/data
+
+  temporal:
+    container_name: temporal
+    image: temporalio/auto-setup:1.28.1
+    depends_on:
+      - temporal-postgresql
+      - temporal-elasticsearch
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=${TEMPORAL_DB_PASSWORD:?set TEMPORAL_DB_PASSWORD in .env}
+      - POSTGRES_SEEDS=temporal-postgresql
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+      - ENABLE_ES=true
+      - ES_SEEDS=temporal-elasticsearch
+      - ES_VERSION=v7
+      - TEMPORAL_NAMESPACE=default
+    networks:
+      - temporal-network
+    volumes:
+      - ./dynamicconfig:/etc/temporal/config/dynamicconfig
 
 volumes:
   agency_pg_data:
   agency_redis_data:
   agency_ollama_models:
   agency_uploads:
+  temporal_pg_data:
+  temporal_es_data:
+
+networks:
+  agency-network:
+  temporal-network:

@@ -642,6 +642,33 @@ describe(
       });
     });
 
+    describe('client accounts are portal-only', () => {
+      it("a CLIENT is refused the workspace's own APIs (plain 403, not a logout) but keeps its identity and portal", async () => {
+        for (const path of [
+          '/integrations/list',
+          '/notifications',
+          '/posts/tags',
+        ]) {
+          const res = await call('GET', path, { as: 'client' });
+          assert.equal(res.status, 403, `${path} -> ${res.status}`);
+          assert.equal(
+            res.headers.get('logout'),
+            null,
+            `${path} must not log the client out`
+          );
+        }
+        for (const path of ['/user/self', '/agency/me', '/agency/portal/me']) {
+          const res = await call('GET', path, { as: 'client' });
+          assert.equal(res.status, 200, `${path} -> ${res.status}`);
+        }
+        // Staff are unaffected.
+        const staff = await call('GET', '/integrations/list', {
+          as: 'manager',
+        });
+        assert.equal(staff.status, 200);
+      });
+    });
+
     describe('publishing report over HTTP', () => {
       it('is staff-only, validates the period, and reports stored results without invented metrics', async () => {
         assert.equal(

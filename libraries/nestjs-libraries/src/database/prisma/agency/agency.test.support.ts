@@ -20,6 +20,7 @@ import { AgencyPlatformsService } from './agency.platforms.service';
 import { AgencyAiRepository } from './agency.ai.repository';
 import { AgencyAiGatewayService } from './agency.ai.gateway.service';
 import { AgencyAiService } from './agency.ai.service';
+import { AgencyAiToolsService } from './agency.ai.tools.service';
 import {
   BotPermissions,
   TelegramAd,
@@ -128,6 +129,7 @@ export interface Harness {
   platforms: AgencyPlatformsService;
   aiGateway: AgencyAiGatewayService;
   ai: AgencyAiService;
+  aiTools: AgencyAiToolsService;
 }
 
 export async function buildHarness(): Promise<Harness> {
@@ -172,6 +174,11 @@ export async function buildHarness(): Promise<Harness> {
     access
   );
   const ai = new AgencyAiService(aiGateway);
+  const aiTools = new AgencyAiToolsService(
+    new AgencyAiRepository(prisma),
+    aiGateway,
+    access
+  );
   return {
     prisma,
     gateway,
@@ -188,6 +195,7 @@ export async function buildHarness(): Promise<Harness> {
     crm,
     aiGateway,
     ai,
+    aiTools,
   };
 }
 

@@ -14,6 +14,7 @@ A new look and layout that put every part of AgencyOS in one window, a Guide and
 - **Interface:** Search (Ctrl+K or ⌘K) works on every page, including the social scheduler, and also finds settings, guide pages and campaigns.
 - **AI:** Settings → AI and Copilot: choose the provider (local model, Claude Code, Codex CLI, Antigravity CLI, Anthropic, OpenAI, Google Gemini or any OpenAI-compatible service), the model, and the thinking level. A Test button says exactly what is wrong when something is not set up.
 - **AI:** Copilot panel (Ctrl+J or ⌘J): ask how to do something in AgencyOS, or ask for a draft. It uses the provider you chose and never changes your data on its own.
+- **AI:** Claude Code and Codex CLI are kept up to date automatically: once a day AgencyOS runs each tool's own update command, never at start-up and never while a request is using the tool. Turn it off, or press Update now, in Settings → AI and Copilot.
 - **AI:** Model lists are read live from the provider (installed local models, your API account) so they do not go out of date.
 - **Help:** A Guide for the main aim (create ads, get them approved, deliver to authorized Telegram chats, report), including how to set up a local model.
 - **Help:** A feature explainer: every part of AgencyOS with what it is for, how to use it step by step, and what it needs.
@@ -37,6 +38,7 @@ A new look and layout that put every part of AgencyOS in one window, a Guide and
 
 ### Good to know
 
+- Antigravity CLI has no documented update command, so AgencyOS shows its version but does not update it. The bundled local AI engine is updated with AgencyOS itself, not separately.
 - Antigravity CLI support is experimental: it follows the programme's documented options, and some versions hang when another program starts them. Use the Test button before relying on it.
 - Answers in the Copilot appear when complete; they are not streamed word by word yet.
 - The installer is still not code-signed, so Windows SmartScreen warns on first run.

@@ -12,8 +12,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-export const RELEASES_FILE = path.join(root, 'libraries', 'helpers', 'src', 'changelog', 'releases.json');
+const root = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..'
+);
+export const RELEASES_FILE = path.join(
+  root,
+  'libraries',
+  'helpers',
+  'src',
+  'changelog',
+  'releases.json'
+);
 export const CHANGELOG_FILE = path.join(root, 'CHANGELOG.md');
 
 export const CHANGE_TYPES = [
@@ -24,7 +35,8 @@ export const CHANGE_TYPES = [
   ['security', 'Security'],
 ];
 
-export const loadReleases = () => JSON.parse(fs.readFileSync(RELEASES_FILE, 'utf8')).releases;
+export const loadReleases = () =>
+  JSON.parse(fs.readFileSync(RELEASES_FILE, 'utf8')).releases;
 
 /** One version's body: the summary, the changes by type, then the notes. */
 export const renderBody = (release) => {
@@ -50,7 +62,12 @@ export const renderChangelog = (releases) =>
     '',
     'Every change in every version of AgencyOS, by NextGen OS, newest first. This file is generated from `libraries/helpers/src/changelog/releases.json`: edit that file, then run `node installer/build/changelog.mjs`.',
     '',
-    ...releases.flatMap((r) => [`## ${r.version} — ${r.date} · ${r.title}`, '', renderBody(r), '']),
+    ...releases.flatMap((r) => [
+      `## ${r.version} — ${r.date} · ${r.title}`,
+      '',
+      renderBody(r),
+      '',
+    ]),
   ]
     .join('\n')
     .trimEnd() + '\n';
@@ -61,7 +78,9 @@ const main = () => {
   if (args[0] === '--notes') {
     const release = releases.find((r) => r.version === args[1]);
     if (!release) {
-      console.error(`CHANGELOG: there is no entry for version ${args[1]} in releases.json. Add one before releasing.`);
+      console.error(
+        `CHANGELOG: there is no entry for version ${args[1]} in releases.json. Add one before releasing.`
+      );
       process.exit(1);
     }
     process.stdout.write(renderBody(release) + '\n');
@@ -69,9 +88,13 @@ const main = () => {
   }
   const text = renderChangelog(releases);
   if (args[0] === '--check') {
-    const current = fs.existsSync(CHANGELOG_FILE) ? fs.readFileSync(CHANGELOG_FILE, 'utf8') : '';
+    const current = fs.existsSync(CHANGELOG_FILE)
+      ? fs.readFileSync(CHANGELOG_FILE, 'utf8')
+      : '';
     if (current !== text) {
-      console.error('CHANGELOG.md is out of date. Run: node installer/build/changelog.mjs');
+      console.error(
+        'CHANGELOG.md is out of date. Run: node installer/build/changelog.mjs'
+      );
       process.exit(1);
     }
     console.log('CHANGELOG.md is up to date.');
@@ -81,4 +104,8 @@ const main = () => {
   console.log(`Wrote CHANGELOG.md (${releases.length} versions).`);
 };
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+)
+  main();

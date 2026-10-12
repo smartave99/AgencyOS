@@ -863,6 +863,34 @@ describe(
         );
       });
 
+      it('command-line tool updates: visible to staff, switchable by admins, desktop app only', async () => {
+        const view = await call('GET', '/agency/ai/tools', { as: 'manager' });
+        assert.equal(view.status, 200, view.text);
+        assert.equal(view.json.available, false, 'not the desktop app');
+        assert.deepEqual(
+          view.json.tools.map((t) => t.id),
+          ['claude-cli', 'codex-cli', 'antigravity-cli']
+        );
+        assert.equal(view.json.tools.find((t) => t.id === 'antigravity-cli').canUpdate, false);
+
+        const put = (as, body) => call('PUT', '/agency/ai/tools', { as, body });
+        assert.equal((await put('manager', { autoUpdate: false })).status, 403);
+        assert.equal((await put('owner', { autoUpdate: 'yes' })).status, 400);
+        const off = await put('owner', { autoUpdate: false });
+        assert.equal(off.status, 200, off.text);
+        assert.equal(off.json.autoUpdate, false);
+        assert.equal((await put('owner', { autoUpdate: true })).json.autoUpdate, true);
+
+        const update = await call('POST', '/agency/ai/tools/update', { as: 'owner', body: {} });
+        assert.equal(update.status, 400);
+        assert.match(update.text, /desktop app/);
+        assert.equal(
+          (await call('POST', '/agency/ai/tools/update', { as: 'manager', body: {} })).status,
+          403
+        );
+        assert.equal((await call('GET', '/agency/ai/tools', { as: 'client' })).status, 403);
+      });
+
       it('Test and chat report a provider problem plainly instead of failing silently', async () => {
         await call('PUT', '/agency/ai/settings', {
           as: 'owner',

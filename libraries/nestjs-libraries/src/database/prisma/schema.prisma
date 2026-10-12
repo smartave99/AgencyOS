@@ -2299,6 +2299,20 @@ model AgencyAiConfig {
   organization Organization @relation(fields: [orgId], references: [id])
 }
 
+// One row per AI command-line tool installed on the computer (Claude Code, Codex CLI,
+// Antigravity CLI): whether AgencyOS keeps it up to date and what the last check found.
+// It belongs to the machine, not to an organization.
+model AgencyAiTool {
+  id            String    @id
+  autoUpdate    Boolean   @default(true)
+  version       String?
+  status        String    @default("unknown")
+  message       String?
+  lastCheckedAt DateTime?
+  lastUpdatedAt DateTime?
+  updatedAt     DateTime  @updatedAt
+}
+
 // Single-row-per-name lease used so only one process consumes Telegram getUpdates.
 model LeaderLease {
   name       String   @id

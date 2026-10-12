@@ -1,6 +1,13 @@
 'use client';
 
-import { FC, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  FC,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
 import i18next from 'i18next';
@@ -17,6 +24,7 @@ import {
   Icon,
   IconName,
 } from '@gitroom/frontend/components/agency/agency.icons';
+import { useWhatsNew } from '@gitroom/frontend/components/guide/guide.data';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 
@@ -30,7 +38,7 @@ const initialsOf = (name?: string | null, email?: string | null) => {
   const source = (name || email || 'A').trim();
   const words = source.split(/[\s@._-]+/).filter(Boolean);
   return (
-    (words[0]?.[0] ?? 'A') + (words.length > 1 ? (words[1]?.[0] ?? '') : '')
+    (words[0]?.[0] ?? 'A') + (words.length > 1 ? words[1]?.[0] ?? '' : '')
   ).toUpperCase();
 };
 
@@ -99,6 +107,7 @@ export const AccountMenu: FC = () => {
   const user = useUser();
   const modals = useModals();
   const { isLocal } = useVariables();
+  const { unseen } = useWhatsNew();
   const [open, setOpen] = useState(false);
   const ref = useClickAway<HTMLDivElement>(() => setOpen(false));
 
@@ -166,7 +175,16 @@ export const AccountMenu: FC = () => {
           <Row icon="help" href="/guide" onClick={close}>
             {t('guide', 'Guide')}
           </Row>
-          <Row icon="flag" href="/guide/changelog" onClick={close}>
+          <Row
+            icon="flag"
+            href="/guide/changelog"
+            onClick={close}
+            trailing={
+              unseen ? (
+                <span className="h-2 w-2 rounded-full bg-[var(--ag-accent)]" />
+              ) : undefined
+            }
+          >
             {t('whats_new', 'What’s new')}
           </Row>
           <Row

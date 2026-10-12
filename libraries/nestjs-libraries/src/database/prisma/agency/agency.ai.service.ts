@@ -76,7 +76,9 @@ export class AgencyAiService {
           };
         }
         this.logger.warn(
-          `${result.provider} reply did not have the three lists (attempt ${attempt}): ${result.text.slice(
+          `${
+            result.provider
+          } reply did not have the three lists (attempt ${attempt}): ${result.text.slice(
             0,
             300
           )}`
@@ -86,7 +88,9 @@ export class AgencyAiService {
     } catch (e: any) {
       fallbackReason =
         e instanceof AiProviderError ? e.message : 'The AI request failed.';
-      this.logger.warn(`AI copy generation fell back to templates: ${e.message}`);
+      this.logger.warn(
+        `AI copy generation fell back to templates: ${e.message}`
+      );
     }
 
     // High-quality heuristic copywriting engine (zero-dependency fallback)
@@ -109,7 +113,9 @@ export class AgencyAiService {
           {
             role: 'user',
             content: `Tone: ${tone}\n${
-              params.instructions ? `Instructions: ${params.instructions}\n` : ''
+              params.instructions
+                ? `Instructions: ${params.instructions}\n`
+                : ''
             }Text:\n${params.text}`,
           },
         ],

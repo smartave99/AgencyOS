@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsObject,
   IsOptional,
@@ -51,7 +52,10 @@ export class UpdateAiSettingsDto {
    */
   @IsOptional()
   @IsObject()
-  providers?: Record<string, { model?: string; baseUrl?: string; apiKey?: string }>;
+  providers?: Record<
+    string,
+    { model?: string; baseUrl?: string; apiKey?: string }
+  >;
 }
 
 export class AiProviderRefDto {
@@ -82,4 +86,9 @@ export class AiChatDto {
   @IsString()
   @MaxLength(200)
   page?: string;
+}
+
+export class AiToolsDto {
+  @IsBoolean()
+  autoUpdate: boolean;
 }

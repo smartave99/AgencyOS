@@ -7,6 +7,8 @@ import { Icon } from '@gitroom/frontend/components/agency/agency.icons';
 import { openCommandPalette } from '@gitroom/frontend/components/agency/command-palette.component';
 import { matchNav } from '@gitroom/frontend/components/new-layout/nav.config';
 import { AccountMenu } from '@gitroom/frontend/components/new-layout/account.menu';
+import { openCopilot } from '@gitroom/frontend/components/new-layout/copilot.panel';
+import { useCan } from '@gitroom/frontend/components/agency/agency.hooks';
 import { useTheme } from '@gitroom/frontend/components/layout/theme';
 import NotificationComponent from '@gitroom/frontend/components/notifications/notification.component';
 import { OrganizationSelector } from '@gitroom/frontend/components/layout/organization.selector';
@@ -15,7 +17,7 @@ import { useT } from '@gitroom/react/translation/get.transation.service.client';
 
 const IconButton: FC<{
   label: string;
-  icon: 'menu' | 'panel' | 'sun' | 'moon';
+  icon: 'menu' | 'panel' | 'sun' | 'moon' | 'sparkles';
   onClick: () => void;
   className?: string;
 }> = ({ label, icon, onClick, className }) => (
@@ -41,6 +43,7 @@ export const TopBar: FC<{
   const t = useT();
   const pathname = usePathname();
   const { isLocal } = useVariables();
+  const { isClient } = useCan();
   const { resolved, setPreference } = useTheme();
   const [mac, setMac] = useState(true);
   useEffect(() => {
@@ -117,6 +120,13 @@ export const TopBar: FC<{
           <Icon name="search" size={18} />
         </button>
         {!isLocal && <OrganizationSelector />}
+        {!isClient && (
+          <IconButton
+            label={t('open_copilot', 'Copilot (Ctrl+J)')}
+            icon="sparkles"
+            onClick={() => openCopilot()}
+          />
+        )}
         <IconButton
           label={
             resolved === 'dark'

@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AgencyAiService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.service';
+import { AgencyAiToolsService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.tools.service';
 import {
   AgencyAiGatewayService,
   AiProviderError,
@@ -28,6 +29,7 @@ import {
   AiChatDto,
   AiProviderId,
   AiProviderRefDto,
+  AiToolsDto,
   UpdateAiSettingsDto,
 } from '@gitroom/nestjs-libraries/dtos/agency/ai.settings.dto';
 import {
@@ -44,6 +46,7 @@ export class AgencyAiController {
   constructor(
     private readonly aiService: AgencyAiService,
     private readonly gateway: AgencyAiGatewayService,
+    private readonly tools: AgencyAiToolsService,
     private readonly access: AgencyAccessService
   ) {}
 
@@ -76,7 +79,10 @@ export class AgencyAiController {
     } catch (error) {
       // Provider problems carry advice the person can act on, so they are shown as they are.
       if (error instanceof AiProviderError) {
-        throw new HttpException({ message: error.message, code: error.code }, 502);
+        throw new HttpException(
+          { message: error.message, code: error.code },
+          502
+        );
       }
       throw error;
     }
@@ -117,5 +123,26 @@ export class AgencyAiController {
     @Body() body: AiProviderRefDto
   ) {
     return this.gateway.test(actor, body.provider);
+  }
+
+  @Get('/tools')
+  listTools(@AgencyActorFromRequest() actor: AgencyActor) {
+    return this.tools.list(actor);
+  }
+
+  @Put('/tools')
+  setToolUpdates(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Body() body: AiToolsDto
+  ) {
+    return this.tools.setAutoUpdate(actor, body.autoUpdate);
+  }
+
+  @Post('/tools/update')
+  updateTools(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Body() body: AiProviderRefDto
+  ) {
+    return this.tools.updateNow(actor, body.provider);
   }
 }

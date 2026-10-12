@@ -35,45 +35,129 @@ export const NAV_GROUPS: NavGroup[] = [
     id: 'workspace',
     label: 'Workspace',
     items: [
-      { id: 'dashboard', label: 'Dashboard', href: '/agency/dashboard', icon: 'grid', permission: 'dashboard:read' },
-      { id: 'clients', label: 'Clients', href: '/agency/clients', icon: 'users', permission: 'client:read' },
-      { id: 'campaigns', label: 'Campaigns', href: '/agency/campaigns', icon: 'megaphone', permission: 'campaign:read' },
-      { id: 'approvals', label: 'Approvals', href: '/agency/approvals', icon: 'check', permission: 'campaign:read' },
+      {
+        id: 'dashboard',
+        label: 'Dashboard',
+        href: '/agency/dashboard',
+        icon: 'grid',
+        permission: 'dashboard:read',
+      },
+      {
+        id: 'clients',
+        label: 'Clients',
+        href: '/agency/clients',
+        icon: 'users',
+        permission: 'client:read',
+      },
+      {
+        id: 'campaigns',
+        label: 'Campaigns',
+        href: '/agency/campaigns',
+        icon: 'megaphone',
+        permission: 'campaign:read',
+      },
+      {
+        id: 'approvals',
+        label: 'Approvals',
+        href: '/agency/approvals',
+        icon: 'check',
+        permission: 'campaign:read',
+      },
     ],
   },
   {
     id: 'delivery',
     label: 'Delivery',
     items: [
-      { id: 'telegram', label: 'Telegram', href: '/agency/telegram', icon: 'send', permission: 'destination:read' },
-      { id: 'accounts', label: 'Connected accounts', href: '/agency/accounts', icon: 'link', permission: 'accounts:read' },
-      { id: 'reports', label: 'Reports', href: '/agency/reports', icon: 'doc', permission: 'analytics:read' },
+      {
+        id: 'telegram',
+        label: 'Telegram',
+        href: '/agency/telegram',
+        icon: 'send',
+        permission: 'destination:read',
+      },
+      {
+        id: 'accounts',
+        label: 'Connected accounts',
+        href: '/agency/accounts',
+        icon: 'link',
+        permission: 'accounts:read',
+      },
+      {
+        id: 'reports',
+        label: 'Reports',
+        href: '/agency/reports',
+        icon: 'doc',
+        permission: 'analytics:read',
+      },
     ],
   },
   {
     id: 'grow',
     label: 'Grow',
     items: [
-      { id: 'crm', label: 'Sales pipeline', href: '/agency/crm', icon: 'chart', permission: 'crm:read' },
-      { id: 'knowledge', label: 'Knowledge base', href: '/agency/intelligence', icon: 'book', permission: 'intelligence:read' },
-      { id: 'invoices', label: 'Invoices', href: '/agency/billing', icon: 'card', permission: 'billing:read' },
+      {
+        id: 'crm',
+        label: 'Sales pipeline',
+        href: '/agency/crm',
+        icon: 'chart',
+        permission: 'crm:read',
+      },
+      {
+        id: 'knowledge',
+        label: 'Knowledge base',
+        href: '/agency/intelligence',
+        icon: 'book',
+        permission: 'intelligence:read',
+      },
+      {
+        id: 'invoices',
+        label: 'Invoices',
+        href: '/agency/billing',
+        icon: 'card',
+        permission: 'billing:read',
+      },
     ],
   },
   {
     id: 'scheduler',
     label: 'Social scheduler',
     items: [
-      { id: 'calendar', label: 'Calendar', href: '/launches', icon: 'calendar' },
+      {
+        id: 'calendar',
+        label: 'Calendar',
+        href: '/launches',
+        icon: 'calendar',
+      },
       { id: 'media', label: 'Media library', href: '/media', icon: 'image' },
-      { id: 'analytics', label: 'Channel analytics', href: '/analytics', icon: 'bars' },
+      {
+        id: 'analytics',
+        label: 'Channel analytics',
+        href: '/analytics',
+        icon: 'bars',
+      },
     ],
   },
   {
     id: 'admin',
     label: 'Admin',
     items: [
-      { id: 'team', label: 'Team and roles', href: '/agency/team', icon: 'shield', permission: 'team:read', hideWhenLocal: true },
-      { id: 'portal', label: 'Client portal', href: '/agency/portal', icon: 'flag', permission: 'portal:view', hideWhenLocal: true },
+      {
+        id: 'team',
+        label: 'Team and roles',
+        href: '/agency/team',
+        icon: 'shield',
+        permission: 'team:read',
+        hideWhenLocal: true,
+      },
+      {
+        id: 'portal',
+        label: 'Client portal',
+        href: '/agency/portal',
+        icon: 'flag',
+        permission: 'portal:view',
+        hideWhenLocal: true,
+      },
     ],
   },
 ];
@@ -81,7 +165,13 @@ export const NAV_GROUPS: NavGroup[] = [
 /** Pinned to the bottom of the sidebar. */
 export const NAV_FOOTER: NavItem[] = [
   { id: 'guide', label: 'Guide', href: '/guide', icon: 'help' },
-  { id: 'settings', label: 'Settings', href: '/settings', icon: 'sliders', roles: ['ADMIN', 'USER', 'SUPERADMIN'] },
+  {
+    id: 'settings',
+    label: 'Settings',
+    href: '/settings',
+    icon: 'sliders',
+    roles: ['ADMIN', 'USER', 'SUPERADMIN'],
+  },
 ];
 
 export interface NavMatch {
@@ -92,11 +182,16 @@ export interface NavMatch {
 /** The deepest item whose address is a prefix of the current page. */
 export const matchNav = (pathname: string): NavMatch | undefined => {
   const all: NavMatch[] = [
-    ...NAV_GROUPS.flatMap((group) => group.items.map((item) => ({ group, item }))),
+    ...NAV_GROUPS.flatMap((group) =>
+      group.items.map((item) => ({ group, item }))
+    ),
     ...NAV_FOOTER.map((item) => ({ item })),
   ];
   return all
-    .filter(({ item }) => pathname === item.href || pathname.startsWith(`${item.href}/`))
+    .filter(
+      ({ item }) =>
+        pathname === item.href || pathname.startsWith(`${item.href}/`)
+    )
     .sort((a, b) => b.item.href.length - a.item.href.length)[0];
 };
 
@@ -113,7 +208,8 @@ export const useNavigation = () => {
   const allowed = useCallback(
     (item: NavItem) => {
       if (isLocal && item.hideWhenLocal) return false;
-      if (item.roles && !item.roles.includes(user?.role as string)) return false;
+      if (item.roles && !item.roles.includes(user?.role as string))
+        return false;
       if (!agency) return true;
       if (agency.role === 'CLIENT') return item.permission === 'portal:view';
       return !item.permission || agency.permissions.includes(item.permission);

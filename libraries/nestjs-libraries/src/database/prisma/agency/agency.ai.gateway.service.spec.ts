@@ -145,13 +145,18 @@ describe('AgencyAiGatewayService - API providers', () => {
   it('Anthropic: sends the key as a header and a thinking budget for the level', async () => {
     const gateway = await setup('anthropic', {
       thinking: 'medium',
-      providers: { anthropic: { apiKey: 'sk-ant', model: 'claude-sonnet-5-5' } },
+      providers: {
+        anthropic: { apiKey: 'sk-ant', model: 'claude-sonnet-5-5' },
+      },
     });
-    const fetchMock = jest
-      .fn()
-      .mockResolvedValue(
-        json({ content: [{ type: 'thinking', thinking: '...' }, { type: 'text', text: 'ready' }] })
-      );
+    const fetchMock = jest.fn().mockResolvedValue(
+      json({
+        content: [
+          { type: 'thinking', thinking: '...' },
+          { type: 'text', text: 'ready' },
+        ],
+      })
+    );
     global.fetch = fetchMock as any;
     const result = await ask(gateway);
     expect(result.text).toBe('ready');
@@ -171,12 +176,16 @@ describe('AgencyAiGatewayService - API providers', () => {
     });
     const fetchMock = jest
       .fn()
-      .mockResolvedValueOnce(json({ error: 'thinking not supported' }, false, 400))
+      .mockResolvedValueOnce(
+        json({ error: 'thinking not supported' }, false, 400)
+      )
       .mockResolvedValueOnce(json({ content: [{ type: 'text', text: 'ok' }] }));
     global.fetch = fetchMock as any;
     const result = await ask(gateway);
     expect(result.text).toBe('ok');
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body).thinking).toBeUndefined();
+    expect(
+      JSON.parse(fetchMock.mock.calls[1][1].body).thinking
+    ).toBeUndefined();
     expect(result.notes.join(' ')).toMatch(/without it/);
   });
 
@@ -192,7 +201,9 @@ describe('AgencyAiGatewayService - API providers', () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning_effort).toBe(
       'low'
     );
-    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer sk-oa');
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
+      'Bearer sk-oa'
+    );
 
     await gateway.updateSettings(ACTOR, {
       providers: { openai: { model: 'gpt-4o-mini' } },
@@ -213,7 +224,11 @@ describe('AgencyAiGatewayService - API providers', () => {
     const fetchMock = jest.fn().mockResolvedValue(
       json({
         candidates: [
-          { content: { parts: [{ thought: true, text: 'hmm' }, { text: 'ready' }] } },
+          {
+            content: {
+              parts: [{ thought: true, text: 'hmm' }, { text: 'ready' }],
+            },
+          },
         ],
       })
     );
@@ -266,7 +281,9 @@ describe('AgencyAiGatewayService - API providers', () => {
 
     global.fetch = jest.fn().mockResolvedValue(json({}, false, 429)) as any;
     expect((await ask(gateway).catch((e) => e)).code).toBe('rate_limited');
-    global.fetch = jest.fn().mockRejectedValue(new Error('ECONNREFUSED')) as any;
+    global.fetch = jest
+      .fn()
+      .mockRejectedValue(new Error('ECONNREFUSED')) as any;
     expect((await ask(gateway).catch((e) => e)).code).toBe('unreachable');
   });
 
@@ -279,13 +296,18 @@ describe('AgencyAiGatewayService - API providers', () => {
 
   it('the Test button reports failure instead of throwing', async () => {
     const gateway = await setup('local');
-    global.fetch = jest.fn().mockRejectedValue(new Error('ECONNREFUSED')) as any;
+    global.fetch = jest
+      .fn()
+      .mockRejectedValue(new Error('ECONNREFUSED')) as any;
     const result = await gateway.test(ACTOR);
     expect(result).toMatchObject({ ok: false, code: 'unreachable' });
     global.fetch = jest
       .fn()
       .mockResolvedValue(json({ message: { content: 'ready' } })) as any;
-    expect(await gateway.test(ACTOR)).toMatchObject({ ok: true, sample: 'ready' });
+    expect(await gateway.test(ACTOR)).toMatchObject({
+      ok: true,
+      sample: 'ready',
+    });
   });
 
   it('reads JSON out of replies with fences or chatter', () => {
@@ -302,33 +324,68 @@ describe('AgencyAiGatewayService - command-line providers', () => {
   it('builds a fixed, tool-free command for each program', () => {
     const g = gateway();
     expect(
-      g.buildCliCommand('claude-cli', { model: 'opus', thinking: 'high', prompt: 'P' })
+      g.buildCliCommand('claude-cli', {
+        model: 'opus',
+        thinking: 'high',
+        prompt: 'P',
+      })
     ).toEqual({
       args: [
-        '-p', '--output-format', 'text', '--no-session-persistence',
-        '--tools', '', '--model', 'opus', '--effort', 'high',
+        '-p',
+        '--output-format',
+        'text',
+        '--no-session-persistence',
+        '--tools',
+        '',
+        '--model',
+        'opus',
+        '--effort',
+        'high',
       ],
       env: {},
       stdin: 'P',
     });
     expect(
-      g.buildCliCommand('claude-cli', { model: null, thinking: 'off', prompt: 'P' })
-        .env
+      g.buildCliCommand('claude-cli', {
+        model: null,
+        thinking: 'off',
+        prompt: 'P',
+      }).env
     ).toEqual({ MAX_THINKING_TOKENS: '0' });
     expect(
-      g.buildCliCommand('codex-cli', { model: 'gpt-5', thinking: 'medium', prompt: 'P' })
+      g.buildCliCommand('codex-cli', {
+        model: 'gpt-5',
+        thinking: 'medium',
+        prompt: 'P',
+      })
     ).toEqual({
       args: [
-        'exec', '--skip-git-repo-check', '--ephemeral', '--sandbox', 'read-only',
-        '--model', 'gpt-5', '-c', 'model_reasoning_effort=medium', '-',
+        'exec',
+        '--skip-git-repo-check',
+        '--ephemeral',
+        '--sandbox',
+        'read-only',
+        '--model',
+        'gpt-5',
+        '-c',
+        'model_reasoning_effort=medium',
+        '-',
       ],
       env: {},
       stdin: 'P',
     });
     const agy = g.buildCliCommand('antigravity-cli', {
-      model: null, thinking: 'low', prompt: 'P',
+      model: null,
+      thinking: 'low',
+      prompt: 'P',
     });
-    expect(agy.args).toEqual(['--print', '--output-format', 'text', '--effort', 'low']);
+    expect(agy.args).toEqual([
+      '--print',
+      '--output-format',
+      'text',
+      '--effort',
+      'low',
+    ]);
     expect(agy.stdin).toBeUndefined();
   });
 
@@ -374,21 +431,30 @@ describe('AgencyAiGatewayService - command-line providers', () => {
     it('explains a missing program, a signed-out program and a crash', async () => {
       const g = await use('codex-cli').catch((e) => e);
       // Not installed
-      const missing = await g.complete('org-1', {
-        messages: [{ role: 'user', content: 'x' }],
-      }).catch((e: any) => e);
+      const missing = await g
+        .complete('org-1', {
+          messages: [{ role: 'user', content: 'x' }],
+        })
+        .catch((e: any) => e);
       expect(missing.code).toBe('not_installed');
 
-      await install('codex', 'echo "Error: not logged in, run codex login" >&2; exit 1');
-      const signedOut = await g.complete('org-1', {
-        messages: [{ role: 'user', content: 'x' }],
-      }).catch((e: any) => e);
+      await install(
+        'codex',
+        'echo "Error: not logged in, run codex login" >&2; exit 1'
+      );
+      const signedOut = await g
+        .complete('org-1', {
+          messages: [{ role: 'user', content: 'x' }],
+        })
+        .catch((e: any) => e);
       expect(signedOut.code).toBe('not_signed_in');
 
       await install('codex', 'echo "boom" >&2; exit 3');
-      const crashed = await g.complete('org-1', {
-        messages: [{ role: 'user', content: 'x' }],
-      }).catch((e: any) => e);
+      const crashed = await g
+        .complete('org-1', {
+          messages: [{ role: 'user', content: 'x' }],
+        })
+        .catch((e: any) => e);
       expect(crashed.code).toBe('bad_reply');
       expect(crashed.message).toContain('code 3');
     });
@@ -396,10 +462,12 @@ describe('AgencyAiGatewayService - command-line providers', () => {
     it('stops a program that does not answer', async () => {
       await install('claude', 'sleep 5');
       const g = await use('claude-cli');
-      const error = await g.complete('org-1', {
-        messages: [{ role: 'user', content: 'x' }],
-        timeoutMs: 300,
-      }).catch((e: any) => e);
+      const error = await g
+        .complete('org-1', {
+          messages: [{ role: 'user', content: 'x' }],
+          timeoutMs: 300,
+        })
+        .catch((e: any) => e);
       expect(error.code).toBe('timeout');
     });
 

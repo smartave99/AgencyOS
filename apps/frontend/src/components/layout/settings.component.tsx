@@ -30,7 +30,8 @@ import { Sets } from '@gitroom/frontend/components/sets/sets';
 import { SignaturesComponent } from '@gitroom/frontend/components/settings/signatures.component';
 import { Autopost } from '@gitroom/frontend/components/autopost/autopost';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
-import { SVGLine } from '@gitroom/frontend/components/launches/launches.component';
+import { AiSettingsComponent } from '@gitroom/frontend/components/settings/ai.settings.component';
+import { AppearanceComponent } from '@gitroom/frontend/components/settings/appearance.component';
 import { GlobalSettings } from '@gitroom/frontend/components/settings/global.settings';
 import { AppsComponent } from '@gitroom/frontend/components/settings/apps.component';
 import { ThirdPartyComponent } from '@gitroom/frontend/components/third-parties/third-party.component';
@@ -86,43 +87,90 @@ export const SettingsPopup: FC<{
 
   const t = useT();
   const list = useMemo(() => {
-    const arr = [];
-    arr.push({ tab: 'global_settings', label: t('global_settings', 'Global Settings') });
-    // Populate tabs based on user permissions
+    const arr: Array<{
+      tab: string;
+      label: string;
+      section: 'personal' | 'scheduler';
+    }> = [];
+    // Personal: how AgencyOS looks, which AI it uses and where its files are.
+    arr.push({
+      tab: 'appearance',
+      label: t('appearance', 'Appearance'),
+      section: 'personal',
+    });
+    arr.push({
+      tab: 'ai',
+      label: t('ai_and_copilot', 'AI and Copilot'),
+      section: 'personal',
+    });
+    if (isLocal) {
+      arr.push({
+        tab: 'storage',
+        label: t('storage', 'Storage'),
+        section: 'personal',
+      });
+    }
+    // The social scheduler's own settings.
+    arr.push({
+      tab: 'global_settings',
+      label: t('general', 'General'),
+      section: 'scheduler',
+    });
     // The agents page explains connecting hosted AI tools; a local-only app has no use for it.
     if (user?.tier?.public_api && isGeneral && showLogout && !isLocal) {
-      arr.push({ tab: 'agents', label: t('agents', 'Agents') });
+      arr.push({
+        tab: 'agents',
+        label: t('agents', 'Agents'),
+        section: 'scheduler',
+      });
     }
     if (user?.tier?.team_members && isGeneral && user?.role !== 'USER') {
-      arr.push({ tab: 'teams', label: t('teams', 'Teams') });
+      arr.push({
+        tab: 'teams',
+        label: t('teams', 'Teams'),
+        section: 'scheduler',
+      });
     }
     if (user?.tier?.webhooks) {
-      arr.push({ tab: 'webhooks', label: t('webhooks_1', 'Webhooks') });
+      arr.push({
+        tab: 'webhooks',
+        label: t('webhooks_1', 'Webhooks'),
+        section: 'scheduler',
+      });
     }
     if (user?.tier?.autoPost) {
-      arr.push({ tab: 'autopost', label: t('auto_post', 'Auto Post') });
+      arr.push({
+        tab: 'autopost',
+        label: t('auto_post', 'Auto Post'),
+        section: 'scheduler',
+      });
     }
     if (user?.tier.current !== 'FREE') {
-      arr.push({ tab: 'sets', label: t('sets', 'Sets') });
+      arr.push({ tab: 'sets', label: t('sets', 'Sets'), section: 'scheduler' });
+      arr.push({
+        tab: 'signatures',
+        label: t('signatures', 'Signatures'),
+        section: 'scheduler',
+      });
     }
-    if (user?.tier.current !== 'FREE') {
-      arr.push({ tab: 'signatures', label: t('signatures', 'Signatures') });
-    }
-    if (isLocal) {
-      arr.push({ tab: 'storage', label: t('storage', 'Storage') });
-    }
-    arr.push({ tab: 'integrations', label: t('integrations', 'Integrations') });
-    arr.push({ tab: 'plugs', label: t('plugs', 'Plugs') });
-    arr.push({ tab: 'apps', label: t('apps', 'Apps') });
+    arr.push({
+      tab: 'integrations',
+      label: t('integrations', 'Integrations'),
+      section: 'scheduler',
+    });
+    arr.push({
+      tab: 'plugs',
+      label: t('plugs', 'Plugs'),
+      section: 'scheduler',
+    });
+    arr.push({ tab: 'apps', label: t('apps', 'Apps'), section: 'scheduler' });
 
     return arr;
   }, [user, isGeneral, isLocal, showLogout, t]);
 
   const [tab, setTab] = useState(() => {
     const requested = url.get('tab');
-    return list.some((p) => p.tab === requested)
-      ? requested!
-      : 'global_settings';
+    return list.some((p) => p.tab === requested) ? requested! : list[0].tab;
   });
 
   useEffect(() => {
@@ -131,29 +179,42 @@ export const SettingsPopup: FC<{
 
   return (
     <>
-      <div className="bg-newBgColorInner p-[20px] mobile:p-[12px] flex flex-col transition-all w-[260px] mobile:w-full">
-        <div className="flex flex-1 flex-col gap-[15px] mobile:flex-row mobile:gap-[8px] mobile:overflow-x-auto mobile:pb-[6px] scrollbar scrollbar-thumb-fifth scrollbar-track-newBgColor">
-          {list.map(({ tab: tabKey, label }) => (
+      <div className="ag-scope bg-newBgColorInner p-[20px] mobile:p-[12px] flex flex-col w-[260px] mobile:w-full self-start sticky top-14 mobile:static">
+        <nav
+          aria-label={t('settings', 'Settings')}
+          className="flex flex-1 flex-col gap-5 mobile:flex-row mobile:gap-2 mobile:overflow-x-auto mobile:pb-[6px]"
+        >
+          {(['personal', 'scheduler'] as const).map((section) => (
             <div
-              key={tabKey}
-              className={clsx(
-                'cursor-pointer flex items-center gap-[12px] group/profile hover:bg-boxHover rounded-e-[8px] mobile:shrink-0 mobile:whitespace-nowrap mobile:rounded-[8px] mobile:px-[12px] mobile:py-[8px]',
-                tabKey === tab && 'bg-boxHover'
-              )}
-              onClick={() => setTab(tabKey)}
+              key={section}
+              className="flex flex-col gap-0.5 mobile:flex-row mobile:gap-2"
             >
-              <div
-                className={clsx(
-                  'h-full w-[4px] rounded-s-[3px] opacity-0 group-hover/profile:opacity-100 transition-opacity mobile:hidden',
-                  tabKey === tab && 'opacity-100'
-                )}
-              >
-                <SVGLine />
+              <div className="px-3 pb-1 text-[11px] font-medium uppercase tracking-[0.06em] text-textItemBlur/80 mobile:hidden">
+                {section === 'personal'
+                  ? t('settings_personal', 'Personal')
+                  : t('settings_scheduler', 'Social scheduler')}
               </div>
-              {label}
+              {list
+                .filter((item) => item.section === section)
+                .map(({ tab: tabKey, label }) => (
+                  <button
+                    key={tabKey}
+                    type="button"
+                    aria-current={tabKey === tab ? 'page' : undefined}
+                    onClick={() => setTab(tabKey)}
+                    className={clsx(
+                      'h-10 rounded-xl px-3 text-start text-[14px] font-medium transition-colors mobile:shrink-0 mobile:whitespace-nowrap',
+                      tabKey === tab
+                        ? 'bg-[var(--ag-accent-soft)] text-[color:var(--ag-accent-text)]'
+                        : 'text-textItemBlur hover:bg-boxHover hover:text-newTextColor'
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
             </div>
           ))}
-        </div>
+        </nav>
         <div>
           {showLogout && (
             <div className="mt-4 mobile:mt-[8px]">
@@ -174,6 +235,8 @@ export const SettingsPopup: FC<{
                 !getRef && 'rounded-[4px]'
               )}
             >
+              {tab === 'appearance' && <AppearanceComponent />}
+              {tab === 'ai' && <AiSettingsComponent />}
               {tab === 'global_settings' && (
                 <div>
                   <GlobalSettings />

@@ -154,6 +154,8 @@ const ENV_NEVER_SHARED = [
 export class AgencyAiGatewayService {
   private readonly logger = new Logger(AgencyAiGatewayService.name);
   private cliInFlight = 0;
+  /** Tools being updated right now: the program must not be started or replaced under a run. */
+  private readonly updating = new Set<AiProviderId>();
 
   constructor(
     private readonly repo: AgencyAiRepository,
@@ -230,7 +232,8 @@ export class AgencyAiGatewayService {
         id: 'anthropic',
         label: 'Anthropic API',
         kind: 'api',
-        summary: 'Claude models over the Anthropic API, billed to your API key.',
+        summary:
+          'Claude models over the Anthropic API, billed to your API key.',
         setup: 'Create an API key in the Anthropic Console and paste it here.',
         needsKey: true,
         baseUrl: { value: 'https://api.anthropic.com', editable: false },
@@ -252,7 +255,8 @@ export class AgencyAiGatewayService {
         id: 'gemini',
         label: 'Google Gemini API',
         kind: 'api',
-        summary: 'Gemini models over the Google AI API, billed to your API key.',
+        summary:
+          'Gemini models over the Google AI API, billed to your API key.',
         setup: 'Create an API key in Google AI Studio and paste it here.',
         needsKey: true,
         baseUrl: {
@@ -956,7 +960,9 @@ export class AgencyAiGatewayService {
       lines.push('Conversation so far:');
       for (const message of req.messages) {
         lines.push(
-          `${message.role === 'user' ? 'User' : 'Assistant'}: ${message.content}`
+          `${message.role === 'user' ? 'User' : 'Assistant'}: ${
+            message.content
+          }`
         );
       }
       lines.push('', 'Write only the Assistant’s next reply.');
@@ -974,6 +980,12 @@ export class AgencyAiGatewayService {
       thinking: r.thinking,
       prompt,
     });
+    if (this.updating.has(r.spec.id)) {
+      throw new AiProviderError(
+        'busy',
+        `${r.spec.label} is being updated. Try again in a minute.`
+      );
+    }
     if (this.cliInFlight >= CLI_CONCURRENCY) {
       throw new AiProviderError(
         'busy',
@@ -999,7 +1011,7 @@ export class AgencyAiGatewayService {
     }
   }
 
-  private async findBinary(name: string): Promise<string | null> {
+  async findBinary(name: string): Promise<string | null> {
     const win = process.platform === 'win32';
     const home = os.homedir();
     const dirs = [
@@ -1013,9 +1025,7 @@ export class AgencyAiGatewayService {
         ? [path.join(process.env.APPDATA, 'npm')]
         : []),
     ].filter(Boolean);
-    const names = win
-      ? [`${name}.exe`, `${name}.cmd`, `${name}.bat`]
-      : [name];
+    const names = win ? [`${name}.exe`, `${name}.cmd`, `${name}.bat`] : [name];
     for (const dir of dirs) {
       for (const candidate of names) {
         const full = path.join(dir, candidate);
@@ -1052,6 +1062,8 @@ export class AgencyAiGatewayService {
       stdin?: string;
       /** One free-text argument appended after the checked ones. */
       promptArg?: string;
+      /** Accept a clean exit with no output (an updater that says nothing). */
+      acceptEmpty?: boolean;
       env?: Record<string, string>;
       timeoutMs: number;
     }
@@ -1063,7 +1075,8 @@ export class AgencyAiGatewayService {
         `${spec.label} is not installed (the “${spec.binary}” program was not found). ${spec.setup}`
       );
     }
-    const cmdShim = process.platform === 'win32' && /\.(cmd|bat)$/i.test(binary);
+    const cmdShim =
+      process.platform === 'win32' && /\.(cmd|bat)$/i.test(binary);
     if (args.some((a) => !CLI_SAFE_ARG.test(a))) {
       throw new HttpException('Unsafe command-line argument refused', 400);
     }
@@ -1153,13 +1166,22 @@ export class AgencyAiGatewayService {
       child.on('close', (code) =>
         finish(() => {
           this.logger.log(
-            `${spec.id} finished with code ${code} in ${Date.now() - started} ms`
+            `${spec.id} finished with code ${code} in ${
+              Date.now() - started
+            } ms`
           );
-          if (code === 0 && stdout.trim()) return resolve(stdout);
-          const tail = (stderr || stdout).trim().split('\n').slice(-4).join(' ');
-          const signedOut = /log ?in|sign ?in|authenticat|not logged|api key|unauthori[sz]ed|credential/i.test(
-            tail
-          );
+          if (code === 0 && (stdout.trim() || options.acceptEmpty)) {
+            return resolve(stdout.trim() || stderr);
+          }
+          const tail = (stderr || stdout)
+            .trim()
+            .split('\n')
+            .slice(-4)
+            .join(' ');
+          const signedOut =
+            /log ?in|sign ?in|authenticat|not logged|api key|unauthori[sz]ed|credential/i.test(
+              tail
+            );
           reject(
             signedOut
               ? new AiProviderError(
@@ -1178,6 +1200,44 @@ export class AgencyAiGatewayService {
       if (options.stdin !== undefined) child.stdin.write(options.stdin);
       child.stdin.end();
     });
+  }
+
+  /** The command-line tools this computer could have, for the updater and the settings page. */
+  cliTools() {
+    return this.catalog()
+      .filter((spec) => spec.kind === 'cli')
+      .map((spec) => ({
+        id: spec.id,
+        label: spec.label,
+        binary: spec.binary!,
+      }));
+  }
+
+  activeCliRuns() {
+    return this.cliInFlight;
+  }
+
+  /** While true, new requests to that tool wait; an update replaces its program file. */
+  setUpdating(id: AiProviderId, value: boolean) {
+    if (value) this.updating.add(id);
+    else this.updating.delete(id);
+  }
+
+  /** Runs one of the tool's own fixed commands (for example its updater). */
+  runTool(
+    id: AiProviderId,
+    args: string[],
+    timeoutMs: number
+  ): Promise<string> {
+    return this.runCli(this.spec(id), args, { timeoutMs, acceptEmpty: true });
+  }
+
+  /** The first line of `--version`, or undefined when the tool is missing or silent. */
+  async toolVersion(id: AiProviderId): Promise<string | undefined> {
+    return this.runTool(id, ['--version'], 8000).then(
+      (out) => out.trim().split('\n')[0].slice(0, 80) || undefined,
+      () => undefined
+    );
   }
 
   // ==========================================
@@ -1215,12 +1275,7 @@ export class AgencyAiGatewayService {
           if (!found) {
             return { id: spec.id, ready: false, detail: 'Not installed.' };
           }
-          const version = await this.runCli(spec, ['--version'], {
-            timeoutMs: 8000,
-          }).then(
-            (out) => out.trim().split('\n')[0].slice(0, 80),
-            () => undefined
-          );
+          const version = await this.toolVersion(spec.id);
           return { id: spec.id, ready: true, detail: 'Installed.', version };
         }
         try {
@@ -1231,7 +1286,9 @@ export class AgencyAiGatewayService {
             id: spec.id,
             ready: true,
             detail: models.length
-              ? `${models.length} model${models.length === 1 ? '' : 's'} installed.`
+              ? `${models.length} model${
+                  models.length === 1 ? '' : 's'
+                } installed.`
               : 'Running, but no model is installed yet.',
             models,
           };
@@ -1322,8 +1379,10 @@ export class AgencyAiGatewayService {
       return {
         ...fallback,
         note:
-          error instanceof Error
+          error instanceof AiProviderError
             ? error.message
+            : r.spec.id === 'local'
+            ? 'Ollama is not answering, so the installed models cannot be listed.'
             : 'Could not load the live model list.',
       };
     }

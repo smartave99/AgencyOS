@@ -29,6 +29,7 @@ import { setSentryUser } from '@gitroom/react/sentry/initialize.sentry.client';
 import { Sidebar } from '@gitroom/frontend/components/new-layout/sidebar.component';
 import { TopBar } from '@gitroom/frontend/components/new-layout/topbar.component';
 import { ThemeSync } from '@gitroom/frontend/components/layout/theme';
+import { CopilotPanel } from '@gitroom/frontend/components/new-layout/copilot.panel';
 import { CommandPalette } from '@gitroom/frontend/components/agency/command-palette.component';
 
 const jakartaSans = Plus_Jakarta_Sans({
@@ -56,7 +57,10 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
   const toggleCollapsed = useCallback(() => {
     setCollapsed((current) => {
       try {
-        localStorage.setItem('agencyos.sidebar', current ? 'open' : 'collapsed');
+        localStorage.setItem(
+          'agencyos.sidebar',
+          current ? 'open' : 'collapsed'
+        );
       } catch {
         /* the choice still applies for this visit */
       }
@@ -105,6 +109,7 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
             <ContinueProvider />
             <ThemeSync />
             <CommandPalette />
+            <CopilotPanel />
             <div
               className={clsx(
                 'flex flex-col min-h-screen min-w-screen text-newTextColor',

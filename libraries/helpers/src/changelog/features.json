@@ -265,9 +265,10 @@
         "Pick a provider. Local model needs nothing. Claude Code, Codex CLI and Antigravity CLI use the programs on this computer that you have already signed in to. APIs need your key.",
         "Pick a model from the list, which is read live from the provider, or type one.",
         "Pick a thinking level. Higher is slower and more careful; Auto leaves it to the provider.",
-        "Press Test. It says exactly what is wrong if something is missing."
+        "Press Test. It says exactly what is wrong if something is missing.",
+        "Below, keep Claude Code and Codex CLI up to date: AgencyOS runs their own update command once a day, or press Update now. Switch it off there if you prefer to update them yourself."
       ],
-      "tips": ["Only owners and admins can change these settings."]
+      "tips": ["Only owners and admins can change these settings.", "Antigravity CLI is shown but not updated by AgencyOS, because it has no documented update command."]
     },
     {
       "id": "appearance",

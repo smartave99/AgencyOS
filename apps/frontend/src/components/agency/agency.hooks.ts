@@ -14,6 +14,98 @@ export interface AgencyMe {
   permissions: string[];
 }
 
+// AI providers (mirrors AgencyAiGatewayService; secrets never come back, only `hasKey`)
+export type AiProviderId =
+  | 'local'
+  | 'claude-cli'
+  | 'codex-cli'
+  | 'antigravity-cli'
+  | 'anthropic'
+  | 'openai'
+  | 'gemini'
+  | 'openai-compatible';
+
+export type ThinkingLevel = 'auto' | 'off' | 'low' | 'medium' | 'high' | 'max';
+
+export interface AiProviderView {
+  id: AiProviderId;
+  label: string;
+  kind: 'local' | 'cli' | 'api';
+  summary: string;
+  setup: string;
+  experimental: boolean;
+  needsKey: boolean;
+  keyOptional: boolean;
+  baseUrlEditable: boolean;
+  thinkingLevels: ThinkingLevel[];
+  suggestedModels: string[];
+  model: string | null;
+  baseUrl: string;
+  hasKey: boolean;
+  keySource: 'saved' | 'environment' | null;
+  selectable: boolean;
+}
+
+export interface AiSettings {
+  localMode: boolean;
+  activeProvider: AiProviderId;
+  thinking: ThinkingLevel;
+  providers: AiProviderView[];
+}
+
+export interface AiProviderStatus {
+  id: AiProviderId;
+  ready: boolean;
+  detail: string;
+  version?: string;
+  models?: string[];
+}
+
+export interface AiModels {
+  models: string[];
+  live: boolean;
+  note?: string;
+}
+
+export interface AiTestResult {
+  ok: boolean;
+  provider: AiProviderId;
+  model?: string | null;
+  ms: number;
+  sample?: string;
+  notes?: string[];
+  code?: string;
+  error?: string;
+}
+
+export interface AiChatReply {
+  reply: string;
+  provider: AiProviderId;
+  model: string | null;
+  ms: number;
+  notes: string[];
+}
+
+export interface AiToolView {
+  id: AiProviderId;
+  label: string;
+  installed: boolean;
+  version: string | null;
+  autoUpdate: boolean;
+  canUpdate: boolean;
+  status: 'unknown' | 'current' | 'updated' | 'failed' | 'skipped' | 'manual';
+  message: string | null;
+  lastCheckedAt: string | null;
+  lastUpdatedAt: string | null;
+  manualHint: string;
+}
+
+export interface AiTools {
+  available: boolean;
+  autoUpdate: boolean;
+  tools: AiToolView[];
+}
+
 export interface DestinationView {
   id: string;
   chatId: string;
@@ -505,6 +597,21 @@ export const useAccounts = () =>
 
 export const useCapabilities = () =>
   useResource<any[]>(['agency-capabilities'], '/agency/platforms/capabilities');
+
+export const useAiSettings = () =>
+  useResource<AiSettings>(['agency-ai-settings'], '/agency/ai/settings');
+
+export const useAiStatus = () =>
+  useResource<AiProviderStatus[]>(['agency-ai-status'], '/agency/ai/status');
+
+export const useAiTools = () =>
+  useResource<AiTools>(['agency-ai-tools'], '/agency/ai/tools');
+
+export const useAiModels = (provider: AiProviderId) =>
+  useResource<AiModels>(
+    ['agency-ai-models', provider],
+    `/agency/ai/models/${provider}`
+  );
 
 // ---------------------------------------------------------------------------
 // Role awareness: hide what the server would refuse anyway

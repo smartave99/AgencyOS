@@ -7,6 +7,7 @@ import AuthenticationComponent from '@gitroom/frontend/components/settings/authe
 import EmailNotificationsComponent from '@gitroom/frontend/components/settings/email-notifications.component';
 import ShortlinkPreferenceComponent from '@gitroom/frontend/components/settings/shortlink-preference.component';
 import DeleteAccountComponent from '@gitroom/frontend/components/settings/delete-account.component';
+import { useVariables } from '@gitroom/react/helpers/variable.context';
 
 const MetricComponent = dynamic(
   () => import('@gitroom/frontend/components/settings/metric.component'),
@@ -17,14 +18,16 @@ const MetricComponent = dynamic(
 
 export const GlobalSettings = () => {
   const t = useT();
+  const { isLocal } = useVariables();
+  // On a person's own computer there is no sign-in, no email service and nothing to close.
   return (
     <div className="flex flex-col">
-      <h3 className="text-[20px]">{t('global_settings', 'Global Settings')}</h3>
-      <AuthenticationComponent />
+      <h3 className="text-[20px]">{t('general', 'General')}</h3>
+      {!isLocal && <AuthenticationComponent />}
       <MetricComponent />
-      <EmailNotificationsComponent />
+      {!isLocal && <EmailNotificationsComponent />}
       <ShortlinkPreferenceComponent />
-      <DeleteAccountComponent />
+      {!isLocal && <DeleteAccountComponent />}
     </div>
   );
 };

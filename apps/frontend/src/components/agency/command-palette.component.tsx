@@ -58,14 +58,44 @@ const Palette: FC<{ onClose: () => void }> = ({ onClose }) => {
       ],
     ];
     const settingsPages: Array<[string, string, IconName, string]> = [
-      ['Appearance and theme', '/settings?tab=appearance', 'sun', 'Theme, light, dark'],
-      ['AI and Copilot', '/settings?tab=ai', 'sparkles', 'Model, thinking level, local model, Claude Code, Codex, Antigravity, API key'],
-      ['Storage and data folder', '/settings?tab=storage', 'folder', 'Move data, backups'],
+      [
+        'Appearance and theme',
+        '/settings?tab=appearance',
+        'sun',
+        'Theme, light, dark',
+      ],
+      [
+        'AI and Copilot',
+        '/settings?tab=ai',
+        'sparkles',
+        'Model, thinking level, local model, Claude Code, Codex, Antigravity, API key',
+      ],
+      [
+        'Storage and data folder',
+        '/settings?tab=storage',
+        'folder',
+        'Move data, backups',
+      ],
     ];
     const learn: Array<[string, string, IconName, string]> = [
-      ['Get started guide', '/guide', 'help', 'How to use AgencyOS, local model setup'],
-      ['Features and how to use them', '/guide/features', 'book', 'Explainer, walkthrough'],
-      ['What’s new', '/guide/changelog', 'flag', 'Changelog, versions, release notes'],
+      [
+        'Get started guide',
+        '/guide',
+        'help',
+        'How to use AgencyOS, local model setup',
+      ],
+      [
+        'Features and how to use them',
+        '/guide/features',
+        'book',
+        'Explainer, walkthrough',
+      ],
+      [
+        'What’s new',
+        '/guide/changelog',
+        'flag',
+        'Changelog, versions, release notes',
+      ],
     ];
     return [
       ...groups.flatMap((group) =>
@@ -174,7 +204,11 @@ const Palette: FC<{ onClose: () => void }> = ({ onClose }) => {
         onKeyDown={onKey}
       >
         <div className="flex items-center gap-3 px-5 border-b border-[color:var(--ag-hairline)]">
-          <Icon name="search" size={18} className="text-textItemBlur shrink-0" />
+          <Icon
+            name="search"
+            size={18}
+            className="text-textItemBlur shrink-0"
+          />
           <input
             autoFocus
             data-bare
@@ -253,12 +287,18 @@ const Palette: FC<{ onClose: () => void }> = ({ onClose }) => {
         </ul>
         <div className="hidden sm:flex items-center gap-4 px-5 py-2.5 border-t border-[color:var(--ag-hairline)] text-[11px] text-textItemBlur">
           <span className="flex items-center gap-1.5">
-            <kbd className="rounded bg-[var(--ag-accent-soft)] px-1.5 py-0.5">↑</kbd>
-            <kbd className="rounded bg-[var(--ag-accent-soft)] px-1.5 py-0.5">↓</kbd>
+            <kbd className="rounded bg-[var(--ag-accent-soft)] px-1.5 py-0.5">
+              ↑
+            </kbd>
+            <kbd className="rounded bg-[var(--ag-accent-soft)] px-1.5 py-0.5">
+              ↓
+            </kbd>
             to move
           </span>
           <span className="flex items-center gap-1.5">
-            <kbd className="rounded bg-[var(--ag-accent-soft)] px-1.5 py-0.5">Enter</kbd>
+            <kbd className="rounded bg-[var(--ag-accent-soft)] px-1.5 py-0.5">
+              Enter
+            </kbd>
             to open
           </span>
         </div>

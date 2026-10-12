@@ -1,0 +1,626 @@
+'use client';
+
+import React, { FC, useMemo, useState } from 'react';
+import Link from 'next/link';
+import clsx from 'clsx';
+import { useToaster } from '@gitroom/react/toaster/toaster';
+import {
+  AiProviderId,
+  AiProviderView,
+  AiSettings,
+  AiTestResult,
+  AiToolView,
+  AiTools,
+  ThinkingLevel,
+  useAgencyApi,
+  useAiModels,
+  useAiSettings,
+  useAiStatus,
+  useAiTools,
+  useCan,
+} from '@gitroom/frontend/components/agency/agency.hooks';
+import {
+  Btn,
+  Card,
+  Icon,
+  IconName,
+  Loading,
+  LoadError,
+  Notice,
+  Segmented,
+  TextField,
+  TONE_CLASS,
+  timeAgo,
+  useBusy,
+} from '@gitroom/frontend/components/agency/agency.ui';
+
+const KIND: Record<AiProviderView['kind'], { label: string; icon: IconName }> =
+  {
+    local: { label: 'On this computer', icon: 'cpu' },
+    cli: { label: 'Command-line tool', icon: 'terminal' },
+    api: { label: 'API', icon: 'globe' },
+  };
+
+const THINKING_LABEL: Record<ThinkingLevel, string> = {
+  auto: 'Auto',
+  off: 'Off',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  max: 'Max',
+};
+
+const THINKING_HELP: Record<ThinkingLevel, string> = {
+  auto: 'The provider decides. Ad copy and chat run without extra reasoning to stay fast.',
+  off: 'No extra reasoning. The quickest and cheapest answers.',
+  low: 'A little reasoning before answering.',
+  medium: 'Balanced: noticeably more careful, a bit slower.',
+  high: 'Careful reasoning for hard questions. Slower, and costs more on an API.',
+  max: 'The most reasoning the provider allows. Slowest and the most expensive.',
+};
+
+type Edit = { model?: string; baseUrl?: string; apiKey?: string };
+
+const ProviderCard: FC<{
+  provider: AiProviderView;
+  selected: boolean;
+  active: boolean;
+  statusText?: string;
+  ready?: boolean;
+  onSelect: () => void;
+}> = ({ provider, selected, active, statusText, ready, onSelect }) => (
+  <button
+    type="button"
+    role="radio"
+    aria-checked={selected}
+    disabled={!provider.selectable}
+    onClick={onSelect}
+    className={clsx(
+      'flex flex-col gap-2 rounded-2xl border p-4 text-start transition-colors',
+      selected
+        ? 'border-[color:var(--ag-accent)] bg-[var(--ag-accent-soft)]'
+        : 'border-[color:var(--ag-hairline)] hover:border-[color:var(--ag-neutral-line)] hover:bg-boxHover',
+      !provider.selectable && 'cursor-not-allowed opacity-50'
+    )}
+  >
+    <div className="flex items-center gap-2.5">
+      <span
+        className={clsx(
+          'flex h-8 w-8 items-center justify-center rounded-lg',
+          selected
+            ? 'bg-newBgColorInner text-[color:var(--ag-accent-text)]'
+            : 'bg-[var(--ag-neutral-bg)] text-textItemBlur'
+        )}
+      >
+        <Icon name={KIND[provider.kind].icon} size={16} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[14px] font-semibold">
+          {provider.label}
+        </span>
+        <span className="block text-[11px] text-textItemBlur">
+          {KIND[provider.kind].label}
+        </span>
+      </span>
+      {active && (
+        <span className="rounded-md bg-[var(--ag-accent-soft)] px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--ag-accent-text)]">
+          In use
+        </span>
+      )}
+      {provider.experimental && (
+        <span className="rounded-md bg-[var(--ag-warn-bg)] px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--ag-warn-fg)]">
+          Experimental
+        </span>
+      )}
+    </div>
+    <span className="text-[12px] leading-relaxed text-textItemBlur">
+      {provider.summary}
+    </span>
+    <span className="flex items-center gap-1.5 text-[12px] text-textItemBlur">
+      <span
+        className={clsx(
+          'h-1.5 w-1.5 rounded-full',
+          !provider.selectable
+            ? 'bg-[var(--ag-neutral-line)]'
+            : ready
+            ? 'bg-[var(--ag-good-fg)]'
+            : 'bg-[var(--ag-neutral-line)]'
+        )}
+      />
+      {!provider.selectable ? 'Desktop app only' : statusText ?? 'Checking…'}
+    </span>
+  </button>
+);
+
+const TestResult: FC<{ result: AiTestResult }> = ({ result }) => (
+  <div
+    role={result.ok ? 'status' : 'alert'}
+    className={clsx(
+      'flex items-start gap-2.5 rounded-xl border px-4 py-3 text-[13px]',
+      TONE_CLASS[result.ok ? 'good' : 'bad']
+    )}
+  >
+    <Icon name={result.ok ? 'tick' : 'alert'} size={16} className="mt-0.5" />
+    <div className="flex flex-col gap-1">
+      {result.ok ? (
+        <>
+          <strong className="font-semibold">
+            Working. {result.model ? `${result.model} ` : ''}answered in{' '}
+            {(result.ms / 1000).toFixed(1)} s.
+          </strong>
+          {result.sample && <span>“{result.sample}”</span>}
+        </>
+      ) : (
+        <>
+          <strong className="font-semibold">That did not work.</strong>
+          <span>{result.error}</span>
+        </>
+      )}
+      {result.notes?.map((note) => (
+        <span key={note}>{note}</span>
+      ))}
+    </div>
+  </div>
+);
+
+const Editor: FC<{
+  settings: AiSettings;
+  canEdit: boolean;
+  onSaved: (saved: AiSettings) => void;
+}> = ({ settings, canEdit, onSaved }) => {
+  const api = useAgencyApi();
+  const toaster = useToaster();
+  const status = useAiStatus();
+  const { busy, run } = useBusy();
+  const [provider, setProvider] = useState<AiProviderId>(
+    settings.activeProvider
+  );
+  const [thinking, setThinking] = useState<ThinkingLevel>(settings.thinking);
+  const [edits, setEdits] = useState<Partial<Record<AiProviderId, Edit>>>({});
+  const [result, setResult] = useState<AiTestResult | null>(null);
+  const models = useAiModels(provider);
+
+  const view = settings.providers.find((p) => p.id === provider)!;
+  const edit = edits[provider] ?? {};
+  const model = edit.model ?? view.model ?? '';
+  const baseUrl = edit.baseUrl ?? view.baseUrl;
+  const removingKey = edit.apiKey === '';
+  const dirty =
+    provider !== settings.activeProvider ||
+    thinking !== settings.thinking ||
+    Object.keys(edits).length > 0;
+
+  const choose = (id: AiProviderId) => {
+    setProvider(id);
+    setResult(null);
+    const next = settings.providers.find((p) => p.id === id)!;
+    if (!next.thinkingLevels.includes(thinking)) setThinking('auto');
+  };
+
+  const change = (patch: Edit) => {
+    setResult(null);
+    setEdits((current) => ({
+      ...current,
+      [provider]: { ...current[provider], ...patch },
+    }));
+  };
+
+  const options = useMemo(() => {
+    const names = new Set([
+      ...(models.data?.models ?? []),
+      ...view.suggestedModels,
+    ]);
+    return [...names];
+  }, [models.data, view.suggestedModels]);
+
+  const save = () =>
+    run(async () => {
+      const saved = await api.put<AiSettings>('/agency/ai/settings', {
+        activeProvider: provider,
+        thinking,
+        providers: edits,
+      });
+      setEdits({});
+      setThinking(saved.thinking);
+      onSaved(saved);
+      await status.mutate();
+    });
+
+  const saveClicked = async () => {
+    try {
+      await save();
+      toaster.show('AI settings saved', 'success');
+    } catch (error) {
+      toaster.show((error as Error).message, 'warning');
+    }
+  };
+
+  const testClicked = async () => {
+    setResult(null);
+    try {
+      if (dirty) await save();
+      const outcome = await run(() =>
+        api.post<AiTestResult>('/agency/ai/test', { provider })
+      );
+      setResult(outcome);
+    } catch (error) {
+      setResult({
+        ok: false,
+        provider,
+        ms: 0,
+        error: (error as Error).message,
+      });
+    }
+  };
+
+  const ready = (id: AiProviderId) => status.data?.find((s) => s.id === id);
+  const keyHint =
+    view.keySource === 'environment' && !edit.apiKey
+      ? 'Using the key found on this computer. Paste one here to use a different key.'
+      : view.hasKey && !removingKey
+      ? 'A key is saved. Paste a new one to replace it.'
+      : removingKey
+      ? 'The saved key will be removed when you save.'
+      : view.needsKey
+      ? 'Required for this provider.'
+      : 'Only if the service asks for one.';
+
+  return (
+    <div className="flex flex-col gap-6">
+      {!canEdit && (
+        <Notice tone="info">
+          You can see these settings, but only an owner or admin can change
+          them.
+        </Notice>
+      )}
+
+      <Card
+        title="Which AI answers"
+        subtitle="Used for ad-copy suggestions, text improvement and the Copilot."
+      >
+        <div
+          role="radiogroup"
+          aria-label="AI provider"
+          className="grid gap-3 sm:grid-cols-2"
+        >
+          {settings.providers.map((p) => {
+            const st = ready(p.id);
+            return (
+              <ProviderCard
+                key={p.id}
+                provider={p}
+                selected={p.id === provider}
+                active={p.id === settings.activeProvider}
+                ready={st?.ready}
+                statusText={
+                  st
+                    ? `${st.detail}${st.version ? ` ${st.version}` : ''}`
+                    : status.isLoading
+                    ? 'Checking…'
+                    : undefined
+                }
+                onSelect={() => canEdit && choose(p.id)}
+              />
+            );
+          })}
+        </div>
+        <div className="flex items-center justify-between gap-3 text-[12px] text-textItemBlur">
+          <span>{view.setup}</span>
+          <button
+            type="button"
+            onClick={() => status.mutate()}
+            className="shrink-0 font-medium text-[color:var(--ag-accent-text)] hover:underline"
+          >
+            Check again
+          </button>
+        </div>
+        {view.id === 'local' && (
+          <Link
+            href="/guide#local-model"
+            className="text-[13px] font-medium text-[color:var(--ag-accent-text)] hover:underline"
+          >
+            Step by step: set up a local model
+          </Link>
+        )}
+      </Card>
+
+      <Card
+        title="Model and thinking"
+        subtitle={`For ${view.label}. Leave the model empty to use the default.`}
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <TextField
+              label="Model"
+              list="agency-ai-models"
+              value={model}
+              disabled={!canEdit}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={
+                view.kind === 'cli'
+                  ? 'The program’s own default'
+                  : view.id === 'openai-compatible'
+                  ? 'The service’s model name'
+                  : 'Choose or type a model'
+              }
+              onChange={(e) => change({ model: e.target.value })}
+              hint={
+                models.data?.note ??
+                (models.data?.live
+                  ? `${models.data.models.length} available from ${view.label}.`
+                  : view.suggestedModels.length
+                  ? 'Suggestions shown; you can type any model name.'
+                  : undefined)
+              }
+            />
+            <datalist id="agency-ai-models">
+              {options.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="block text-xs font-medium text-textItemBlur">
+              Thinking level
+            </span>
+            <Segmented<ThinkingLevel>
+              ariaLabel="Thinking level"
+              value={thinking}
+              onChange={(value) => {
+                if (!canEdit) return;
+                setResult(null);
+                setThinking(value);
+              }}
+              options={view.thinkingLevels.map((level) => ({
+                value: level,
+                label: THINKING_LABEL[level],
+              }))}
+            />
+            <p className="text-[12px] leading-relaxed text-textItemBlur">
+              {view.thinkingLevels.length === 1
+                ? 'This provider has no thinking setting.'
+                : THINKING_HELP[thinking]}
+            </p>
+          </div>
+        </div>
+
+        {(view.needsKey || view.keyOptional) && (
+          <div className="flex flex-col gap-2">
+            <TextField
+              label="API key"
+              type="password"
+              autoComplete="off"
+              value={removingKey ? '' : edit.apiKey ?? ''}
+              disabled={!canEdit}
+              placeholder={view.hasKey ? '••••••••••••••••' : 'Paste your key'}
+              onChange={(e) => change({ apiKey: e.target.value })}
+              hint={keyHint}
+            />
+            {view.hasKey && view.keySource === 'saved' && canEdit && (
+              <button
+                type="button"
+                onClick={() => change({ apiKey: removingKey ? undefined : '' })}
+                className="self-start text-[12px] font-medium text-[color:var(--ag-accent-text)] hover:underline"
+              >
+                {removingKey ? 'Keep the saved key' : 'Remove the saved key'}
+              </button>
+            )}
+          </div>
+        )}
+
+        {view.baseUrlEditable && view.id === 'openai-compatible' && (
+          <TextField
+            label="Service address"
+            value={baseUrl}
+            disabled={!canEdit}
+            spellCheck={false}
+            placeholder="http://localhost:1234/v1"
+            onChange={(e) => change({ baseUrl: e.target.value })}
+          />
+        )}
+        {view.baseUrlEditable && view.id === 'local' && (
+          <details className="group text-[13px]">
+            <summary className="cursor-pointer select-none text-textItemBlur hover:text-newTextColor">
+              Advanced: server address
+            </summary>
+            <div className="mt-3">
+              <TextField
+                label="Ollama address"
+                value={baseUrl}
+                disabled={!canEdit}
+                spellCheck={false}
+                hint="Change this only if Ollama runs on another port or computer."
+                onChange={(e) => change({ baseUrl: e.target.value })}
+              />
+            </div>
+          </details>
+        )}
+      </Card>
+
+      {result && <TestResult result={result} />}
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Btn onClick={testClicked} busy={busy}>
+          {dirty && canEdit ? 'Save and test' : 'Test'}
+        </Btn>
+        <Btn
+          variant="primary"
+          onClick={saveClicked}
+          busy={busy}
+          disabled={!canEdit || !dirty}
+        >
+          Save
+        </Btn>
+      </div>
+    </div>
+  );
+};
+
+const ToolRow: FC<{
+  tool: AiToolView;
+  canEdit: boolean;
+  busy: boolean;
+  onUpdate: () => void;
+}> = ({ tool, canEdit, busy, onUpdate }) => {
+  const tone =
+    tool.status === 'failed'
+      ? 'text-[color:var(--ag-bad-fg)]'
+      : tool.status === 'updated'
+      ? 'text-[color:var(--ag-good-fg)]'
+      : 'text-textItemBlur';
+  return (
+    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 text-[14px] font-medium">
+          {tool.label}
+          {tool.version && (
+            <span className="text-[12px] font-normal text-textItemBlur">
+              {tool.version}
+            </span>
+          )}
+        </div>
+        <p className={clsx('mt-0.5 text-[12px] leading-relaxed', tone)}>
+          {!tool.installed
+            ? 'Not installed on this computer.'
+            : tool.message ??
+              (tool.canUpdate ? 'Not checked yet.' : tool.manualHint)}
+          {tool.installed && tool.lastCheckedAt && tool.canUpdate && (
+            <span className="text-textItemBlur">
+              {' '}
+              Checked {timeAgo(tool.lastCheckedAt)}.
+            </span>
+          )}
+        </p>
+        {tool.installed && !tool.canUpdate && tool.message && (
+          <p className="mt-0.5 text-[12px] text-textItemBlur">
+            {tool.manualHint}
+          </p>
+        )}
+      </div>
+      {tool.installed && tool.canUpdate && canEdit && (
+        <Btn onClick={onUpdate} busy={busy}>
+          Update now
+        </Btn>
+      )}
+    </li>
+  );
+};
+
+const ToolsCard: FC<{ canEdit: boolean }> = ({ canEdit }) => {
+  const api = useAgencyApi();
+  const toaster = useToaster();
+  const tools = useAiTools();
+  const { busy, run } = useBusy();
+  const [updating, setUpdating] = useState<string | null>(null);
+  const data = tools.data;
+  if (!data?.available) return null;
+
+  const apply = (next: AiTools) => tools.mutate(next, { revalidate: false });
+
+  const toggle = () =>
+    run(async () => {
+      try {
+        apply(
+          await api.put<AiTools>('/agency/ai/tools', {
+            autoUpdate: !data.autoUpdate,
+          })
+        );
+      } catch (error) {
+        toaster.show((error as Error).message, 'warning');
+      }
+    });
+
+  const update = async (id?: string) => {
+    setUpdating(id ?? 'all');
+    try {
+      apply(
+        await api.post<AiTools>('/agency/ai/tools/update', { provider: id })
+      );
+    } catch (error) {
+      toaster.show((error as Error).message, 'warning');
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  return (
+    <Card
+      title="Keep command-line tools up to date"
+      subtitle="Claude Code, Codex CLI and Antigravity CLI. AgencyOS checks once a day and runs each tool’s own updater. Nothing else is downloaded or installed."
+      right={
+        <button
+          type="button"
+          role="switch"
+          aria-checked={data.autoUpdate}
+          aria-label="Update automatically"
+          disabled={!canEdit || busy}
+          onClick={toggle}
+          className={clsx(
+            'relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50',
+            data.autoUpdate
+              ? 'bg-[var(--ag-accent)]'
+              : 'bg-[var(--ag-neutral-line)]'
+          )}
+        >
+          <span
+            className={clsx(
+              'absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all',
+              data.autoUpdate ? 'start-[22px]' : 'start-0.5'
+            )}
+          />
+        </button>
+      }
+    >
+      <p className="-mt-2 text-[12px] text-textItemBlur">
+        {data.autoUpdate
+          ? 'Automatic updates are on.'
+          : 'Automatic updates are off. You can still update a tool yourself below.'}
+      </p>
+      <ul className="divide-y divide-[color:var(--ag-hairline)]">
+        {data.tools.map((tool) => (
+          <ToolRow
+            key={tool.id}
+            tool={tool}
+            canEdit={canEdit}
+            busy={updating === tool.id || updating === 'all'}
+            onUpdate={() => update(tool.id)}
+          />
+        ))}
+      </ul>
+    </Card>
+  );
+};
+
+export const AiSettingsComponent: FC = () => {
+  const settings = useAiSettings();
+  const { can } = useCan();
+
+  return (
+    <div className="ag-scope flex flex-col gap-6">
+      <div>
+        <h2 className="text-[20px] font-semibold tracking-tight">
+          AI and Copilot
+        </h2>
+        <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-textItemBlur">
+          Choose the model that writes your ad copy and answers in the Copilot:
+          one on this computer, a tool you already use such as Claude Code or
+          Codex, or an API.
+        </p>
+      </div>
+      {settings.error ? (
+        <LoadError error={settings.error} onRetry={() => settings.mutate()} />
+      ) : !settings.data ? (
+        <Loading rows={3} />
+      ) : (
+        <Editor
+          settings={settings.data}
+          canEdit={can('ai:configure')}
+          onSaved={(saved) => settings.mutate(saved, { revalidate: false })}
+        />
+      )}
+      {settings.data?.localMode && <ToolsCard canEdit={can('ai:configure')} />}
+    </div>
+  );
+};

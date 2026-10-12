@@ -80,14 +80,26 @@ export class AgencyAiService {
   private async tryOllama(
     params: GenerateAdCopyDto
   ): Promise<Omit<GeneratedAdVariants, 'providerUsed'> | null> {
+    const prompt = this.buildPrompt(params);
+    // A small model now and then answers with the wrong shape; one more try is cheap.
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const result = await this.askOllama(prompt, attempt);
+      if (result) return result;
+    }
+    return null;
+  }
+
+  private async askOllama(
+    prompt: string,
+    attempt: number
+  ): Promise<Omit<GeneratedAdVariants, 'providerUsed'> | null> {
     const controller = new AbortController();
     // A 3B model on a CPU-only machine needs tens of seconds (model load + generation);
     // a few seconds would make local AI always fall through to the template engine.
     const timeoutMs =
       Number.parseInt(process.env.AGENCY_AI_TIMEOUT_MS || '', 10) || 90000;
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-    const prompt = this.buildPrompt(params);
+    const list = { type: 'array', items: { type: 'string' }, minItems: 3 };
 
     try {
       const res = await fetch(`${this.ollamaUrl}/api/generate`, {
@@ -97,10 +109,20 @@ export class AgencyAiService {
           model: this.ollamaModel,
           prompt,
           stream: false,
-          format: 'json',
+          // A JSON schema makes the model produce exactly these three lists.
+          format: {
+            type: 'object',
+            properties: {
+              headlines: list,
+              bodyVariants: list,
+              callToActions: list,
+            },
+            required: ['headlines', 'bodyVariants', 'callToActions'],
+          },
           // Models that can "think" first (Gemma 4, Qwen 3) would spend the time budget on
           // reasoning the ad copy does not need.
           think: false,
+          options: { temperature: 0.7 },
         }),
         signal: controller.signal,
       });
@@ -109,10 +131,9 @@ export class AgencyAiService {
 
       if (!res.ok) {
         this.logger.warn(
-          `Ollama generate answered ${res.status}: ${(await res.text()).slice(
-            0,
-            200
-          )}`
+          `Ollama generate answered ${res.status} (attempt ${attempt}): ${(
+            await res.text()
+          ).slice(0, 200)}`
         );
         return null;
       }
@@ -125,14 +146,16 @@ export class AgencyAiService {
         return { headlines, bodyVariants, callToActions };
       }
       this.logger.warn(
-        `Ollama reply did not have the three lists: ${String(
+        `Ollama reply did not have the three lists (attempt ${attempt}): ${String(
           data.response
         ).slice(0, 300)}`
       );
       return null;
     } catch (e: any) {
       clearTimeout(timeoutId);
-      this.logger.warn(`Ollama generation failed: ${e.message}`);
+      this.logger.warn(
+        `Ollama generation failed (attempt ${attempt}): ${e.message}`
+      );
       return null;
     }
   }

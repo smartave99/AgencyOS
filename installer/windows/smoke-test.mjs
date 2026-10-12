@@ -358,6 +358,8 @@ function dumpDiagnostics() {
       if (!f.endsWith('.log')) continue;
       const lines = fs.readFileSync(path.join(logs, f), 'utf8').split(/\r?\n/);
       console.log(`\n----- ${f} (last 60 of ${lines.length} lines) -----\n${lines.slice(-60).join('\n')}`);
+      const ai = lines.filter((l) => /Ollama|AgencyAiService/.test(l));
+      if (ai.length) console.log(`\n----- ${f}: lines about the local model -----\n${ai.slice(-20).join('\n')}`);
     }
     const tasks = spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf8' }).stdout || '';
     console.log('\n----- processes of interest -----\n' + tasks.split(/\r?\n/).filter((l) => /AgencyOS|node|postgres|redis|temporal|ollama|llama/i.test(l)).join('\n'));

@@ -57,7 +57,7 @@ export const TopBar: FC<{
     : undefined;
 
   return (
-    <header className="ag-scope sticky top-0 z-[40] flex h-14 shrink-0 items-center gap-2 border-b border-[color:var(--ag-hairline)] bg-newBgColorInner px-4 mobile:px-3">
+    <header className="ag-scope ag-drag ag-titlebar-end sticky top-0 z-[40] flex h-14 shrink-0 items-center gap-2 border-b border-[color:var(--ag-hairline)] bg-newBgColorInner px-4 mobile:px-3">
       <IconButton
         label={t('open_menu', 'Open menu')}
         icon="menu"

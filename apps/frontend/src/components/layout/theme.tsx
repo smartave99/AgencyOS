@@ -73,7 +73,16 @@ export const useTheme = () => {
 
 /** Mounted once: applies the theme on load and follows the computer when the choice is "system". */
 export const ThemeSync: FC = () => {
-  const { preference } = useTheme();
+  const { preference, resolved } = useTheme();
+
+  // In the desktop app the window buttons are drawn over the top bar, so they follow the theme.
+  useEffect(() => {
+    (
+      window as unknown as {
+        agencyos?: { setTitleBarTheme?: (dark: boolean) => Promise<boolean> };
+      }
+    ).agencyos?.setTitleBarTheme?.(resolved === 'dark');
+  }, [resolved]);
 
   useEffect(() => {
     if (preference !== 'system') return;

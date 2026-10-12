@@ -231,7 +231,7 @@ const Palette: FC<{ onClose: () => void }> = ({ onClose }) => {
           id="agency-palette-list"
           ref={list}
           role="listbox"
-          className="max-h-[50vh] overflow-y-auto p-2 scrollbar-thin"
+          className="max-h-[50vh] overflow-y-auto p-2"
         >
           {results.length === 0 && (
             <li className="px-3 py-8 text-center text-[13px] text-textItemBlur">

@@ -71,4 +71,17 @@ describe('desktop shell policy', () => {
     }
     assert.equal(p.isStatusPage('http://127.0.0.1:4999/', null), false);
   });
+
+  it('draws the window buttons in the app theme, at the height of the top bar', () => {
+    assert.deepEqual(p.titleBarOverlay(true), { color: '#1a1919', symbolColor: '#ffffff', height: 56 });
+    assert.deepEqual(p.titleBarOverlay(false), { color: '#ffffff', symbolColor: '#0e0e0e', height: 56 });
+  });
+
+  it('only AgencyOS’s own pages may change the title bar theme', () => {
+    assert.equal(p.isOwnPage('http://localhost:4200/agency/dashboard', origins), true);
+    assert.equal(p.isOwnPage('http://127.0.0.1:4999/', origins), true);
+    assert.equal(p.isOwnPage('https://example.com/', origins), false);
+    assert.equal(p.isOwnPage('http://localhost:9999/', origins), false);
+    assert.equal(p.isOwnPage(undefined, origins), false);
+  });
 });

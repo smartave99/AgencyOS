@@ -137,6 +137,9 @@ function saveWindowState(win) {
   }
 }
 
+// Windows only: the other platforms keep their usual window frame.
+const frameless = process.platform === 'win32';
+
 const backgroundColor = () => (nativeTheme.shouldUseDarkColors ? '#0b0b0f' : '#f5f5f7');
 
 function createMainWindow() {
@@ -153,7 +156,9 @@ function createMainWindow() {
     icon: iconPath,
     backgroundColor: backgroundColor(),
     autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: true, devTools: flags.debug, preload: preloadScript },
+    // The window's own title bar is replaced by the app's top bar; Windows draws just the buttons.
+    ...(frameless ? { titleBarStyle: 'hidden', titleBarOverlay: policy.titleBarOverlay(nativeTheme.shouldUseDarkColors) } : {}),
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: true, devTools: flags.debug, preload: preloadScript, additionalArguments: frameless ? ['--agencyos-frameless'] : [] },
   });
   if (saved.maximized) win.maximize();
   win.once('ready-to-show', () => {
@@ -424,6 +429,16 @@ ipcMain.handle('agencyos:pick-folder', async (event, current) => {
   const defaultPath = typeof current === 'string' && current && fs.existsSync(current) ? current : undefined;
   const { canceled, filePaths } = await dialog.showOpenDialog(owner, { title: 'Choose a folder for AgencyOS', defaultPath, properties: ['openDirectory', 'createDirectory'] });
   return canceled || !filePaths.length ? null : filePaths[0];
+});
+
+// The app tells the shell which theme it is in, so the window buttons match its top bar.
+ipcMain.handle('agencyos:title-bar-theme', (event, dark) => {
+  const frameUrl = event.senderFrame && event.senderFrame.url;
+  if (!frameless || !policy.isOwnPage(frameUrl, origins)) return false;
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed() || typeof win.setTitleBarOverlay !== 'function') return false;
+  win.setTitleBarOverlay(policy.titleBarOverlay(dark === true));
+  return true;
 });
 
 // ---- hardening ----------------------------------------------------------------------------

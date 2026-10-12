@@ -90,4 +90,19 @@ function isStatusPage(url, statusPort) {
   return !!u && u.protocol === 'http:' && LOOPBACK.includes(u.hostname) && Number.isInteger(statusPort) && u.port === String(statusPort) && u.pathname === '/';
 }
 
-module.exports = { parseArgs, trustedOrigins, classifyNavigation, safeToOpenExternally, parseStatusPort, windowPhase, trayTooltip, isStatusPage, RETRY_URL };
+/**
+ * The title bar is part of the page: the window buttons are drawn over the app's own top bar, so
+ * their colours follow the app's theme (the top bar's background and text colours).
+ */
+const TITLE_BAR_HEIGHT = 56;
+function titleBarOverlay(dark) {
+  return dark ? { color: '#1a1919', symbolColor: '#ffffff', height: TITLE_BAR_HEIGHT } : { color: '#ffffff', symbolColor: '#0e0e0e', height: TITLE_BAR_HEIGHT };
+}
+
+/** Any page AgencyOS itself serves on this computer (the app or the status page), by its address. */
+function isOwnPage(url, origins) {
+  const u = parseUrl(url);
+  return !!u && u.protocol === 'http:' && origins.has(u.origin);
+}
+
+module.exports = { parseArgs, trustedOrigins, classifyNavigation, safeToOpenExternally, parseStatusPort, windowPhase, trayTooltip, isStatusPage, titleBarOverlay, isOwnPage, TITLE_BAR_HEIGHT, RETRY_URL };

@@ -18,6 +18,8 @@
   .bar i { display: block; width: 40%; height: 100%; border-radius: 2px; background: var(--accent); animation: slide 1.1s ease-in-out infinite; }
   @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  /* No window title bar: this strip drags the window, and the buttons sit over its right end. */
+  html[data-frameless] body::before { content: ''; position: fixed; inset: 0 0 auto 0; height: 56px; -webkit-app-region: drag; }
   @media (prefers-reduced-motion: reduce) { .bar i { animation: none; width: 100%; opacity: .6; } img { animation: none; } }
 </style>
 </head>

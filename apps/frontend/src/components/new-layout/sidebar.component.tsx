@@ -1,6 +1,6 @@
 'use client';
 
-import { FC, useEffect } from 'react';
+import { FC, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
@@ -53,10 +53,26 @@ export const Sidebar: FC<{
   const pathname = usePathname();
   const { groups, footer } = useNavigation();
   const t = useT();
+  const nav = useRef<HTMLElement>(null);
+  const [moreBelow, setMoreBelow] = useState(false);
 
   useEffect(() => {
     onClose();
   }, [pathname]);
+
+  // The list scrolls without a scrollbar, so it fades at the bottom while more items are below.
+  const measure = useCallback(() => {
+    const el = nav.current;
+    if (el) setMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+  }, []);
+  useEffect(() => {
+    const el = nav.current;
+    if (!el) return;
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [measure, groups, collapsed]);
 
   return (
     <>
@@ -78,7 +94,7 @@ export const Sidebar: FC<{
       >
         <div
           className={clsx(
-            'flex items-center h-14 shrink-0 gap-3',
+            'ag-drag flex items-center h-14 shrink-0 gap-3',
             collapsed ? 'justify-center' : 'px-5'
           )}
         >
@@ -111,7 +127,12 @@ export const Sidebar: FC<{
           )}
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-5 scrollbar-thin">
+        <nav
+          ref={nav}
+          onScroll={measure}
+          data-more-below={moreBelow || undefined}
+          className="ag-fade-scroll flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-5"
+        >
           {groups.map((group) => (
             <div key={group.id} className="flex flex-col gap-0.5">
               {!collapsed ? (

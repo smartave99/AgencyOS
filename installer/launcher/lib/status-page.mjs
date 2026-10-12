@@ -53,6 +53,9 @@ summary{cursor:pointer;color:var(--sub);font-size:13px}
 .msg.bad{color:var(--bad)}
 .check{display:flex;align-items:center;gap:8px;margin:10px 0 0;font-size:14px}
 footer{color:var(--sub);font-size:12px;margin-top:28px;text-align:center}
+/* In the main window there is no title bar: this strip drags the window, and its buttons sit over the right end. */
+html[data-frameless] body::before{content:'';position:fixed;inset:0 0 auto 0;height:56px;-webkit-app-region:drag}
+html[data-frameless] main{padding-top:64px}
 </style>
 </head>
 <body>

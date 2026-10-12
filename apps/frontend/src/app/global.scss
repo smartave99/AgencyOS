@@ -1004,3 +1004,86 @@ html[dir='rtl'] [dir='ltr'] {
 .ag-print-only {
   display: none;
 }
+
+
+// ---------------------------------------------------------------------------
+// Desktop window: no separate title bar
+// ---------------------------------------------------------------------------
+// The desktop app hides the window's own title bar (it sets data-frameless on the page) and draws
+// only the minimise, maximise and close buttons over the right end of the top bar. The top bar
+// drags the window; everything clickable inside it must opt out of dragging.
+html[data-frameless] {
+  .ag-drag {
+    -webkit-app-region: drag;
+  }
+  .ag-drag :where(a, button, input, select, textarea, summary, [role='button'], [data-nodrag]) {
+    -webkit-app-region: no-drag;
+  }
+  // The window buttons are about 140px wide at the right end of the top bar.
+  .ag-titlebar-end {
+    padding-inline-end: 148px;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Scrollbars: thin, quiet, and only there when you point at the thing that scrolls
+// ---------------------------------------------------------------------------
+// The default Windows scrollbar is a wide grey bar with arrows. This one is a slim rounded thumb that
+// appears while the pointer is over the scrolling area, as on a Mac.
+:root {
+  --ag-scroll-thumb: rgba(120, 120, 130, 0.45);
+  --ag-scroll-thumb-hover: rgba(120, 120, 130, 0.75);
+}
+@supports selector(::-webkit-scrollbar) {
+  // Tailwind's scrollbar plugin sets the standard scrollbar-width on these classes, which switches
+  // the browser to its own scrollbar (with arrow buttons) and ignores the rules below.
+  .scrollbar,
+  .scrollbar-thin {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+  *::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+  *::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+  }
+  *:hover::-webkit-scrollbar-thumb {
+    background-color: var(--ag-scroll-thumb);
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--ag-scroll-thumb-hover);
+  }
+}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--ag-scroll-thumb) transparent;
+  }
+}
+
+// A scroller with no visible scrollbar (the sidebar). It still scrolls with the wheel and trackpad,
+// and fades at the bottom edge while there is more below.
+.ag-fade-scroll {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+  &[data-more-below] {
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+  }
+}

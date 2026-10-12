@@ -21,7 +21,7 @@
         { "type": "improved", "area": "Ad copy", "text": "Ad copy, text improvement and the Copilot all use the provider you chose. When AgencyOS has to fall back to templates it now says why, and which model wrote the copy otherwise." },
         { "type": "improved", "area": "Interface", "text": "The search box no longer shows a second coloured outline around the field." },
         { "type": "improved", "area": "Interface", "text": "Notifications, the account menu and the search use the same icons, spacing and colours as the rest of AgencyOS." },
-        { "type": "changed", "area": "AI", "text": "The AI provider is chosen in Settings. An OPENAI_API_KEY in the environment is still read as the OpenAI key." },
+        { "type": "changed", "area": "AI", "text": "The AI provider is chosen in Settings. Nothing is sent to an outside AI service unless you pick one there and save its key (on a server, AGENCY_ALLOW_EXTERNAL_AI=true is still needed too). An OPENAI_API_KEY in the environment is still read as the OpenAI key." },
         { "type": "changed", "area": "Interface", "text": "The old icon rail and the promotional links of the original scheduler are gone." },
         { "type": "security", "area": "AI", "text": "API keys are sealed with AES-256-GCM before they are stored, are never sent back to the browser, and are kept out of the audit trail. Only owners and admins can change AI settings." },
         { "type": "security", "area": "AI", "text": "Command-line AI tools run only inside the desktop app, in an empty scratch folder with their tools switched off and without AgencyOS's database or session secrets." }

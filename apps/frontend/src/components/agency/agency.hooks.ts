@@ -44,6 +44,7 @@ export interface AiProviderView {
   hasKey: boolean;
   keySource: 'saved' | 'environment' | null;
   selectable: boolean;
+  unavailable: string | null;
 }
 
 export interface AiSettings {

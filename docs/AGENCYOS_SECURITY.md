@@ -81,9 +81,23 @@ Nothing here has had an external penetration test or audit.
 * Knowledge-base documents require the person adding them to attest that the source authorized
   collection and its members were told; the attestation is audited. The knowledge base
   supports deletion of one document and purge by type or age.
-* Text is **not** sent to a third-party AI service unless the operator sets both
-  `AGENCY_ALLOW_EXTERNAL_AI=true` and an API key. By default the embedding and copy features
-  use a local Ollama model or work without one.
+* Text is **not** sent to a third-party AI service unless someone with the `ai:configure` permission
+  (owners and admins) chooses one in Settings → AI and Copilot. On a server the operator must also
+  set `AGENCY_ALLOW_EXTERNAL_AI=true` first; on the desktop app the person using it is the
+  operator. By default copy suggestions and the Copilot use a local Ollama model or work without one.
+* AI provider keys are sealed with AES-256-GCM (key derived from the install's `JWT_SECRET` with HKDF),
+  never returned by any API, and kept out of the audit trail and logs. A key that cannot be opened
+  (for example after a reinstall with a new secret) is treated as missing and the person is asked
+  for it again.
+* Command-line AI tools (Claude Code, Codex CLI, Antigravity CLI) are only used when
+  `AGENCYOS_LOCAL=true`. They are started by fixed name with fixed arguments (no shell, every
+  argument checked), with the prompt on stdin, in an empty scratch folder, with their own tools
+  switched off where the program allows it, and without the database, Redis, session and Temporal
+  secrets in their environment. Two run at a time at most, each with a timeout.
+* The same tools are kept current by running their own update command (`claude update`,
+  `codex update`) once a day, claimed in the database so only one process does it, never while a
+  request is using the tool. Antigravity has no documented update command and is never touched.
+  `AGENCY_AI_TOOL_UPDATES=off` disables updates entirely.
 
 ### Operations
 * Jobs are idempotent (unique key per campaign revision and destination), retried with

@@ -28,7 +28,7 @@ A new look and layout that put every part of AgencyOS in one window, a Guide and
 
 ### Changed
 
-- **AI:** The AI provider is chosen in Settings. An OPENAI_API_KEY in the environment is still read as the OpenAI key.
+- **AI:** The AI provider is chosen in Settings. Nothing is sent to an outside AI service unless you pick one there and save its key (on a server, AGENCY_ALLOW_EXTERNAL_AI=true is still needed too). An OPENAI_API_KEY in the environment is still read as the OpenAI key.
 - **Interface:** The old icon rail and the promotional links of the original scheduler are gone.
 
 ### Security

@@ -90,8 +90,13 @@ AGENCYOS_EMBEDDING_MODEL=nomic-embed-text
 
 * Everything runs on this computer. The database, cache, workflow engine, server and AI listen on
   `127.0.0.1` only, so Windows Firewall does not prompt and nothing is reachable from the network.
-* Nothing is sent to a third-party AI service unless you set both `AGENCY_ALLOW_EXTERNAL_AI=true`
-  and an API key in `user.env`.
+* Nothing is sent to a third-party AI service unless you choose one in **Settings → AI and Copilot**
+  and save its key (the local model is the default). Choosing Claude Code, Codex CLI or Antigravity
+  CLI sends text to that tool, which sends it to its own service under your sign-in. API keys are
+  stored encrypted in your local database and are never shown again.
+* AgencyOS runs Claude Code's and Codex CLI's own update command once a day to keep them current
+  (Settings → AI and Copilot turns this off; `AGENCY_AI_TOOL_UPDATES=off` in `user.env` disables it
+  for good). It never downloads or installs anything else for them.
 * The only connections AgencyOS itself makes: the one-time download of the AI engine and models
   (GitHub and the Ollama registry), and Telegram if you add a bot token.
 * A Telegram bot token is stored in `user.env` in your own profile folder. It is never stored in

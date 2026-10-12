@@ -369,6 +369,8 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
     bodyVariants: string[];
     callToActions: string[];
     providerUsed: string;
+    model?: string | null;
+    fallbackReason?: string;
   } | null>(null);
 
   // --- hydrate when editing --------------------------------------------------
@@ -738,8 +740,23 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
                   <div className="flex flex-col gap-2">
                     <p className="text-xs text-textItemBlur">
                       {aiResult.providerUsed === 'heuristic_engine'
-                        ? 'Template draft. No AI model was reachable, so these are fill-in-the-blank suggestions. Edit freely.'
-                        : `Written by ${aiResult.providerUsed}. Review before using.`}
+                        ? `Template draft: these are fill-in-the-blank suggestions, not written by a model. ${
+                            aiResult.fallbackReason ?? ''
+                          } Edit freely.`
+                        : `Written by ${
+                            aiResult.model ?? aiResult.providerUsed
+                          }. Review before using.`}
+                      {aiResult.providerUsed === 'heuristic_engine' && (
+                        <>
+                          {' '}
+                          <Link
+                            href="/settings?tab=ai"
+                            className="font-medium text-[color:var(--ag-accent-text)] hover:underline"
+                          >
+                            Check AI settings
+                          </Link>
+                        </>
+                      )}
                     </p>
                     {aiResult.headlines
                       .slice(0, 3)

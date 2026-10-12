@@ -817,6 +817,15 @@ describe(
           403
         );
 
+        // On a server, text only goes to an outside AI service when the operator allows it.
+        const blocked = await call('PUT', '/agency/ai/settings', {
+          as: 'owner',
+          body: { activeProvider: 'openai' },
+        });
+        assert.equal(blocked.status, 400);
+        assert.match(blocked.text, /AGENCY_ALLOW_EXTERNAL_AI/);
+        process.env.AGENCY_ALLOW_EXTERNAL_AI = 'true';
+
         const saved = await call('PUT', '/agency/ai/settings', {
           as: 'owner',
           body: {

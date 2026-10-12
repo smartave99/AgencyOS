@@ -119,6 +119,8 @@ export interface ProviderView {
   keySource: 'saved' | 'environment' | null;
   /** False for providers that cannot work here, e.g. command-line tools off the desktop app. */
   selectable: boolean;
+  /** Why it cannot be used here, in words for the person. */
+  unavailable: string | null;
 }
 
 export interface AiSettingsView {
@@ -167,6 +169,25 @@ export class AgencyAiGatewayService {
   // ==========================================
   private get isLocalMode() {
     return process.env.AGENCYOS_LOCAL === 'true';
+  }
+
+  /**
+   * Why a provider cannot be used here, or null. Command-line tools exist only on the
+   * person's own computer. On a server, text only leaves for an outside AI service when the
+   * operator has allowed it (AGENCY_ALLOW_EXTERNAL_AI=true); in the desktop app the person
+   * is the operator, and choosing the provider and saving a key is the opt-in.
+   */
+  private unavailable(spec: ProviderSpec): string | null {
+    if (this.isLocalMode) return null;
+    if (spec.kind === 'cli')
+      return 'Only available in the AgencyOS desktop app.';
+    if (
+      spec.kind === 'api' &&
+      process.env.AGENCY_ALLOW_EXTERNAL_AI !== 'true'
+    ) {
+      return 'Switched off on this server. An administrator can allow outside AI services with AGENCY_ALLOW_EXTERNAL_AI=true.';
+    }
+    return null;
   }
 
   private catalog(): ProviderSpec[] {
@@ -414,7 +435,8 @@ export class AgencyAiGatewayService {
           baseUrl: entry?.baseUrl || spec.baseUrl?.value || '',
           hasKey: !!key,
           keySource: source,
-          selectable: spec.kind !== 'cli' || this.isLocalMode,
+          selectable: !this.unavailable(spec),
+          unavailable: this.unavailable(spec),
         };
       }),
     };
@@ -470,12 +492,8 @@ export class AgencyAiGatewayService {
 
     const active = dto.activeProvider ?? cfg.active;
     const activeSpec = this.spec(active);
-    if (activeSpec.kind === 'cli' && !this.isLocalMode) {
-      throw new HttpException(
-        'Command-line tools can only be used in the AgencyOS desktop app',
-        400
-      );
-    }
+    const blocked = this.unavailable(activeSpec);
+    if (blocked) throw new HttpException(blocked, 400);
     const thinking = dto.thinking ?? cfg.thinking;
     if (!activeSpec.thinking.includes(thinking)) {
       throw new HttpException(
@@ -522,12 +540,8 @@ export class AgencyAiGatewayService {
     const cfg = await this.load(orgId);
     const id = override ?? cfg.active;
     const spec = this.spec(id);
-    if (spec.kind === 'cli' && !this.isLocalMode) {
-      throw new AiProviderError(
-        'unavailable',
-        'Command-line tools can only be used in the AgencyOS desktop app.'
-      );
-    }
+    const blocked = this.unavailable(spec);
+    if (blocked) throw new AiProviderError('unavailable', blocked);
     const entry = cfg.providers[id];
     const { key } = this.keyFor(id, entry);
     const thinking = spec.thinking.includes(cfg.thinking)

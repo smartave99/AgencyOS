@@ -127,7 +127,7 @@ const ProviderCard: FC<{
             : 'bg-[var(--ag-neutral-line)]'
         )}
       />
-      {!provider.selectable ? 'Desktop app only' : statusText ?? 'Checking…'}
+      {provider.unavailable ?? statusText ?? 'Checking…'}
     </span>
   </button>
 );

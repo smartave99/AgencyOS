@@ -84,7 +84,9 @@ limit. **Missing** = not built. **Unverified** = built, but could not be exercis
 | Knowledge base: ingest with authorization attestation, retention (purge, delete), tenant-isolated | Done | Tests. |
 | Search | Partial | Keyword hashing by default (labelled). Meaning-based search only when an Ollama embedding model is reachable, and only when every document has an embedding from the same model. No pgvector. |
 | Sentiment | Partial | Word-list score, labelled as such. |
-| Copy suggestions | Partial | Local Ollama if reachable; otherwise a template, labelled "Template draft". OpenAI only if `AGENCY_ALLOW_EXTERNAL_AI=true`. Never blocks publishing (scenario 11). |
+| Copy suggestions | Partial | The provider chosen in Settings (local Ollama by default); otherwise a template, labelled "Template draft" with the reason. Never blocks publishing (scenario 11). |
+| AI providers (local, Claude Code, Codex CLI, Antigravity CLI, Anthropic, OpenAI, Gemini, OpenAI-compatible), model and thinking-level choice, sealed keys, Test, Copilot chat | Partial | 35 unit/integration tests plus HTTP tests with stand-in programs and mocked APIs. Claude Code's flags were run for real; Codex CLI and API request shapes follow their documentation but were **not** run against the real services here; Antigravity CLI is experimental (third-party-documented flags, known headless hang in some versions). Chat answers are not streamed. |
+| Automatic updates for AI command-line tools | Partial | `claude update` and `codex update` once a day with a switch and an Update now button (tested with stand-in programs, not against the real updaters). Antigravity has no documented updater and is only displayed. |
 | Connected accounts and capability registry | Partial | Status read from stored data (labelled "not live"); no OAuth tokens enter agency code; no capability data is invented for unlisted networks. |
 
 ### Interface

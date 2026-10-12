@@ -121,6 +121,29 @@ describe('AgencyAiGatewayService - saved settings', () => {
     });
   });
 
+  it('on a server, outside AI services need the operator to allow them', async () => {
+    process.env.AGENCYOS_LOCAL = 'false';
+    delete process.env.AGENCY_ALLOW_EXTERNAL_AI;
+    const { gateway } = build();
+    await expect(
+      gateway.updateSettings(ACTOR, { activeProvider: 'openai' })
+    ).rejects.toThrow(/AGENCY_ALLOW_EXTERNAL_AI/);
+    const view = await gateway.getSettings(ACTOR);
+    expect(view.providers.find((p) => p.id === 'openai')).toMatchObject({
+      selectable: false,
+    });
+    expect(view.providers.find((p) => p.id === 'local')!.selectable).toBe(true);
+    await expect(ask(gateway, 'anthropic')).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+
+    process.env.AGENCY_ALLOW_EXTERNAL_AI = 'true';
+    const allowed = await gateway.updateSettings(ACTOR, {
+      activeProvider: 'openai',
+    });
+    expect(allowed.activeProvider).toBe('openai');
+  });
+
   it('uses a key from the environment when none is saved', async () => {
     process.env.OPENAI_API_KEY = 'sk-env';
     const { gateway } = build();

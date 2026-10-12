@@ -274,6 +274,21 @@ copyTree(path.join(modules, '.prisma'), path.join(nm, '.prisma'), { prune: false
 // Executables for the few CLIs the launcher calls directly are not needed: it runs `node <file>`.
 log(`copied ${copied} packages`);
 
+// The migration engine and the query engine must travel with the app: without them Prisma would try
+// to download one on the person's computer at first start (and fail offline).
+{
+  const engines = path.join(nm, '@prisma/engines');
+  const hasMigrationEngine = () => fs.existsSync(engines) && fs.readdirSync(engines).some((f) => /^schema-engine-/.test(f) && !f.endsWith('.map'));
+  if (!hasMigrationEngine()) {
+    log('the Prisma migration engine is not in node_modules; asking the Prisma CLI to fetch it');
+    spawnSync(process.execPath, [path.join(nm, 'prisma/build/index.js'), '-v'], { cwd: appDir, env: { ...process.env, CHECKPOINT_DISABLE: '1' }, stdio: 'inherit', timeout: 5 * 60 * 1000 });
+  }
+  if (!hasMigrationEngine()) die('the Prisma migration engine (schema-engine-*) is missing from the staged @prisma/engines');
+  const client = path.join(nm, '.prisma/client');
+  if (!fs.readdirSync(client).some((f) => /query_engine|libquery_engine/.test(f))) die('the Prisma query engine is missing from the staged .prisma/client');
+  log(`prisma engines present: ${fs.readdirSync(engines).filter((f) => /^schema-engine-/.test(f)).join(', ')}; ${fs.readdirSync(client).filter((f) => /query_engine/.test(f)).join(', ')}`);
+}
+
 // ---------------------------------------------------------------------------------------
 // 4. launcher
 // ---------------------------------------------------------------------------------------

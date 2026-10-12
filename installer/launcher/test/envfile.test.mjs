@@ -83,7 +83,7 @@ describe('paths', () => {
 describe('ports', () => {
   const paths = () => {
     const dir = tmp();
-    return resolvePaths({ launcherDir: path.join(dir, 'i', 'launcher'), env: { AGENCYOS_DATA: path.join(dir, 'd') }, platform: 'linux' });
+    return resolvePaths({ launcherDir: path.join(dir, 'i', 'launcher'), env: { AGENCYOS_DATA: path.join(dir, 'd') }, platform: process.platform });
   };
 
   it('uses the defaults when they are free and remembers them', async () => {

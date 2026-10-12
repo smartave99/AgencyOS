@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import {
   classifyVendor,
   parseNvidiaSmi,
@@ -88,10 +89,10 @@ describe('freeDiskGB', () => {
         seen.push(dir);
         return { bavail: 50, bsize: GB };
       },
-      (dir) => dir === '/data' || dir === '/'
+      (dir) => dir === path.resolve('/data') || dir === path.parse(path.resolve('/')).root
     );
     assert.equal(free, 50);
-    assert.match(seen[0], /data$/);
+    assert.equal(seen[0], path.resolve('/data'));
   });
   it('returns null when the filesystem cannot be read', () => {
     assert.equal(

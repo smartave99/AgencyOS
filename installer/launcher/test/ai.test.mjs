@@ -67,7 +67,7 @@ describe('AiManager', () => {
   let paths;
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agencyos-ai-'));
-    paths = resolvePaths({ launcherDir: path.join(dir, 'install', 'launcher'), env: { AGENCYOS_DATA: path.join(dir, 'data') }, platform: 'linux' });
+    paths = resolvePaths({ launcherDir: path.join(dir, 'install', 'launcher'), env: { AGENCYOS_DATA: path.join(dir, 'data') }, platform: process.platform });
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 

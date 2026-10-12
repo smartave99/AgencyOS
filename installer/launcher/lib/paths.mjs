@@ -9,7 +9,7 @@ export function defaultDataRoot(env = process.env, platform = process.platform, 
   if (platform === 'win32') {
     return path.win32.join(env.LOCALAPPDATA || path.win32.join(home, 'AppData', 'Local'), 'AgencyOS');
   }
-  return path.join(env.XDG_DATA_HOME || path.join(home, '.local', 'share'), 'agencyos');
+  return path.posix.join(env.XDG_DATA_HOME || path.posix.join(home, '.local', 'share'), 'agencyos');
 }
 
 /**
@@ -21,7 +21,7 @@ export function resolvePaths({
   platform = process.platform,
   home = os.homedir(),
 } = {}) {
-  const p = platform === 'win32' ? path.win32 : path;
+  const p = platform === 'win32' ? path.win32 : path.posix;
   const installRoot = env.AGENCYOS_HOME ? p.resolve(env.AGENCYOS_HOME) : p.resolve(launcherDir, '..');
   const dataRoot = env.AGENCYOS_DATA ? p.resolve(env.AGENCYOS_DATA) : defaultDataRoot(env, platform, home);
   const exe = platform === 'win32' ? '.exe' : '';

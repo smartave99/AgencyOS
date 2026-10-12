@@ -26,8 +26,8 @@ const write = (file, text = 'x') => {
 /** A fake install whose default folder is inside the temp dir, so the pointer file is hermetic. */
 function world() {
   const dir = tmp();
-  const env = { XDG_DATA_HOME: path.join(dir, 'share') };
-  const make = () => resolvePaths({ launcherDir: path.join(dir, 'install', 'launcher'), env, platform: 'linux', home: dir });
+  const env = { XDG_DATA_HOME: path.join(dir, 'share'), LOCALAPPDATA: path.join(dir, 'share') };
+  const make = () => resolvePaths({ launcherDir: path.join(dir, 'install', 'launcher'), env, platform: process.platform, home: dir });
   const paths = make();
   write(path.join(paths.data.pg, 'PG_VERSION'), '16');
   write(path.join(paths.data.pg, 'base', 'data'), 'rows');
@@ -47,11 +47,11 @@ const stops = () => {
 describe('locations pointer', () => {
   it('uses the default folder until a choice is saved, then follows the choice', () => {
     const { paths, make, dir } = world();
-    assert.equal(paths.data.root, path.join(dir, 'share', 'agencyos'));
+    assert.equal(paths.data.root, path.join(dir, 'share', process.platform === 'win32' ? 'AgencyOS' : 'agencyos'));
     assert.equal(paths.data.ollamaModels, path.join(paths.data.root, 'ollama', 'models'));
     assert.equal(paths.locations.customAi, false);
 
-    writeLocations(paths.locations.file, { dataRoot: path.join(dir, 'D', 'data'), aiRoot: path.join(dir, 'E', 'ai') }, { defaultRoot: paths.locations.defaultRoot, platform: 'linux' });
+    writeLocations(paths.locations.file, { dataRoot: path.join(dir, 'D', 'data'), aiRoot: path.join(dir, 'E', 'ai') }, { defaultRoot: paths.locations.defaultRoot, platform: process.platform });
     const next = make();
     assert.equal(next.data.root, path.join(dir, 'D', 'data'));
     assert.equal(next.data.uploads, path.join(dir, 'D', 'data', 'uploads'));
@@ -62,9 +62,9 @@ describe('locations pointer', () => {
 
   it('stores only what differs from the defaults', () => {
     const { paths, dir } = world();
-    const stored = writeLocations(paths.locations.file, { dataRoot: paths.locations.defaultRoot, aiRoot: path.join(paths.locations.defaultRoot, 'ollama') }, { defaultRoot: paths.locations.defaultRoot, platform: 'linux' });
+    const stored = writeLocations(paths.locations.file, { dataRoot: paths.locations.defaultRoot, aiRoot: path.join(paths.locations.defaultRoot, 'ollama') }, { defaultRoot: paths.locations.defaultRoot, platform: process.platform });
     assert.deepEqual(stored, { version: 1 });
-    const moved = writeLocations(paths.locations.file, { dataRoot: path.join(dir, 'D'), aiRoot: path.join(dir, 'D', 'ollama') }, { defaultRoot: paths.locations.defaultRoot, platform: 'linux' });
+    const moved = writeLocations(paths.locations.file, { dataRoot: path.join(dir, 'D'), aiRoot: path.join(dir, 'D', 'ollama') }, { defaultRoot: paths.locations.defaultRoot, platform: process.platform });
     assert.deepEqual(moved, { version: 1, dataRoot: path.join(dir, 'D') });
   });
 
@@ -90,8 +90,8 @@ describe('locations pointer', () => {
 
   it('AGENCYOS_DATA wins, freezes the choice and never reads the pointer', () => {
     const { paths, dir } = world();
-    writeLocations(paths.locations.file, { dataRoot: path.join(dir, 'D') }, { defaultRoot: paths.locations.defaultRoot, platform: 'linux' });
-    const locked = resolvePaths({ launcherDir: '/x/launcher', env: { XDG_DATA_HOME: path.join(dir, 'share'), AGENCYOS_DATA: path.join(dir, 'fixed') }, platform: 'linux', home: dir });
+    writeLocations(paths.locations.file, { dataRoot: path.join(dir, 'D') }, { defaultRoot: paths.locations.defaultRoot, platform: process.platform });
+    const locked = resolvePaths({ launcherDir: path.join(dir, 'x', 'launcher'), env: { XDG_DATA_HOME: path.join(dir, 'share'), AGENCYOS_DATA: path.join(dir, 'fixed') }, platform: process.platform, home: dir });
     assert.equal(locked.data.root, path.join(dir, 'fixed'));
     assert.equal(locked.locations.locked, true);
   });
@@ -162,7 +162,7 @@ describe('checking a request', () => {
 
   it('cannot move when AGENCYOS_DATA fixes the location', async () => {
     const dir = tmp();
-    const paths = resolvePaths({ launcherDir: path.join(dir, 'i', 'launcher'), env: { AGENCYOS_DATA: path.join(dir, 'd') }, platform: 'linux', home: dir });
+    const paths = resolvePaths({ launcherDir: path.join(dir, 'i', 'launcher'), env: { AGENCYOS_DATA: path.join(dir, 'd') }, platform: process.platform, home: dir });
     const plan = await planMove(paths, { dataRoot: path.join(dir, 'other') }, { statfs: bigStatfs });
     assert.equal(plan.ok, false);
     assert.match(plan.errors.dataRoot, /AGENCYOS_DATA/);
@@ -182,7 +182,8 @@ describe('copying and verifying', () => {
     const to = path.join(dir, 'dst');
     await copyTree(from, to, { skip: ['run', 'pg/postmaster.pid'], total: 10, onProgress: (p) => seen.push(p.copiedBytes) });
     assert.equal(fs.readFileSync(path.join(to, 'a', 'one.txt'), 'utf8'), 'one');
-    assert.equal(fs.statSync(path.join(to, 'a', 'one.txt')).mode & 0o777, 0o600);
+    // Windows has no permission bits to keep.
+    if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(to, 'a', 'one.txt')).mode & 0o777, 0o600);
     assert.equal(fs.existsSync(path.join(to, 'run')), false);
     assert.equal(fs.existsSync(path.join(to, 'pg', 'postmaster.pid')), false);
     assert.ok(seen.length > 0);
@@ -350,14 +351,14 @@ describe('removing the old copy', () => {
 describe('a missing drive', () => {
   it('stops the start instead of beginning an empty database somewhere else', () => {
     const { paths, make, dir } = world();
-    writeLocations(paths.locations.file, { dataRoot: path.join(dir, 'unplugged', 'AgencyOS') }, { defaultRoot: paths.locations.defaultRoot, platform: 'linux' });
+    writeLocations(paths.locations.file, { dataRoot: path.join(dir, 'unplugged', 'AgencyOS') }, { defaultRoot: paths.locations.defaultRoot, platform: process.platform });
     assert.throws(() => assertLocationsAvailable(make()), /not available.*connect the drive/s);
   });
 
   it('is fine when the chosen folder exists or only its last part is new', () => {
     const { paths, make, dir } = world();
     fs.mkdirSync(path.join(dir, 'D'));
-    writeLocations(paths.locations.file, { dataRoot: path.join(dir, 'D', 'AgencyOS') }, { defaultRoot: paths.locations.defaultRoot, platform: 'linux' });
+    writeLocations(paths.locations.file, { dataRoot: path.join(dir, 'D', 'AgencyOS') }, { defaultRoot: paths.locations.defaultRoot, platform: process.platform });
     assert.doesNotThrow(() => assertLocationsAvailable(make()));
   });
 });

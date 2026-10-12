@@ -218,7 +218,14 @@ export class Supervisor extends EventEmitter {
     const { def } = rt;
     this.#update(rt, { state: 'starting', message: 'Starting', error: null });
     await def.prepare?.((message) => this.#update(rt, { message }));
-    const spec = await def.spawn();
+    // A start that never returns must fail visibly instead of showing "Starting" forever.
+    let timer;
+    const spec = await Promise.race([
+      Promise.resolve(def.spawn()),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${def.label} did not start within ${Math.round((def.readyTimeoutMs || 60000) / 1000)} seconds.`)), def.readyTimeoutMs || 60000);
+      }),
+    ]).finally(() => clearTimeout(timer));
 
     if (spec.daemon) {
       this.#update(rt, { pid: null, startedAt: Date.now() });

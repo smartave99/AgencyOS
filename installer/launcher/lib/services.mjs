@@ -88,7 +88,12 @@ export async function redisPing(port, host = '127.0.0.1', timeoutMs = 1500) {
   });
 }
 
-function runToEnd(command, args, { env, cwd, input } = {}) {
+/**
+ * Runs a command and resolves when it EXITS. It must not wait for its output pipes to close:
+ * pg_ctl starts the database as a background process that inherits those pipes, so they stay open
+ * for as long as the database runs.
+ */
+export function runToEnd(command, args, { env, cwd, input } = {}) {
   return new Promise((resolve) => {
     const child = spawn(command, args, { env, cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let out = '';
@@ -99,7 +104,15 @@ function runToEnd(command, args, { env, cwd, input } = {}) {
       out += d;
     });
     child.on('error', (error) => resolve({ code: -1, output: error.message }));
-    child.on('close', (code) => resolve({ code, output: out }));
+    child.on('exit', (code) => {
+      // Let any output already in flight arrive, then stop listening.
+      setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        resolve({ code, output: out });
+      }, 150);
+    });
+    child.stdin.on('error', () => {});
     child.stdin.end(input || '');
   });
 }

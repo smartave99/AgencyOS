@@ -196,7 +196,7 @@ async function main() {
     launchApp();
     port = await statusPort();
     const t0 = Date.now();
-    const status = await untilReady(port, 20);
+    const status = await untilReady(port, 12);
     report.facts.firstStartSeconds = Math.round((Date.now() - t0) / 1000);
     report.facts.services = status.services.map((s) => `${s.name}:${s.state}`);
     for (const s of status.services.filter((x) => x.required)) assert(['ready', 'done'].includes(s.state), `${s.name} is ${s.state}`);
@@ -340,11 +340,28 @@ async function main() {
   });
 }
 
+/** On failure, put what a person debugging would ask for straight into the CI log. */
+function dumpDiagnostics() {
+  try {
+    const logs = path.join(dataDir, 'logs');
+    for (const f of fs.existsSync(logs) ? fs.readdirSync(logs).sort() : []) {
+      if (!f.endsWith('.log')) continue;
+      const lines = fs.readFileSync(path.join(logs, f), 'utf8').split(/\r?\n/);
+      console.log(`\n----- ${f} (last 60 of ${lines.length} lines) -----\n${lines.slice(-60).join('\n')}`);
+    }
+    const tasks = spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf8' }).stdout || '';
+    console.log('\n----- processes of interest -----\n' + tasks.split(/\r?\n/).filter((l) => /AgencyOS|node|postgres|redis|temporal|ollama|llama/i.test(l)).join('\n'));
+  } catch (error) {
+    console.log(`(diagnostics failed: ${error.message})`);
+  }
+}
+
 let failed = false;
 try {
   await main();
 } catch {
   failed = true;
+  dumpDiagnostics();
 } finally {
   killApp();
   collectLogs();

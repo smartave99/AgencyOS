@@ -262,7 +262,7 @@ fs.writeFileSync(manifestFile, JSON.stringify({ ...manifest, appVersion, builtAt
 const notices = [
   `AgencyOS ${appVersion} — third-party software shipped with this installer`,
   '',
-  'AgencyOS itself is released under the AGPL-3.0 (see LICENSE). It runs these programs, which keep their own licenses:',
+  'AgencyOS is proprietary software of NextGen OS (see LICENSE.txt). It runs these programs, which keep their own licenses:',
   '',
   ...Object.entries(tools)
     .filter(([k]) => k !== 'ollama' && k !== 'vcRuntime')

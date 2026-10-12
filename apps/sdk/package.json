@@ -16,7 +16,7 @@
     "social media scheduling tool"
   ],
   "author": "Nevo David",
-  "license": "AGPL-3.0",
+  "license": "UNLICENSED",
   "dependencies": {
     "node-fetch": "^3.3.2"
   }

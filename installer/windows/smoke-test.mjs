@@ -28,7 +28,16 @@ if (process.platform !== 'win32') {
 }
 fs.mkdirSync(artifacts, { recursive: true });
 
-const dataDir = path.join(process.env.LOCALAPPDATA, 'AgencyOS');
+// Where the installer records the choice; the data itself may live elsewhere (and moves during the test).
+const defaultDataDir = path.join(process.env.LOCALAPPDATA, 'AgencyOS');
+const dataDirNow = () => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(defaultDataDir, 'locations.json'), 'utf8').replace(/^\uFEFF/, '')).dataRoot || defaultDataDir;
+  } catch {
+    return defaultDataDir;
+  }
+};
+const movedDataDir = path.join(process.env.RUNNER_TEMP || process.env.TEMP || '.', 'AgencyOS-moved-data');
 const exe = path.join(installDir, 'AgencyOS.exe');
 const nodeExe = path.join(installDir, 'runtime', 'node', 'node.exe');
 const launcher = path.join(installDir, 'launcher', 'agencyos.mjs');
@@ -76,6 +85,14 @@ async function getJson(url, headers = {}) {
   const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
   return { status: res.status, json: await res.json().catch(() => null), headers: res.headers };
 }
+/** The session the app hands to a browser on its first visit. */
+function sessionFrom(res) {
+  for (const line of res.headers.getSetCookie?.() || []) {
+    const m = /^auth=([^;]+)/.exec(line);
+    if (m) return m[1];
+  }
+  return null;
+}
 function ps(command) {
   const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', timeout: 60000 });
   return `${r.stdout || ''}`.trim();
@@ -95,7 +112,7 @@ function killApp() {
 }
 async function statusPort() {
   const info = await waitFor('the supervisor to report its status port', () => {
-    const f = path.join(dataDir, 'run', 'supervisor.json');
+    const f = path.join(dataDirNow(), 'run', 'supervisor.json');
     return fs.existsSync(f) ? readJson(f) : null;
   }, { timeoutMs: 180000 });
   return info.statusPort;
@@ -125,9 +142,9 @@ function listeners() {
 function collectLogs() {
   try {
     const dest = path.join(artifacts, 'agencyos-data-logs');
-    fs.cpSync(path.join(dataDir, 'logs'), dest, { recursive: true });
+    fs.cpSync(path.join(dataDirNow(), 'logs'), dest, { recursive: true });
     for (const f of ['ai-state.json', 'ports.json']) {
-      const src = path.join(dataDir, 'config', f);
+      const src = path.join(dataDirNow(), 'config', f);
       if (fs.existsSync(src)) fs.copyFileSync(src, path.join(artifacts, f));
     }
   } catch (error) {
@@ -170,6 +187,18 @@ async function cdp(wsUrl, calls) {
   }
 }
 
+/** A fresh visit opens the same workspace, and what the person created is still there. */
+async function assertWorkspaceAndDataKept(when) {
+  const visit = await fetch('http://localhost:4200/launches', { redirect: 'manual' });
+  const auth = sessionFrom(visit);
+  assert(auth, `no session was opened ${when}`);
+  const h = { auth, 'content-type': 'application/json' };
+  const self = await getJson('http://127.0.0.1:3000/user/self', h);
+  assert(self.status === 200 && self.json?.email === 'owner@agencyos.local', `user/self ${when} -> ${self.status}`);
+  const clients = await getJson('http://127.0.0.1:3000/agency/clients', h);
+  assert(clients.status === 200 && JSON.stringify(clients.json).includes('Smoke Client'), `the client created earlier is gone ${when}`);
+}
+
 async function main() {
   let user;
   let port;
@@ -187,7 +216,7 @@ async function main() {
     const startMenu = path.join(process.env.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'AgencyOS.lnk');
     assert(fs.existsSync(startMenu), 'no Start menu shortcut');
     // A first install records where the data lives, so the app and the uninstaller agree on it.
-    assert(fs.existsSync(path.join(dataDir, 'locations.json')), 'the installer did not record the data location');
+    assert(fs.existsSync(path.join(defaultDataDir, 'locations.json')), 'the installer did not record the data location');
     const run = spawnSync('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', '/v', 'AgencyOS'], { encoding: 'utf8' });
     assert(run.status === 0 && /--hidden/.test(run.stdout), 'start-at-sign-in entry was not created');
     report.facts.manifest = readJson(path.join(installDir, 'runtime-manifest.json')).runtimes;
@@ -235,17 +264,22 @@ async function main() {
     assert(browsers === '', `a web browser was opened for AgencyOS: ${browsers}`);
   });
 
-  user = await step('the product works: sign up, sign in, and use the agency features through the real server', async () => {
+  user = await step('the product works: it opens straight into the workspace (no sign-in) and the agency features work through the real server', async () => {
     const api = 'http://127.0.0.1:3000';
-    const email = `smoke-${rnd()}@example.com`;
-    const password = 'Smoke-Test-123!';
-    const reg = await fetch(`${api}/auth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider: 'LOCAL', email, password, company: 'Smoke Agency' }) });
-    assert(reg.status === 200, `register -> ${reg.status} ${await reg.text()}`);
-    const auth = reg.headers.get('auth');
-    assert(auth, 'register returned no session');
+    const app = 'http://localhost:4200';
+    // The first visit opens the one local workspace by itself and hands the browser a session.
+    const first = await fetch(`${app}/launches`, { redirect: 'manual' });
+    assert(first.status >= 300 && first.status < 400, `first visit -> ${first.status}`);
+    const auth = sessionFrom(first);
+    assert(auth, 'the first visit did not open a session');
     const h = { auth, 'content-type': 'application/json' };
     const self = await getJson(`${api}/user/self`, h);
-    assert(self.status === 200 && self.json?.email === email, `user/self -> ${self.status}`);
+    assert(self.status === 200 && self.json?.email === 'owner@agencyos.local', `user/self -> ${self.status} ${self.json?.email}`);
+    // Sign-in and sign-up are switched off, and their pages lead to the workspace.
+    const reg = await fetch(`${api}/auth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider: 'LOCAL', email: `smoke-${rnd()}@example.com`, password: 'Smoke-Test-123!', company: 'Intruder' }) });
+    assert(reg.status === 403, `sign-up was not refused -> ${reg.status}`);
+    const loginPage = await fetch(`${app}/auth/login`, { redirect: 'manual' });
+    assert(loginPage.status >= 300 && loginPage.status < 400 && new URL(loginPage.headers.get('location'), app).pathname === '/', 'the sign-in page did not lead to the workspace');
     const orgs = await getJson(`${api}/user/organizations`, h);
     assert(orgs.status === 200, `organizations -> ${orgs.status}`);
     const me = await getJson(`${api}/agency/me`, h);
@@ -256,13 +290,10 @@ async function main() {
     assert(clients.status === 200 && JSON.stringify(clients.json).includes('Smoke Client'), 'the new client is not listed');
     const dash = await getJson(`${api}/agency/dashboard`, h);
     assert(dash.status === 200, `dashboard -> ${dash.status}`);
-    const sys = await getJson(`${api}/agency/dashboard`, h);
-    report.facts.dashboardKeys = Object.keys(sys.json || {}).slice(0, 12);
-    const page = await fetch('http://localhost:4200/agency/dashboard', { headers: { cookie: `auth=${auth}` }, redirect: 'manual' });
+    report.facts.dashboardKeys = Object.keys(dash.json || {}).slice(0, 12);
+    const page = await fetch(`${app}/agency/dashboard`, { headers: { cookie: `auth=${auth}` }, redirect: 'manual' });
     assert(page.status === 200, `the app's dashboard page -> ${page.status}`);
-    const login = await fetch('http://localhost:4200/auth/login');
-    assert(login.status === 200 && /<html/i.test(await login.text()), 'login page did not render');
-    return { email, password, auth };
+    return { auth };
   });
 
   if (!skipAi) {
@@ -290,7 +321,7 @@ async function main() {
     });
 
     await step('the embedding model answers, and the product uses the local model for ad copy', async () => {
-      const ollamaPort = readJson(path.join(dataDir, 'config', 'ports.json')).ollama;
+      const ollamaPort = readJson(path.join(dataDirNow(), 'config', 'ports.json')).ollama;
       const emb = await fetch(`http://127.0.0.1:${ollamaPort}/api/embed`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'embeddinggemma', input: ['campaign for a neighbourhood bakery'] }) });
       const body = await emb.json();
       assert(emb.ok && body.embeddings?.[0]?.length === 768, `embed -> ${emb.status}`);
@@ -321,8 +352,7 @@ async function main() {
     const p = await statusPort();
     await untilReady(p, 10);
     report.facts.restartSeconds = Math.round((Date.now() - t0) / 1000);
-    const login = await fetch('http://127.0.0.1:3000/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider: 'LOCAL', email: user.email, password: user.password }) });
-    assert(login.status === 200 && login.headers.get('auth'), `sign-in after restart -> ${login.status}`);
+    await assertWorkspaceAndDataKept('after the restart');
     if (!skipAi) {
       const st = await waitFor('AI to be ready again without downloading', async () => {
         const json = (await getJson(`http://127.0.0.1:${p}/api/status`)).json;
@@ -330,6 +360,54 @@ async function main() {
       }, { timeoutMs: 5 * 60000 });
       assert(st.ai.models.embedding?.state === 'ready', 'embedding model was not kept');
       assert(st.ai.models.text?.state === 'ready', 'text model was not kept');
+    }
+  });
+
+  await step('move the data to another folder from the status page: checked, copied, compared, switched; the workspace and its data come back', async () => {
+    const p = await statusPort();
+    const base = `http://127.0.0.1:${p}`;
+    const token = readJson(path.join(dataDirNow(), 'config', 'secrets.json')).adminToken;
+    const headers = { 'x-agencyos-token': token, 'content-type': 'application/json' };
+    const post = async (route, body) => {
+      const res = await fetch(`${base}${route}`, { method: 'POST', headers, body: JSON.stringify(body) });
+      return { status: res.status, json: await res.json().catch(() => ({})) };
+    };
+    const oldDir = dataDirNow();
+    fs.rmSync(movedDataDir, { recursive: true, force: true });
+
+    const refused = await post('/api/storage/check', { dataRoot: path.parse(movedDataDir).root });
+    assert(refused.json.ok === false && refused.json.errors?.dataRoot, `a whole drive was not refused: ${JSON.stringify(refused.json)}`);
+    const check = await post('/api/storage/check', { dataRoot: movedDataDir });
+    assert(check.json.ok === true && check.json.changes === true, `the new folder was not accepted: ${JSON.stringify(check.json)}`);
+    report.facts.moveJobs = check.json.jobs.map((j) => ({ name: j.name, mb: Math.round(j.bytes / 1048576) }));
+
+    const t0 = Date.now();
+    const started = await post('/api/storage/move', { dataRoot: movedDataDir });
+    assert(started.status === 202, `move -> ${started.status} ${JSON.stringify(started.json)}`);
+    // The running supervisor copies, compares, records the new place and hands over to a new one.
+    await waitFor('AgencyOS to run from the new folder', () => dataDirNow().toLowerCase() === movedDataDir.toLowerCase() && fs.existsSync(path.join(movedDataDir, 'run', 'supervisor.json')), { timeoutMs: 20 * 60000, intervalMs: 3000 });
+    const newPort = await statusPort();
+    const status = await untilReady(newPort, 10);
+    report.facts.moveSeconds = Math.round((Date.now() - t0) / 1000);
+    assert(status.dataDir.toLowerCase() === movedDataDir.toLowerCase(), `the status page still reports ${status.dataDir}`);
+    assert(fs.existsSync(path.join(movedDataDir, 'pg', 'PG_VERSION')), 'the database was not copied');
+    assert(fs.existsSync(path.join(oldDir, 'pg', 'PG_VERSION')), 'the old copy was deleted by the move');
+    assert(status.storage.leftovers.length === 1, `the old copy is not offered for deletion: ${JSON.stringify(status.storage.leftovers)}`);
+    await assertWorkspaceAndDataKept('after the move');
+
+    // Deleting the old copy is a separate, explicit step and keeps the pointer.
+    const newToken = readJson(path.join(movedDataDir, 'config', 'secrets.json')).adminToken;
+    const cleanup = await fetch(`http://127.0.0.1:${newPort}/api/storage/cleanup`, { method: 'POST', headers: { 'x-agencyos-token': newToken, 'content-type': 'application/json' }, body: '{}' });
+    assert(cleanup.status === 200, `cleanup -> ${cleanup.status}`);
+    assert(!fs.existsSync(path.join(oldDir, 'pg')), 'the old database folder is still there after cleanup');
+    assert(fs.existsSync(path.join(defaultDataDir, 'locations.json')), 'cleanup removed the location file');
+    await assertWorkspaceAndDataKept('after deleting the old copy');
+    if (!skipAi) {
+      const st = await waitFor('the AI models to be ready in the new folder', async () => {
+        const json = (await getJson(`http://127.0.0.1:${newPort}/api/status`)).json;
+        return json?.ai?.phase === 'ready' ? json : null;
+      }, { timeoutMs: 5 * 60000 });
+      assert(st.ai.models.text?.state === 'ready', 'the text model was not kept by the move');
     }
   });
 
@@ -341,13 +419,14 @@ async function main() {
     assert(r.status === 0, `uninstaller exited ${r.status}`);
     await waitFor('the install folder to be removed', () => !fs.existsSync(path.join(installDir, 'AgencyOS.exe')), { timeoutMs: 120000 });
     // The silent uninstaller hands over to a second process that removes the data folder last.
-    await waitFor('the data folder to be purged', () => !fs.existsSync(dataDir), { timeoutMs: 90000 }).catch(() => {});
-    if (fs.existsSync(dataDir)) {
+    await waitFor('the data folders to be purged', () => !fs.existsSync(defaultDataDir) && !fs.existsSync(movedDataDir), { timeoutMs: 90000 }).catch(() => {});
+    for (const dataDir of [defaultDataDir, movedDataDir].filter((d) => fs.existsSync(d))) {
       const left = spawnSync('cmd', ['/c', 'dir', '/s', '/b', dataDir], { encoding: 'utf8' }).stdout || '';
       const procs = spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf8' }).stdout || '';
       console.log(`left in the data folder (first 40):\n${left.split(/\r?\n/).slice(0, 40).join('\n')}\nprocesses:\n${procs.split(/\r?\n/).filter((l) => /postgres|redis|temporal|ollama|llama|node|agencyos/i.test(l)).join('\n')}`);
     }
-    assert(!fs.existsSync(dataDir), 'the data folder is still there after a purge');
+    assert(!fs.existsSync(defaultDataDir), 'the default data folder is still there after a purge');
+    assert(!fs.existsSync(movedDataDir), 'the folder the data was moved to is still there after a purge');
     assert(spawnSync('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', '/v', 'AgencyOS'], { encoding: 'utf8' }).status !== 0, 'the start-at-sign-in entry was not removed');
   });
 }
@@ -355,7 +434,7 @@ async function main() {
 /** On failure, put what a person debugging would ask for straight into the CI log. */
 function dumpDiagnostics() {
   try {
-    const logs = path.join(dataDir, 'logs');
+    const logs = path.join(dataDirNow(), 'logs');
     for (const f of fs.existsSync(logs) ? fs.readdirSync(logs).sort() : []) {
       if (!f.endsWith('.log')) continue;
       const lines = fs.readFileSync(path.join(logs, f), 'utf8').split(/\r?\n/);

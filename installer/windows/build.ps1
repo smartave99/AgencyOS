@@ -45,7 +45,7 @@ Run 'Icons' { node installer/build/make-icons.mjs --out installer/desktop/assets
 Run 'Desktop shell' {
   npx --yes '@electron/packager@20.3.0' installer/desktop AgencyOS --platform=win32 --arch=x64 --electron-version=44.7.0 `
     --out=installer/dist/desktop --overwrite --asar --icon=installer/desktop/assets/icon.ico `
-    "--app-version=$Version" "--build-version=$Version" --win32metadata.CompanyName=AgencyOS `
+    "--app-version=$Version" "--build-version=$Version" "--win32metadata.CompanyName=NextGen OS" `
     --win32metadata.FileDescription=AgencyOS --win32metadata.ProductName=AgencyOS --win32metadata.OriginalFilename=AgencyOS.exe '--ignore=^/test'
   if ($LASTEXITCODE -eq 0) { Copy-Item "installer\dist\desktop\AgencyOS-win32-x64\*" installer\dist\stage -Recurse -Force }
 }

@@ -39,4 +39,4 @@ pnpm run dev            # backend :3000, frontend :4200
 * [`RULES.md`](RULES.md) and [`CLAUDE.md`](CLAUDE.md): the project's rules and coding conventions
 * [`installer/README.md`](installer/README.md): building the Windows installer
 
-© NextGen OS
+© NextGen OS. All rights reserved. See [`LICENSE`](LICENSE).

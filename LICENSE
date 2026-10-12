@@ -1,0 +1,46 @@
+AgencyOS End User Licence Agreement
+
+Copyright (c) NextGen OS. All rights reserved.
+
+AgencyOS is proprietary software of NextGen OS. By installing or using AgencyOS you agree to this
+agreement. If you do not agree, do not install or use it.
+
+1. Licence
+   NextGen OS grants you a personal, non-exclusive, non-transferable licence to install and use
+   AgencyOS on computers that you own or control, for your own business purposes.
+
+2. Restrictions
+   You may not, and may not allow anyone else to:
+   (a) copy, modify, adapt or translate AgencyOS, except to make backup copies for your own use;
+   (b) distribute, sell, rent, lease, lend or sublicense AgencyOS or any part of it;
+   (c) offer AgencyOS, or a service built from it, to other people as a hosted or managed service;
+   (d) reverse engineer, decompile or disassemble AgencyOS, except to the extent the law allows
+       despite this restriction;
+   (e) remove or change any ownership or licence notice in AgencyOS.
+
+3. Your data
+   AgencyOS keeps your data in the folders you choose on your own computer. You own your data.
+   You are responsible for backing it up and for having the right to use any contacts, content and
+   accounts you put into AgencyOS, and for following the rules of the networks you publish to.
+
+4. Third-party software
+   AgencyOS installs or downloads programs and models made by others, for example Node.js,
+   PostgreSQL, Redis, Temporal, Ollama and the AI models you are offered. They are licensed under
+   their own terms, listed in THIRD_PARTY_NOTICES.txt, and those terms apply to them. Nothing in this
+   agreement limits any right you have under those licences.
+
+5. No warranty
+   AgencyOS is provided "as is", without warranty of any kind, express or implied, including
+   warranties of merchantability, fitness for a particular purpose and non-infringement.
+
+6. Limitation of liability
+   To the fullest extent the law allows, NextGen OS is not liable for any indirect, incidental,
+   special, consequential or punitive damages, or for loss of data, profits or business, arising
+   from the use of or inability to use AgencyOS.
+
+7. Termination
+   This licence ends automatically if you break it. When it ends you must stop using AgencyOS and
+   delete your copies. Sections 4 to 6 continue to apply.
+
+8. Ownership
+   NextGen OS keeps all rights in AgencyOS that this agreement does not expressly give you.

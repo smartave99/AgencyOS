@@ -7,7 +7,7 @@ name: windows-installer
 
 on:
   push:
-    branches: [claude/nice-wright-f7jdom]
+    branches: [master]
     paths:
       - 'installer/**'
       - 'apps/**'
@@ -97,7 +97,7 @@ jobs:
         shell: pwsh
         run: |
           node installer/build/make-icons.mjs --out installer/desktop/assets
-          npx --yes '@electron/packager@20.3.0' installer/desktop AgencyOS --platform=win32 --arch=x64 --electron-version=44.7.0 --out=installer/dist/desktop --overwrite --asar --icon=installer/desktop/assets/icon.ico "--app-version=$env:VERSION" "--build-version=$env:VERSION" --win32metadata.CompanyName=AgencyOS --win32metadata.FileDescription=AgencyOS --win32metadata.ProductName=AgencyOS --win32metadata.OriginalFilename=AgencyOS.exe '--ignore=^/test'
+          npx --yes '@electron/packager@20.3.0' installer/desktop AgencyOS --platform=win32 --arch=x64 --electron-version=44.7.0 --out=installer/dist/desktop --overwrite --asar --icon=installer/desktop/assets/icon.ico "--app-version=$env:VERSION" "--build-version=$env:VERSION" "--win32metadata.CompanyName=NextGen OS" --win32metadata.FileDescription=AgencyOS --win32metadata.ProductName=AgencyOS --win32metadata.OriginalFilename=AgencyOS.exe '--ignore=^/test'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item "installer/dist/desktop/AgencyOS-win32-x64/*" installer/dist/stage -Recurse -Force
           Get-ChildItem installer/dist/stage | Select-Object -First 40 | ForEach-Object { $_.Name }

@@ -95,6 +95,28 @@ limit. **Missing** = not built. **Unverified** = built, but could not be exercis
 | Every agency screen has loading, empty and error states and role-aware actions | Done | Browser run. |
 | Screen-reader and keyboard audit with assistive technology | Missing | Semantics and keyboard paths were built and spot-checked; no assistive-technology testing was done. |
 
+## Windows desktop installer
+
+AgencyOS can be installed on a Windows laptop with nothing else installed and runs as its own
+desktop application (Electron window, tray icon; not a browser tab) with local AI chosen for the
+hardware. How it works: [`installer/README.md`](../installer/README.md); how to use it:
+[`AGENCYOS_WINDOWS_INSTALL.md`](AGENCYOS_WINDOWS_INSTALL.md).
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| Hardware detection and model selection (EmbeddingGemma + a Gemma text model sized to memory, threads, NVIDIA video memory and free disk; AI off below 4 GB) | Done | 26 unit tests across hardware classes, disk limits, overrides and step-down; model sizes read from `registry.ollama.ai` |
+| AI manager: runtime download with resume and checksum, model pulls with progress, embedding check, measured speed, step-down to a lighter model, offline wait, reuse of an existing Ollama | Done | 9 state-machine tests with a scripted Ollama; 21 tests of downloads, the Ollama client and registry lookups |
+| Supervisor: ordered start, readiness, restart with backoff, clean stop, leftover cleanup | Done | 11 tests with real child processes; also run on a Windows runner |
+| Status page and control API (loopback only, token for state changes, Host check, Telegram token form) | Done | 14 tests |
+| Desktop shell (own window, tray, single instance, hardened navigation: only AgencyOS pages in the window, other web links open in the system browser, no Node access from pages) | Done (policy tested); window behaviour checked on a Windows runner, see below | 8 policy tests |
+| Staged app: dependency-closure `node_modules` (3.4 GB to about 1 GB) and standalone frontend | Done | `stage-app.mjs --verify` loads all 666 compiled files with only the staged modules; ran the staged tree on Linux against real PostgreSQL, Redis and the Prisma migrations (a stand-in held the Temporal port) |
+| Inno Setup installer, per user, no administrator rights | Built on a Windows runner | see "Windows run" |
+
+### Windows run
+
+(Filled in from the CI run that built and tested the installer; see the workflow
+`windows-installer` and the artifacts it keeps.)
+
 ## The 13 required scenarios
 
 | # | Scenario | Test |

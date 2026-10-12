@@ -178,7 +178,7 @@ export function buildServices(ctx) {
       label: 'Database',
       required: true,
       dependsOn: [],
-      readyTimeoutMs: 120000,
+      readyTimeoutMs: 240000,
       async prepare(report) {
         await fsp.mkdir(paths.data.root, { recursive: true });
         if (!pgDirReady()) await initCluster(report);
@@ -268,7 +268,9 @@ export function buildServices(ctx) {
       }),
       required: true,
       dependsOn: ['postgres', 'redis', 'temporal', 'migrate'],
-      readyTimeoutMs: 180000,
+      // Generous: the first start of a fresh Windows install is slowed by Defender scanning
+      // every file it opens for the first time.
+      readyTimeoutMs: 300000,
       isReady: async () => !!(await httpGet(`http://127.0.0.1:${ports.backend}/`)),
     },
     {
@@ -277,7 +279,7 @@ export function buildServices(ctx) {
       }),
       required: false,
       dependsOn: ['postgres', 'redis', 'temporal', 'migrate'],
-      readyTimeoutMs: 180000,
+      readyTimeoutMs: 300000,
       isReady: async () => (await httpGet(`http://127.0.0.1:${ports.orchestrator}/health/status`))?.status === 200,
     },
     {
@@ -286,7 +288,7 @@ export function buildServices(ctx) {
       }),
       required: true,
       dependsOn: [],
-      readyTimeoutMs: 120000,
+      readyTimeoutMs: 240000,
       isReady: async () => {
         const res = await httpGet(`http://127.0.0.1:${ports.frontend}/`);
         return !!res && res.status < 500;

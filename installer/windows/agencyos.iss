@@ -13,6 +13,9 @@
 #ifndef NumericVersion
   #define NumericVersion "0.0.0.0"
 #endif
+#ifndef Compression
+  #define Compression "lzma2/max"
+#endif
 #ifndef StageDir
   #error StageDir is required (the folder produced by the staging scripts)
 #endif
@@ -47,7 +50,7 @@ UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
 LicenseFile={#StageDir}\LICENSE.txt
 InfoAfterFile={#StageDir}\THIRD_PARTY_NOTICES.txt
-Compression=lzma2/max
+Compression={#Compression}
 SolidCompression=yes
 LZMANumBlockThreads=4
 WizardStyle=modern
@@ -78,6 +81,10 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Start {#AppName}"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+; Files the program creates while running (the web server's cache) are not in the install list.
+Type: filesandordirs; Name: "{app}"
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/IM {#AppExe} /F"; Flags: runhidden; RunOnceId: "CloseAgencyOSWindow"

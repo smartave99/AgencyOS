@@ -204,7 +204,7 @@ async function main() {
 
   await step('nothing listens on the network, only on this computer', async () => {
     const ours = new Set([3000, 3002, 4200, 4999, 6390, 7233, 54329]);
-    const exposed = listeners().filter((l) => ours.has(l.port) && !/^(127\.0\.0\.1|::1)$/.test(l.host));
+    const exposed = listeners().filter((l) => ours.has(l.port) && !/^(127\.0\.0\.1|\[?::1\]?)$/.test(l.host));
     assert(exposed.length === 0, `listening beyond loopback: ${JSON.stringify(exposed)}`);
     const seen = listeners().filter((l) => ours.has(l.port)).map((l) => l.port);
     for (const need of [3000, 4200, 4999, 6390, 7233, 54329]) assert(seen.includes(need), `nothing is listening on ${need}`);

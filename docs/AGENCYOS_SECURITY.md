@@ -9,8 +9,13 @@ Nothing here has had an external penetration test or audit.
 ## Controls that exist
 
 ### Identity and tenant isolation
-* Authentication is Postiz's: the JWT signature is verified and the user is re-read from the
+* Authentication is a signed session (JWT): the signature is verified and the user is re-read from the
   database on every request; token claims are not trusted.
+* The desktop app on a person's own computer has no sign-in screen. The app server opens the one local
+  workspace with a per-install key (`AGENCYOS_LOCAL_KEY`) that never reaches the browser, and the sign-in,
+  sign-up and password-reset routes are switched off while it runs. Tests: the session route refuses a
+  missing or wrong key and creates nothing; the same session works on the real API; the switched-off
+  routes create no account.
 * The agency (`orgId`) always comes from the authenticated session, never from a request
   body. The validation pipe whitelists DTO fields and drops the rest.
 * Every agency repository write is org-scoped in the `where` clause, so a missed permission
@@ -92,13 +97,13 @@ Nothing here has had an external penetration test or audit.
 
 | Gap | Impact | Direction |
 | --- | --- | --- |
-| Postiz stores social-network OAuth tokens as upstream does; AgencyOS neither encrypts nor reads them (a test asserts agency code never loads tokens) | A database leak exposes them | Encrypt at rest in Postiz core or use a secrets manager |
+| Social-network OAuth tokens are stored as the platform has always stored them; AgencyOS neither encrypts nor reads them (a test asserts agency code never loads tokens) | A database leak exposes them | Encrypt at rest in the platform core or use a secrets manager |
 | One bot token for the whole server | All agencies share one bot identity | Per-agency bot tokens, stored encrypted |
 | A client is still a workspace user with a login (restricted by middleware) | A flaw in that allow-list would widen access | A separate portal identity (magic link) |
-| The org-level API key of Postiz's public API is not tied to agency roles | Whoever holds the key can use Postiz's public API for posts | Scope or disable the key for agency workspaces |
+| The org-level API key of the public API is not tied to agency roles | Whoever holds the key can use the public API for posts | Scope or disable the key for agency workspaces |
 | The audit trail is not tamper-evident | A database administrator can alter it | Hash-chain or ship to write-once storage |
 | Click-event data has no automatic retention limit | Hashes accumulate | Scheduled purge |
-| Rate limiting is Postiz's global throttling only | No per-agency or per-endpoint limits | Add limits on `/agency/*` |
+| Rate limiting is the platform's global throttling only | No per-agency or per-endpoint limits | Add limits on `/agency/*` |
 | No external penetration test, dependency audit or secret scan was run for this work | Unknown unknowns | Run them before production |
 | Accessibility has not been tested with assistive technology | Possible barriers | Test with screen readers |
 

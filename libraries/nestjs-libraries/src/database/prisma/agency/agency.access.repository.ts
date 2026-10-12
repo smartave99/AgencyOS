@@ -18,7 +18,7 @@ export class AgencyAccessRepository {
   constructor(private prisma: PrismaService) {}
 
   // ==========================================
-  // AGENCY MEMBERS (roles layered on Postiz org membership)
+  // AGENCY MEMBERS (roles layered on AgencyOS org membership)
   // ==========================================
   async getMember(orgId: string, userId: string) {
     return this.prisma.agencyMember.findUnique({

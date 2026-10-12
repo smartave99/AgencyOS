@@ -10,6 +10,26 @@ import {
 } from '@gitroom/react/translation/i18n.config';
 acceptLanguage.languages(languages);
 
+// The desktop app has no sign-in: the app server opens the one local workspace itself, proving who
+// it is with a key that never reaches the browser, and hands the browser the session cookie.
+const isLocalMode = () => process.env.AGENCYOS_LOCAL === 'true';
+
+const openLocalSession = async (): Promise<string | null> => {
+  try {
+    const response = await fetch(
+      `${process.env.BACKEND_INTERNAL_URL}/auth/local-session`,
+      {
+        method: 'POST',
+        headers: { 'x-agencyos-local-key': process.env.AGENCYOS_LOCAL_KEY! },
+        cache: 'no-store',
+      }
+    );
+    return response.ok ? (await response.json()).jwt || null : null;
+  } catch (err) {
+    return null;
+  }
+};
+
 // This function can be marked `async` if using `await` inside
 export async function proxy(request: NextRequest) {
   const nextUrl = request.nextUrl;
@@ -60,6 +80,32 @@ export async function proxy(request: NextRequest) {
     nextUrl.href.indexOf('state=login') === -1
   ) {
     return topResponse;
+  }
+
+  if (isLocalMode()) {
+    // Every sign-in, sign-up and logout address leads to the workspace itself.
+    const target = nextUrl.pathname.startsWith('/auth')
+      ? new URL('/', nextUrl.href)
+      : null;
+    if (!authCookie) {
+      const jwt = await openLocalSession();
+      if (!jwt) {
+        return new NextResponse(
+          'AgencyOS is still starting. This page reloads in a few seconds.',
+          { status: 503, headers: { 'Content-Type': 'text/plain', Refresh: '3' } }
+        );
+      }
+      const opened = NextResponse.redirect(target || new URL(nextUrl.href));
+      // Read by the page's own scripts, as the cookie the sign-in used to set on plain http.
+      opened.cookies.set('auth', jwt, {
+        path: '/',
+        maxAge: 60 * 60 * 24 * 365,
+      });
+      return opened;
+    }
+    if (target) {
+      return NextResponse.redirect(target);
+    }
   }
 
   // If the URL is logout, delete the cookie and redirect to login

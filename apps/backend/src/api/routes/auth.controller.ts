@@ -28,8 +28,10 @@ import { Provider } from '@prisma/client';
 import { makeSecureId } from '@gitroom/nestjs-libraries/services/make.secure.id';
 import * as Sentry from '@sentry/nestjs';
 import { FarcasterProvider } from '@gitroom/nestjs-libraries/integrations/social/farcaster.provider';
+import { DisabledInLocalModeGuard } from '@gitroom/backend/services/auth/local.mode.guard';
 
 @ApiTags('Auth')
+@UseGuards(DisabledInLocalModeGuard)
 @Controller('/auth')
 export class AuthController {
   constructor(

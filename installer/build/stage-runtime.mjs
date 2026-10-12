@@ -5,7 +5,7 @@
 //   runtime/node/node.exe           Node.js (the LTS line named in runtimes.json)
 //   runtime/postgres/{bin,lib,share}  PostgreSQL 16 (initdb, pg_ctl, postgres)
 //   runtime/redis/                  Redis for Windows
-//   runtime/temporal/temporal.exe   Temporal dev server (what Postiz needs to start)
+//   runtime/temporal/temporal.exe   Temporal dev server (what the platform needs to start)
 //   runtime/vc/                     Visual C++ runtime DLLs, so no system install is needed
 //
 // Ollama (about 1.4 GB because of its GPU libraries) is NOT shipped; its download address and

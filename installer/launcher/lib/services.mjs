@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import net from 'node:net';
+import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { tcpOpen, httpGet } from './net.mjs';
@@ -35,8 +36,16 @@ export function databaseUrl(secrets, port) {
   return `postgresql://${PG_USER}:${encodeURIComponent(secrets.dbPassword)}@127.0.0.1:${port}/${PG_DB}?schema=public`;
 }
 
+/**
+ * The desktop app has no sign-in screen: the app server opens the one local session itself and
+ * proves who it is with this key. It never reaches the browser, so a web page cannot ask for a session.
+ */
+export function localSessionKey(secrets) {
+  return crypto.createHmac('sha256', secrets.jwtSecret).update('agencyos-local-session').digest('hex');
+}
+
 /** Environment shared by backend, orchestrator and frontend. user.env wins over everything. */
-export function buildAppEnv({ paths, ports, secrets, userEnv = {}, aiEnv = {}, base = process.env }) {
+export function buildAppEnv({ paths, ports, secrets, userEnv = {}, aiEnv = {}, statusUrl = '', base = process.env }) {
   const frontendUrl = `http://localhost:${ports.frontend}`;
   const backendUrl = `http://localhost:${ports.backend}`;
   return {
@@ -61,6 +70,13 @@ export function buildAppEnv({ paths, ports, secrets, userEnv = {}, aiEnv = {}, b
     UPLOAD_DIRECTORY: paths.data.uploads,
     NEXT_PUBLIC_UPLOAD_DIRECTORY: paths.data.uploads,
     NEXT_PUBLIC_UPLOAD_STATIC_DIRECTORY: '/uploads',
+    // Single person on their own computer: no sign-in screen, one local workspace.
+    AGENCYOS_LOCAL: 'true',
+    AGENCYOS_LOCAL_KEY: localSessionKey(secrets),
+    // Shown in the app's Storage settings; changing them happens on the status page.
+    AGENCYOS_DATA_FOLDER: paths.data.root,
+    AGENCYOS_AI_FOLDER: paths.data.ollamaRoot,
+    AGENCYOS_STATUS_URL: statusUrl,
     AGENCY_SCHEDULER_ENABLED: 'true',
     NEXT_TELEMETRY_DISABLED: '1',
     CHECKPOINT_DISABLE: '1',
@@ -124,7 +140,7 @@ export function buildServices(ctx) {
   const requireFromApp = createRequire(path.join(paths.app.root, 'noop.js'));
   const vcDir = path.join(paths.runtime.root, 'vc');
   const withVc = (env) => ({ ...env, PATH: [vcDir, paths.runtime.postgresBin, env.PATH || process.env.PATH || ''].join(path.delimiter) });
-  const appEnv = () => buildAppEnv({ paths, ports, secrets, userEnv: ctx.userEnv?.() || {}, aiEnv: ctx.aiEnv?.() || {} });
+  const appEnv = () => buildAppEnv({ paths, ports, secrets, userEnv: ctx.userEnv?.() || {}, aiEnv: ctx.aiEnv?.() || {}, statusUrl: ctx.statusUrl });
 
   const pgDirReady = () => fs.existsSync(path.join(paths.data.pg, 'PG_VERSION'));
 

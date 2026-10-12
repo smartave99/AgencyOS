@@ -186,6 +186,8 @@ async function main() {
     }
     const startMenu = path.join(process.env.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'AgencyOS.lnk');
     assert(fs.existsSync(startMenu), 'no Start menu shortcut');
+    // A first install records where the data lives, so the app and the uninstaller agree on it.
+    assert(fs.existsSync(path.join(dataDir, 'locations.json')), 'the installer did not record the data location');
     const run = spawnSync('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', '/v', 'AgencyOS'], { encoding: 'utf8' });
     assert(run.status === 0 && /--hidden/.test(run.stdout), 'start-at-sign-in entry was not created');
     report.facts.manifest = readJson(path.join(installDir, 'runtime-manifest.json')).runtimes;

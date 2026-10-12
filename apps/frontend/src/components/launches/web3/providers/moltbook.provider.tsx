@@ -37,7 +37,7 @@ export const MoltbookProvider: FC<Web3ProviderInterface> = (props) => {
         method: 'POST',
         body: JSON.stringify({
           name: agentName.trim(),
-          description: agentDescription.trim() || 'Postiz social media scheduler',
+          description: agentDescription.trim() || 'AgencyOS social media scheduler',
         }),
       });
 

@@ -145,8 +145,8 @@ function nvidiaSmiCandidates(platform, env) {
   ];
 }
 
-/** Free space of the drive that will hold the models, found by walking up to a real folder. */
-export function freeDiskGB(target, statfs = fs.statfsSync, exists = fs.existsSync) {
+/** Free bytes on the drive that holds `target`, found by walking up to a folder that exists. */
+export function freeDiskBytes(target, statfs = fs.statfsSync, exists = fs.existsSync) {
   let dir = path.resolve(target);
   for (let i = 0; i < 64 && !exists(dir); i += 1) {
     const parent = path.dirname(dir);
@@ -155,10 +155,16 @@ export function freeDiskGB(target, statfs = fs.statfsSync, exists = fs.existsSyn
   }
   try {
     const s = statfs(dir);
-    return round1((Number(s.bavail) * Number(s.bsize)) / GB);
+    return Number(s.bavail) * Number(s.bsize);
   } catch {
     return null;
   }
+}
+
+/** Free space of the drive that will hold the models. */
+export function freeDiskGB(target, statfs = fs.statfsSync, exists = fs.existsSync) {
+  const bytes = freeDiskBytes(target, statfs, exists);
+  return bytes == null ? null : round1(bytes / GB);
 }
 
 /**

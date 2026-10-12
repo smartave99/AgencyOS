@@ -37,7 +37,7 @@ palette).
 | Surfaces | `--ag-surface`, `--ag-surface-raised`, `--ag-hairline`, `--ag-shadow`, `--ag-shadow-pop`, `--ag-scrim` | Cards use a hairline and a very soft shadow in light mode |
 
 Host-app tokens (`newBgColor`, `newBgColorInner`, `newTextColor`, `textItemBlur`) are reused
-for backgrounds and text so the agency screens sit naturally inside the Postiz shell.
+for backgrounds and text so the agency screens sit naturally inside the app shell.
 Status colour is never the only signal: every badge carries its label.
 
 ## Type and spacing

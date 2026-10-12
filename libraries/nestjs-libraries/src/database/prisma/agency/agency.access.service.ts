@@ -124,7 +124,7 @@ export class AgencyAccessService {
 
   /**
    * An explicit AgencyMember row always wins. Without one, the role is derived from
-   * Postiz's coarse organization role, defaulting to the least-privileged staff role
+   * AgencyOS's coarse organization role, defaulting to the least-privileged staff role
    * that can still do day-to-day work (never to an approver).
    */
   async resolveActor(

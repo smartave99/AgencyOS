@@ -15,7 +15,7 @@ const openAiOAuthClientId = () =>
 
 const enableOidcEmailClaims = () => Boolean(openAiOAuthClientId());
 
-// Postiz Cloud only, a self-hosted install has nothing to relay to
+// AgencyOS Cloud only, a self-hosted install has nothing to relay to
 export const selfHostedRelayEnabled = () =>
   process.env.MCP_SELF_HOSTED_RELAY === 'true';
 
@@ -267,7 +267,7 @@ export class OAuthService {
   // Only MCP connections can be relayed to an instance: dynamically registered
   // clients (registration is only advertised to MCP clients), the ChatGPT app,
   // or a client asking for one of the /mcp-oauth resources (RFC 8707). Apps
-  // that use Postiz OAuth for the public API never get the option, a relayed
+  // that use AgencyOS OAuth for the public API never get the option, a relayed
   // token doesn't work there
   allowsSelfHosted(
     app: Pick<OAuthApp, 'clientId' | 'dynamic'>,

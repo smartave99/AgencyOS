@@ -55,8 +55,20 @@ describe('desktop shell policy', () => {
     assert.equal(p.windowPhase({ ready: false, attention: false }), 'starting');
     assert.equal(p.windowPhase({ ready: true }), 'ready');
     assert.equal(p.windowPhase({ ready: false, attention: true }), 'attention');
+    assert.equal(p.windowPhase({ ready: false, storage: { move: { active: true } } }), 'moving');
+    assert.equal(p.windowPhase({ ready: true, storage: { move: { active: false, phase: 'failed' } } }), 'ready');
+    assert.match(p.trayTooltip({ storage: { move: { active: true } } }), /moving your data/);
     assert.match(p.trayTooltip({ ready: true }, '1.0.0'), /AgencyOS 1\.0\.0 — running/);
     assert.match(p.trayTooltip({ attention: true }), /needs attention/);
     assert.match(p.trayTooltip(null), /starting/);
+  });
+
+  it('lets only the launcher status page open the folder picker', () => {
+    assert.equal(p.isStatusPage('http://127.0.0.1:4999/', 4999), true);
+    assert.equal(p.isStatusPage('http://localhost:4999/', 4999), true);
+    for (const url of ['http://127.0.0.1:4200/', 'http://127.0.0.1:4999/other', 'https://127.0.0.1:4999/', 'http://evil.example:4999/', 'http://127.0.0.1:4999.evil.com/', 'nonsense', undefined]) {
+      assert.equal(p.isStatusPage(url, 4999), false, String(url));
+    }
+    assert.equal(p.isStatusPage('http://127.0.0.1:4999/', null), false);
   });
 });

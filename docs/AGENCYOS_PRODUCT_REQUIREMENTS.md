@@ -6,7 +6,7 @@
 
 ## Purpose
 
-An operating system for advertising agencies built on Postiz: onboard clients, build and
+An operating system for advertising agencies, created by NextGen OS: onboard clients, build and
 review ads, publish them to **authorized** destinations on a schedule, prove what was
 delivered, and run the sales and billing side, with a client-facing portal, from one
 dashboard that feels like a premium consumer product and behaves like an enterprise tool.

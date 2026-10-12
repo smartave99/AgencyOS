@@ -205,7 +205,7 @@ export class AgencyPlatformsService {
         catalogued: false,
         name: key.toUpperCase(),
         description:
-          'Connected through Postiz, but AgencyOS has no verified capability data for this network.',
+          'Connected through AgencyOS, but AgencyOS has no verified capability data for this network.',
         maxTextLength: 0,
         supportsImages: false,
         supportsVideos: false,
@@ -215,7 +215,7 @@ export class AgencyPlatformsService {
         supportsDirectMessage: false,
         schedulingSupported: false,
         complianceNotes:
-          "Not catalogued: limits are unknown. Check the network's documentation, or schedule it from Postiz Launches.",
+          "Not catalogued: limits are unknown. Check the network's documentation, or schedule it from AgencyOS Launches.",
       }
     );
   }

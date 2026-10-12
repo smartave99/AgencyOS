@@ -103,7 +103,7 @@ export class AgencySchedulerService implements OnModuleInit, OnModuleDestroy {
       process.env.TELEGRAM_TOKEN
     ) {
       this.logger.warn(
-        "Polling with TELEGRAM_TOKEN, which Postiz channel linking also polls. Set a dedicated AGENCY_TELEGRAM_BOT_TOKEN to avoid the two consuming each other's updates."
+        "Polling with TELEGRAM_TOKEN, which AgencyOS channel linking also polls. Set a dedicated AGENCY_TELEGRAM_BOT_TOKEN to avoid the two consuming each other's updates."
       );
     }
     this.logger.log('Telegram updates are delivered by long polling.');

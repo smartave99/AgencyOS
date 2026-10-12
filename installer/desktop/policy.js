@@ -59,9 +59,13 @@ function parseStatusPort(stdout = '') {
   return m ? Number.parseInt(m[1], 10) : null;
 }
 
-/** 'starting' while services come up, 'ready' when every required one runs, 'attention' if one failed. */
+/**
+ * 'moving' while the data is being copied to a new folder (the app is stopped meanwhile), 'starting'
+ * while services come up, 'ready' when every required one runs, 'attention' if one failed.
+ */
 function windowPhase(status) {
   if (!status) return 'starting';
+  if (status.storage && status.storage.move && status.storage.move.active) return 'moving';
   if (status.ready) return 'ready';
   return status.attention ? 'attention' : 'starting';
 }
@@ -73,9 +77,17 @@ function trayTooltip(status, version = '') {
       return `${name} — running`;
     case 'attention':
       return `${name} — needs attention`;
+    case 'moving':
+      return `${name} — moving your data…`;
     default:
       return `${name} — starting…`;
   }
 }
 
-module.exports = { parseArgs, trustedOrigins, classifyNavigation, safeToOpenExternally, parseStatusPort, windowPhase, trayTooltip, RETRY_URL };
+/** Only the launcher's own status page (never the app or any other site) may open the folder picker. */
+function isStatusPage(url, statusPort) {
+  const u = parseUrl(url);
+  return !!u && u.protocol === 'http:' && LOOPBACK.includes(u.hostname) && Number.isInteger(statusPort) && u.port === String(statusPort) && u.pathname === '/';
+}
+
+module.exports = { parseArgs, trustedOrigins, classifyNavigation, safeToOpenExternally, parseStatusPort, windowPhase, trayTooltip, isStatusPage, RETRY_URL };

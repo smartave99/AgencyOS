@@ -45,6 +45,13 @@ input[type=password],input[type=text]{font:inherit;width:100%;padding:9px 12px;b
 .field{display:flex;gap:8px;margin-top:8px}
 .ok{color:var(--good)}
 ul.reasons{margin:8px 0 0;padding-left:18px;color:var(--sub);font-size:13px}
+.path{word-break:break-all;margin:2px 0 12px}
+label.lbl{display:block;font-size:13px;color:var(--sub);margin:14px 0 4px}
+details{margin-top:14px}
+summary{cursor:pointer;color:var(--sub);font-size:13px}
+.msg{font-size:13px;min-height:18px;margin-top:4px;color:var(--sub)}
+.msg.bad{color:var(--bad)}
+.check{display:flex;align-items:center;gap:8px;margin:10px 0 0;font-size:14px}
 footer{color:var(--sub);font-size:12px;margin-top:28px;text-align:center}
 </style>
 </head>
@@ -78,6 +85,43 @@ footer{color:var(--sub);font-size:12px;margin-top:28px;text-align:center}
     <div class="muted" id="tg-msg" role="status"></div>
   </section>
 
+  <section class="card" id="storage-card">
+    <h2>Storage</h2>
+    <div id="st-summary">
+      <div class="muted">Your data: database, uploads, logs</div>
+      <div class="path" id="st-data"></div>
+      <div class="muted">Local AI engine and models</div>
+      <div class="path" id="st-ai"></div>
+      <div class="actions"><button id="st-open">Change location…</button></div>
+      <p class="muted" id="st-locked" hidden style="margin:10px 0 0">The location is fixed by the AGENCYOS_DATA setting on this computer.</p>
+    </div>
+    <form id="st-form" hidden autocomplete="off">
+      <label class="lbl" for="st-data-in">Data folder</label>
+      <div class="field"><input type="text" id="st-data-in" spellcheck="false" placeholder="D:\\AgencyOS"><button type="button" id="st-data-browse" hidden>Browse…</button></div>
+      <div class="msg" id="st-data-msg" role="status"></div>
+      <details id="st-adv">
+        <summary>Advanced: keep the AI models somewhere else</summary>
+        <label class="check"><input type="checkbox" id="st-keep"> Keep the AI files with my data</label>
+        <label class="lbl" for="st-ai-in">AI folder</label>
+        <div class="field"><input type="text" id="st-ai-in" spellcheck="false" placeholder="E:\\AgencyOS-AI"><button type="button" id="st-ai-browse" hidden>Browse…</button></div>
+        <div class="msg" id="st-ai-msg" role="status"></div>
+      </details>
+      <div class="msg" id="st-plan"></div>
+      <div class="actions"><button class="primary" id="st-go" type="submit" disabled>Move…</button><button type="button" id="st-cancel">Cancel</button></div>
+    </form>
+    <div id="st-progress" hidden>
+      <div id="st-phase"></div>
+      <div class="bar"><i id="st-fill"></i></div>
+      <div class="muted" id="st-detail">Keep this computer on. AgencyOS restarts by itself when the move is done.</div>
+    </div>
+    <div id="st-left" hidden>
+      <p class="muted" style="margin:14px 0 6px">The old copy is still on this computer, using space:</p>
+      <div class="path" id="st-left-list"></div>
+      <div class="actions"><button id="st-clean">Delete the old copy…</button></div>
+    </div>
+    <div class="err" id="st-fail"></div>
+  </section>
+
   <section class="card">
     <h2>This computer</h2>
     <div class="muted" id="hw"></div>
@@ -88,7 +132,7 @@ footer{color:var(--sub);font-size:12px;margin-top:28px;text-align:center}
     <p class="muted" id="paths" style="margin:12px 0 0"></p>
   </section>
 
-  <footer>AgencyOS ${version ? 'v' + String(version).replace(/[^0-9A-Za-z.\-+]/g, '') : ''} · runs only on this computer</footer>
+  <footer>AgencyOS ${version ? 'v' + String(version).replace(/[^0-9A-Za-z.\-+]/g, '') : ''} · created by NextGen OS · runs only on this computer</footer>
 </main>
 <script>
 (function(){
@@ -130,7 +174,64 @@ footer{color:var(--sub);font-size:12px;margin-top:28px;text-align:center}
     var ul = $('ai-reasons'); ul.textContent = '';
     (ai.reasons || []).slice(0,4).forEach(function(r){ var li = document.createElement('li'); text(li, r); ul.appendChild(li); });
   }
+  var current = {data: '', ai: '', custom: false};
+  var checkTimer = null, checkSeq = 0, formOpen = false, lastPlan = null;
+  function storageRequest(){
+    var d = $('st-data-in').value.trim(), a = $('st-ai-in').value.trim(), r = {};
+    if(d && d !== current.data) r.dataRoot = d;
+    if($('st-keep').checked) r.keepWithData = true; else if(a && a !== current.ai) r.aiRoot = a;
+    return r;
+  }
+  function showFieldErrors(fields, plan){
+    text($('st-data-msg'), fields.dataRoot || ''); $('st-data-msg').className = 'msg' + (fields.dataRoot ? ' bad' : '');
+    text($('st-ai-msg'), fields.aiRoot || ''); $('st-ai-msg').className = 'msg' + (fields.aiRoot ? ' bad' : '');
+    if(fields.aiRoot) $('st-adv').open = true;
+    var line = '';
+    if(plan && plan.ok && plan.changes){
+      line = 'Needs about ' + bytes(plan.needBytes) + ' of free space' + (plan.freeBytes != null ? ' (' + bytes(plan.freeBytes) + ' free)' : '') + '. ' + plan.jobs.map(function(j){ return j.label + ': ' + bytes(j.bytes); }).join(' · ');
+    } else if(plan && plan.ok && !plan.changes){ line = 'Those are the folders AgencyOS already uses.'; }
+    text($('st-plan'), line);
+    $('st-go').disabled = !(plan && plan.ok && plan.changes);
+  }
+  function runCheck(){
+    var seq = ++checkSeq, r = storageRequest();
+    if(!r.dataRoot && !r.aiRoot && !r.keepWithData){ lastPlan = null; showFieldErrors({}, null); return; }
+    text($('st-plan'), 'Checking…'); $('st-go').disabled = true;
+    api('/api/storage/check','POST',r).then(function(plan){ if(seq !== checkSeq) return; lastPlan = plan; showFieldErrors(plan.errors || {}, plan); }).catch(function(e){ if(seq === checkSeq) text($('st-plan'), e.message); });
+  }
+  function scheduleCheck(){ clearTimeout(checkTimer); checkTimer = setTimeout(runCheck, 500); }
+  function openForm(){
+    formOpen = true; $('st-form').hidden = false; $('st-summary').hidden = true;
+    $('st-data-in').value = current.data; $('st-ai-in').value = current.custom ? current.ai : ''; $('st-keep').checked = !current.custom;
+    $('st-ai-in').disabled = $('st-keep').checked; $('st-adv').open = current.custom;
+    showFieldErrors({}, null); $('st-data-in').focus();
+  }
+  function closeForm(){ formOpen = false; $('st-form').hidden = true; $('st-summary').hidden = false; clearTimeout(checkTimer); checkSeq++; }
+  function pick(inputId){ var el = $(inputId); window.agencyos.pickFolder(el.value).then(function(p){ if(p){ el.value = p; if(inputId === 'st-ai-in') $('st-keep').checked = false; $('st-ai-in').disabled = $('st-keep').checked; runCheck(); } }); }
+  function renderStorage(st){
+    if(!st) return;
+    current = {data: st.dataRoot, ai: st.aiRoot, custom: !!st.customAi};
+    text($('st-data'), st.dataRoot);
+    text($('st-ai'), st.customAi ? st.aiRoot : 'With your data (' + st.aiRoot + ')');
+    var mv = st.move, moving = !!(mv && mv.active);
+    $('st-open').hidden = !!st.locked; $('st-locked').hidden = !st.locked;
+    $('st-progress').hidden = !moving;
+    if(moving){
+      if(formOpen) closeForm();
+      $('st-summary').hidden = true;
+      text($('st-phase'), mv.message || 'Working…');
+      var frac = mv.totalBytes ? Math.max(0, Math.min(1, mv.copiedBytes / mv.totalBytes)) : 0;
+      $('st-fill').style.width = Math.round(frac * 100) + '%';
+      text($('st-detail'), (mv.totalBytes ? bytes(mv.copiedBytes) + ' of ' + bytes(mv.totalBytes) + '. ' : '') + 'Keep this computer on. AgencyOS restarts by itself when the move is done.');
+    } else if(!formOpen){ $('st-summary').hidden = false; }
+    text($('st-fail'), mv && mv.phase === 'failed' ? 'The move did not finish and nothing was changed. ' + (mv.message || '') : '');
+    var left = st.leftovers || [];
+    $('st-left').hidden = !left.length || moving;
+    text($('st-left-list'), left.map(function(l){ return l.path + (l.bytes ? ' (' + bytes(l.bytes) + ')' : ''); }).join('\\n'));
+    $('st-left-list').style.whiteSpace = 'pre-line';
+  }
   function render(s){
+    renderStorage(s.storage);
     var ready = s.ready;
     text($('title'), ready ? 'AgencyOS is ready' : (s.attention ? 'AgencyOS needs attention' : 'Starting AgencyOS'));
     text($('lead'), ready ? 'Everything is running on this computer.' : (s.attention ? 'Something did not start. Details are below; "Restart everything" tries again.' : 'Getting everything ready. The first start takes a minute or two.'));
@@ -152,6 +253,28 @@ footer{color:var(--sub);font-size:12px;margin-top:28px;text-align:center}
     var v = $('tg-token').value.trim();
     text($('tg-msg'), 'Saving…');
     api('/api/telegram','POST',{token:v}).then(function(r){ $('tg-token').value=''; text($('tg-msg'), r.configured ? 'Saved. The bot is connecting.' : 'Removed.'); }).catch(function(e){ text($('tg-msg'), e.message); });
+  });
+  $('st-open').addEventListener('click', openForm);
+  $('st-cancel').addEventListener('click', closeForm);
+  ['st-data-in','st-ai-in'].forEach(function(id){ $(id).addEventListener('input', scheduleCheck); });
+  $('st-keep').addEventListener('change', function(){ $('st-ai-in').disabled = this.checked; runCheck(); });
+  if(window.agencyos && window.agencyos.pickFolder){
+    $('st-data-browse').hidden = false; $('st-ai-browse').hidden = false;
+    $('st-data-browse').addEventListener('click', function(){ pick('st-data-in'); });
+    $('st-ai-browse').addEventListener('click', function(){ pick('st-ai-in'); });
+  }
+  $('st-form').addEventListener('submit', function(ev){
+    ev.preventDefault();
+    if(!lastPlan || !lastPlan.ok || !lastPlan.changes) return;
+    var where = lastPlan.jobs.map(function(j){ return j.label + ' to ' + j.to; }).join('\\n');
+    if(!confirm('Move AgencyOS to its new location?\\n\\n' + where + '\\n\\nAgencyOS stops while the files are copied, then starts again by itself. Nothing is deleted from the old place; you can remove the old copy afterwards.')) return;
+    $('st-go').disabled = true;
+    api('/api/storage/move','POST',storageRequest()).then(function(){ closeForm(); }).catch(function(e){ text($('st-plan'), e.message); $('st-go').disabled = false; });
+  });
+  $('st-clean').addEventListener('click', function(){
+    if(!confirm('Delete the old copy?\\n\\nThis frees the space but cannot be undone. AgencyOS is already running from the new location.')) return;
+    this.disabled = true; var b = this;
+    api('/api/storage/cleanup','POST',{}).catch(function(e){ text($('st-fail'), e.message); }).then(function(){ b.disabled = false; });
   });
   $('restart').addEventListener('click', function(){ this.disabled = true; var b = this; api('/api/restart','POST',{}).catch(function(){}).then(function(){ b.disabled = false; }); });
   $('stop').addEventListener('click', function(){ if(!confirm('Stop AgencyOS? Scheduled campaigns will not be sent while it is stopped.')) return; api('/api/shutdown','POST',{}).catch(function(){}); text($('title'),'AgencyOS stopped'); text($('lead'),'You can close this tab. Start it again from the Start menu.'); });

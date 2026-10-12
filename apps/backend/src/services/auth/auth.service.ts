@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { randomBytes, timingSafeEqual } from 'crypto';
 import { Provider, User } from '@prisma/client';
 import { CreateOrgUserDto } from '@gitroom/nestjs-libraries/dtos/auth/create.org.user.dto';
 import { LoginUserDto } from '@gitroom/nestjs-libraries/dtos/auth/login.user.dto';
@@ -11,6 +12,9 @@ import { ForgotReturnPasswordDto } from '@gitroom/nestjs-libraries/dtos/auth/for
 import { EmailService } from '@gitroom/nestjs-libraries/services/email.service';
 import { NewsletterService } from '@gitroom/nestjs-libraries/newsletter/newsletter.service';
 
+// The one person who uses AgencyOS on their own computer. Nobody types this address or a password.
+const LOCAL_OWNER_EMAIL = 'owner@agencyos.local';
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -19,6 +23,51 @@ export class AuthService {
     private _emailService: EmailService,
     private _providerManager: AuthProviderManager
   ) {}
+
+  /** The desktop app runs for one person on their own computer and has no sign-in screen. */
+  static isLocalMode() {
+    return process.env.AGENCYOS_LOCAL === 'true';
+  }
+
+  /** Only the app server on this computer knows the key, so a web page cannot ask for a session. */
+  isLocalKey(given?: string) {
+    const expected = Buffer.from(process.env.AGENCYOS_LOCAL_KEY || '');
+    const actual = Buffer.from(given || '');
+    return (
+      expected.length > 0 &&
+      expected.length === actual.length &&
+      timingSafeEqual(expected, actual)
+    );
+  }
+
+  /** Opens the local workspace's session, creating the workspace and its owner on first use. */
+  async localSession(ip: string, userAgent: string) {
+    const existing = await this._userService.getUserByEmail(LOCAL_OWNER_EMAIL);
+    const user: User =
+      existing ||
+      (
+        await this._organizationService.createOrgAndUser(
+          {
+            company: 'AgencyOS',
+            email: LOCAL_OWNER_EMAIL,
+            // Never used to sign in; the address is not reachable and the session is opened by key.
+            password: randomBytes(24).toString('hex'),
+            provider: Provider.LOCAL,
+            datafast_visitor_id: '',
+          },
+          ip,
+          userAgent
+        )
+      ).users[0].user;
+
+    if (!user.activated) {
+      await this._userService.activateUser(user.id);
+      user.activated = true;
+    }
+
+    return this.jwt(user);
+  }
+
   async canRegister(provider: string) {
     if (
       process.env.DISABLE_REGISTRATION !== 'true' ||

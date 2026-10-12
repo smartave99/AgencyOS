@@ -1,6 +1,6 @@
 # AgencyOS — Operator Guide
 
-AgencyOS turns this Postiz fork into a workspace for advertising agencies: clients,
+AgencyOS, created by NextGen OS, is a workspace for advertising agencies: clients,
 campaigns, a review and approval workflow, **authorized** Telegram destinations,
 scheduled publishing with delivery receipts, a sales pipeline, invoices, a client
 portal and publishing reports.
@@ -14,6 +14,12 @@ The simplest way to use AgencyOS is the Windows desktop app: one installer, no p
 its own window (not a browser tab), and local AI models picked automatically for the computer.
 See [`docs/AGENCYOS_WINDOWS_INSTALL.md`](docs/AGENCYOS_WINDOWS_INSTALL.md). Servers and
 developers can keep using Docker Compose or `pnpm` as described below.
+
+* **No sign-in on your own computer.** The desktop app runs for one person and opens straight into the
+  workspace. Servers keep sign-in, roles and the client portal.
+* **You choose where files are stored.** Setup asks for a data folder (database, uploads, logs) and,
+  optionally, a separate folder for the AI models. **Settings → Storage** moves them later; files are
+  copied and checked first, and the old copy is deleted only when you say so.
 
 ## What it will and will not do
 
@@ -51,7 +57,7 @@ Everything else was exercised against a real PostgreSQL database and a real brow
 ## Run it locally
 
 Requirements: Node.js 22, pnpm 10, PostgreSQL 16+, Redis 7, and a Temporal server
-(Postiz needs one to start; `docker compose -f docker-compose.dev.yaml up -d` provides it).
+(the platform needs one to start; `docker compose -f docker-compose.dev.yaml up -d` provides it).
 
 ```bash
 pnpm install
@@ -62,19 +68,23 @@ pnpm run dev                         # backend :3000, frontend :4200
 
 Create the first user at <http://localhost:4200>, then open **Agency Hub**.
 
+To run the way the desktop app does (one person, no sign-in), set `AGENCYOS_LOCAL=true` and a shared
+random `AGENCYOS_LOCAL_KEY` (for example `openssl rand -hex 32`) for both the backend and the frontend.
+The first visit then opens the local workspace by itself and the sign-in routes are switched off.
+
 ### The database is managed by migrations
 
 The schema lives in `libraries/nestjs-libraries/src/database/prisma/schema.prisma` and
 is changed only through migrations in `migrations/` next to it.
 
 * **New database:** `pnpm run prisma-migrate` creates everything.
-* **Existing Postiz install** (created with `prisma db push`): the same command records
+* **Existing install without migrations** (created with `prisma db push`): the same command records
   `0_baseline` as already applied, then applies the AgencyOS migrations, including data
   fixes (duplicate campaign destinations are merged; legacy "authorized" Telegram
   destinations are reset to pending until an admin re-authorizes them). **Back up first.**
 * Each migration has a `rollback.sql` for emergencies; it is not run automatically.
 * Never run `prisma db push` on a database that has migrations.
-* When you merge upstream Postiz changes that touch the schema, add a migration for them.
+* Any change that touches the schema comes with a migration.
 
 ## Turn on publishing
 
@@ -138,7 +148,7 @@ export AGENCYOS_TEST_DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/age
 DATABASE_URL=$AGENCYOS_TEST_DATABASE_URL pnpm run prisma-migrate
 pnpm exec jest --runInBand --coverage=false --testPathPattern 'prisma/agency|integrations/telegram'
 
-# HTTP end-to-end against the compiled backend (auth, validation, roles, isolation)
+# HTTP end-to-end against the compiled backend (auth, local sign-in, validation, roles, isolation)
 pnpm --filter ./apps/backend run build
 pnpm --filter ./apps/backend run e2e
 ```
@@ -160,6 +170,5 @@ start as a test. Put a TLS proxy in front and back up the `agency_pg_data` volum
 * [`docs/AGENCYOS_ARCHITECTURE.md`](docs/AGENCYOS_ARCHITECTURE.md): how it is built
 * [`docs/AGENCYOS_SECURITY.md`](docs/AGENCYOS_SECURITY.md): controls, and known gaps
 * [`docs/AGENCYOS_UI_DESIGN_SYSTEM.md`](docs/AGENCYOS_UI_DESIGN_SYSTEM.md): the interface standard
-* [`docs/POSTIZ_GAP_ANALYSIS.md`](docs/POSTIZ_GAP_ANALYSIS.md): Postiz versus AgencyOS
 * [`docs/AGENCYOS_PRODUCT_REQUIREMENTS.md`](docs/AGENCYOS_PRODUCT_REQUIREMENTS.md) and [`docs/AGENCYOS_IMPLEMENTATION_PLAN.md`](docs/AGENCYOS_IMPLEMENTATION_PLAN.md)
 * [`docs/AGENCYOS_RULES_CONFLICT.md`](docs/AGENCYOS_RULES_CONFLICT.md): a decision the project owner needs to make

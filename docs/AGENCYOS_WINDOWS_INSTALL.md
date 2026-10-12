@@ -21,11 +21,15 @@ Download `AgencyOS-Setup-<version>.exe` from the repository's **Releases** page 
 1. Run the setup file. If Windows SmartScreen says *"Windows protected your PC"*, the build is not
    code-signed: choose **More info → Run anyway**. (The SHA-256 on the release page lets you
    verify the file.)
-2. Keep the defaults. Two optional choices: start AgencyOS when you sign in to Windows (on by
+2. On a first install, setup asks **where to keep your files**: a data folder (database, uploads,
+   logs) and, optionally, a separate folder for the local AI models, which can take several GB. The
+   default is `%LOCALAPPDATA%\AgencyOS`. Pick a drive with plenty of free space; setup checks the folder
+   and the space. See *Where your files are stored* below.
+3. Keep the other defaults. Two optional choices: start AgencyOS when you sign in to Windows (on by
    default, so scheduled campaigns keep being sent), and a desktop shortcut.
-3. Finish. AgencyOS opens and shows what it is starting; the first start takes a minute or two
-   because it creates your private database. Then create your account — it is a local account on
-   this computer.
+4. Finish. AgencyOS opens and shows what it is starting; the first start takes a minute or two
+   because it creates your private database. Then it opens straight into your workspace: there is no
+   account to create and nothing to sign in to, because it runs for one person on this computer.
 
 ## Daily use
 
@@ -93,17 +97,38 @@ AGENCYOS_EMBEDDING_MODEL=nomic-embed-text
 * A Telegram bot token is stored in `user.env` in your own profile folder. It is never stored in
   the database or shown again.
 
-## Where things are
+## Where your files are stored
 
-| | |
+| | Default |
 | --- | --- |
 | Program | `%LOCALAPPDATA%\Programs\AgencyOS` |
-| Your data (database, uploads, AI models, logs) | `%LOCALAPPDATA%\AgencyOS` |
-| Logs | `%LOCALAPPDATA%\AgencyOS\logs` (tray icon → Open logs folder) |
-| Settings you may edit | `%LOCALAPPDATA%\AgencyOS\config\user.env` |
+| Your data: database, uploads, logs, settings | `%LOCALAPPDATA%\AgencyOS` |
+| Local AI engine and models | a `ollama` folder inside your data folder, or a folder you choose |
+| Logs | `<data folder>\logs` (tray icon → Open logs folder) |
+| Settings you may edit | `<data folder>\config\user.env` |
 
-Upgrading: run a newer setup over the old one; your data is kept. Uninstalling asks whether to
-delete your data as well (silent uninstall keeps it unless you pass `/PURGEDATA=1`).
+Where the data lives is remembered in `%LOCALAPPDATA%\AgencyOS\locations.json`, a small file that always
+stays in the default folder so AgencyOS, the installer and the uninstaller agree.
+
+**Choosing a location.** Setup asks on a first install. For silent installs pass
+`/DATADIR=D:\AgencyOS` and `/AIDIR=E:\AgencyOS-AI` (plain letters, numbers and symbols only; the AI folder
+is optional). Network folders, whole drives and folders that already hold other files are refused.
+
+**Changing it later.** Open **Settings → Storage → Change location**, or tray icon → *Status and
+settings*. Pick the new folder (any characters are fine here); AgencyOS checks it and the free space
+while you type, then asks you to confirm. It stops, copies the files, **compares the copy with the
+original**, switches, and starts again by itself. Nothing is deleted from the old place; when you are
+happy, press *Delete the old copy*. If anything fails, AgencyOS puts everything back and keeps running
+from where it was.
+
+**An unplugged drive.** If your data is on a drive that is not connected, AgencyOS says so and does not
+start, rather than quietly creating an empty database somewhere else. Connect the drive and start again.
+
+**Exports.** Reports and CSV files ask where to save each time.
+
+Upgrading: run a newer setup over the old one; your data is kept and setup does not ask again.
+Uninstalling asks whether to delete your data as well and lists the folders it would delete (silent
+uninstall keeps it unless you pass `/PURGEDATA=1`).
 
 ## If something goes wrong
 

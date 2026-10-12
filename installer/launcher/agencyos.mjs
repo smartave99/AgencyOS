@@ -15,6 +15,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolvePaths } from './lib/paths.mjs';
+import { assertLocationsAvailable } from './lib/storage.mjs';
 import { startLauncher, readSupervisorInfo, readJson } from './lib/app.mjs';
 import { loadOrCreateSecrets } from './lib/envfile.mjs';
 import { httpGet, waitFor } from './lib/net.mjs';
@@ -63,6 +64,7 @@ async function ensureRunning() {
   const running = readSupervisorInfo(paths);
   if (await statusOf(running)) return running;
 
+  assertLocationsAvailable(paths);
   fs.mkdirSync(paths.data.logs, { recursive: true });
   const out = fs.openSync(path.join(paths.data.logs, 'launcher.log'), 'a');
   const child = spawn(process.execPath, [path.join(launcherDir, 'agencyos.mjs'), 'run'], {
@@ -74,14 +76,23 @@ async function ensureRunning() {
   });
   child.unref();
   fs.closeSync(out);
-  const info = await waitFor(
-    async () => {
-      const i = readSupervisorInfo(paths);
-      return i && i.pid === child.pid && (await statusOf(i)) ? i : false;
-    },
-    { timeoutMs: 45000, intervalMs: 300 }
-  );
-  if (!info) throw new Error('AgencyOS did not start. See ' + path.join(paths.data.logs, 'launcher.log'));
+  // If the supervisor exits straight away, say why now instead of waiting for the timeout.
+  const exited = new Promise((resolve) => child.once('exit', () => resolve(false)));
+  const info = await Promise.race([
+    waitFor(
+      async () => {
+        const i = readSupervisorInfo(paths);
+        return i && i.pid === child.pid && (await statusOf(i)) ? i : false;
+      },
+      { timeoutMs: 45000, intervalMs: 300 }
+    ),
+    exited,
+  ]);
+  if (!info) {
+    const logFile = path.join(paths.data.logs, 'launcher.log');
+    const reason = tailFile(logFile, 6).trim();
+    throw new Error(`AgencyOS did not start.${reason ? `\n${reason}` : ''}\nSee ${logFile}`);
+  }
   return info;
 }
 
@@ -146,7 +157,7 @@ try {
     case 'doctor': {
       const hw = await detectHardware({ dataDir: paths.data.ollamaModels });
       const plan = selectModels(hw, { env: readEnvFile(paths.data.userEnv), runtimePresent: fs.existsSync(path.join(paths.data.ollamaApp, paths.exe ? 'ollama.exe' : 'ollama')) });
-      console.log(JSON.stringify({ paths: { install: paths.installRoot, data: paths.data.root }, manifest: readJson(paths.runtime.manifest), hardware: hw, aiPlan: plan, node: process.version }, null, 2));
+      console.log(JSON.stringify({ paths: { install: paths.installRoot, data: paths.data.root, ai: paths.data.ollamaRoot, pointer: paths.locations.file }, manifest: readJson(paths.runtime.manifest), hardware: hw, aiPlan: plan, node: process.version }, null, 2));
       process.exit(0);
       break;
     }

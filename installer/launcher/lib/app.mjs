@@ -4,7 +4,9 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { resolvePaths } from './paths.mjs';
+import { assertLocationsAvailable, cleanupLeftovers, listLeftovers, moveStorage, planMove, StorageError } from './storage.mjs';
 import { loadOrCreateSecrets, readEnvFile, setEnvKey } from './envfile.mjs';
 import { tcpOpen, portFree, findFreePort } from './net.mjs';
 import { Supervisor, cleanupStale } from './supervisor.mjs';
@@ -67,6 +69,7 @@ export function readSupervisorInfo(paths) {
 
 export async function startLauncher({ launcherDir, env = process.env, onExit = (code) => process.exit(code) }) {
   const paths = resolvePaths({ launcherDir, env });
+  assertLocationsAvailable(paths);
   for (const dir of [paths.data.root, paths.data.logs, paths.data.run, paths.data.config, paths.data.uploads]) {
     await fsp.mkdir(dir, { recursive: true });
   }
@@ -95,31 +98,63 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
     },
   });
 
+  // What the status page shows about moving the data: null when idle, otherwise the move's progress.
+  let moveState = null;
+  const getStorage = () => ({
+    dataRoot: paths.locations.dataRoot,
+    aiRoot: paths.locations.aiRoot,
+    customAi: paths.locations.customAi,
+    defaultRoot: paths.locations.defaultRoot,
+    locked: paths.locations.locked,
+    move: moveState,
+    leftovers: listLeftovers(paths).map((e) => ({ path: e.path, bytes: e.bytes || 0 })),
+  });
+
   const getStatus = () => ({
     app: 'AgencyOS',
     version,
-    ready: !!supervisor && supervisor.isReady(),
+    ready: !!supervisor && supervisor.isReady() && !moveState?.active,
     attention: !!supervisor && supervisor.hasFailed(),
     url: appUrl,
     services: supervisor ? supervisor.snapshot().filter((s) => s.state !== 'idle') : [],
     ai: ai.snapshot(),
     telegram: { configured: !!userEnv().AGENCY_TELEGRAM_BOT_TOKEN },
+    storage: getStorage(),
     dataDir: paths.data.root,
     logsDir: paths.data.logs,
     ports,
     pid: process.pid,
   });
 
+  /** A fresh supervisor reads the new location from scratch, so nothing keeps pointing at the old folder. */
+  const startNextSupervisor = () => {
+    const next = resolvePaths({ launcherDir, env });
+    fs.mkdirSync(next.data.logs, { recursive: true });
+    const out = fs.openSync(path.join(next.data.logs, 'launcher.log'), 'a');
+    const child = spawn(process.execPath, [path.join(launcherDir, 'agencyos.mjs'), 'run'], {
+      cwd: next.installRoot,
+      detached: true,
+      windowsHide: true,
+      stdio: ['ignore', out, out],
+      env,
+    });
+    child.unref();
+    fs.closeSync(out);
+    log(`Starting AgencyOS from its new location (${next.data.root})`);
+  };
+
   let shuttingDown = false;
   let statusServer;
-  const shutdown = async (code = 0) => {
+  const shutdown = async (code = 0, { handOver = false } = {}) => {
     if (shuttingDown) return;
     shuttingDown = true;
     log('Shutting down');
     ai.stop();
     await supervisor?.stopAll().catch((e) => log(`stopAll: ${e.message}`));
+    // Close the status page first so the next supervisor can take the same port.
     await statusServer?.close().catch(() => {});
     await fsp.rm(paths.data.supervisorInfo, { force: true });
+    if (handOver) startNextSupervisor();
     log('Stopped');
     onExit(code);
   };
@@ -145,6 +180,58 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
     supervisor?.restart('backend').catch(() => {});
   });
 
+  const summarizePlan = (plan) => ({
+    ok: plan.ok,
+    errors: plan.errors,
+    changes: plan.changes,
+    needBytes: plan.needBytes,
+    freeBytes: plan.freeBytes,
+    jobs: plan.jobs.map((j) => ({ name: j.name, label: j.label, from: j.from, to: j.to, bytes: j.bytes })),
+  });
+
+  /** Lets the status page validate a folder while the person types, without changing anything. */
+  const checkStorage = async (request) => summarizePlan(await planMove(paths, request));
+
+  /** Validates now (so a bad folder is an immediate answer) and then moves in the background. */
+  const startMove = async (request) => {
+    if (moveState?.active) throw new StorageError('A move is already in progress.');
+    const plan = await planMove(paths, request);
+    if (!plan.ok) throw new StorageError(Object.values(plan.errors)[0], plan.errors);
+    if (!plan.changes) throw new StorageError('Those are the folders AgencyOS already uses.');
+    moveState = { active: true, phase: 'starting', message: 'Getting ready', totalBytes: 0, copiedBytes: 0 };
+    moveStorage({
+      paths,
+      request,
+      log,
+      stopServices: async () => {
+        ai.stop();
+        await supervisor.stopAll();
+      },
+      restoreServices: async () => {
+        supervisor.shuttingDown = false;
+        await supervisor.startAll();
+        if (ai.runtime.installed) supervisor.start('ollama').catch((e) => log(`ollama: ${e.message}`));
+        runAi();
+      },
+      onState: (state) => {
+        moveState = { active: true, ...state };
+      },
+    })
+      .then(() => {
+        moveState = { active: true, phase: 'restarting', message: 'Starting AgencyOS in the new location' };
+        return shutdown(0, { handOver: true });
+      })
+      .catch((error) => {
+        log(`Move failed: ${error.message}`);
+        moveState = { active: false, phase: 'failed', message: error.message };
+      });
+  };
+
+  const cleanupStorage = async () => {
+    if (moveState?.active) throw new StorageError('Wait for the move to finish first.');
+    return cleanupLeftovers(paths, { log });
+  };
+
   const statusPort = await findFreePort(ports.status);
   statusServer = createStatusServer({
     port: statusPort,
@@ -161,8 +248,11 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
       return supervisor.tail(name, 400);
     },
     actions: {
+      checkStorage,
+      moveStorage: startMove,
+      cleanupStorage,
       restart: async (service) => {
-        if (!supervisor) return;
+        if (!supervisor || moveState?.active) return;
         if (service) await supervisor.restart(service);
         else await restartAll();
       },
@@ -191,6 +281,7 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
     ports,
     secrets,
     log,
+    statusUrl: `http://127.0.0.1:${statusPort}`,
     ramGB: ai.hw?.ramGB,
     userEnv,
     aiEnv: () => ai.appEnv(),

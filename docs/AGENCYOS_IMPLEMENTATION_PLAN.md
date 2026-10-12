@@ -57,7 +57,7 @@ Ordered by value to a real agency.
 
 1. **Live pilot with one bot and one real channel** (30 minutes): set the token, authorize,
    send, and confirm receipts. This is the largest unverified area.
-2. **Social destinations from campaigns** (reuse Postiz providers behind the same job model so
+2. **Social destinations from campaigns** (reuse the platform's social providers behind the same job model so
    the idempotency, retry and uncertainty rules apply).
 3. **Lead funnel**: opt-in landing page, invite links with QR codes, conversion tracking,
    using the existing tracking links and `LeadCapture`.

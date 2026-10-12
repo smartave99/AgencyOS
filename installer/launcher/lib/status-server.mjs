@@ -39,7 +39,21 @@ async function readJson(req, limit = 16 * 1024) {
 }
 
 /**
- * @param actions { restart(service?), shutdown(), retryAi(), setTelegramToken(token|null) }
+ * Folders arrive as plain strings. An empty or missing field means "leave as is"; for the AI folder
+ * `keepWithData: true` means "store the AI files inside the data folder" (the default layout).
+ */
+export function storageRequest(body = {}) {
+  const text = (v) => (typeof v === 'string' ? v.trim().slice(0, 1024) : '');
+  const request = {};
+  if (text(body.dataRoot)) request.dataRoot = text(body.dataRoot);
+  if (body.keepWithData === true) request.aiRoot = null;
+  else if (text(body.aiRoot)) request.aiRoot = text(body.aiRoot);
+  return request;
+}
+
+/**
+ * @param actions { restart(service?), shutdown(), retryAi(), setTelegramToken(token|null),
+ *                  checkStorage(request), moveStorage(request), cleanupStorage() }
  */
 export function createStatusServer({ port, token, version, getStatus, tail, actions }) {
   const send = (res, status, body, type = 'application/json; charset=utf-8') => {
@@ -85,6 +99,13 @@ export function createStatusServer({ port, token, version, getStatus, tail, acti
           case '/api/ai/retry':
             actions.retryAi();
             return send(res, 202, { ok: true });
+          case '/api/storage/check':
+            return send(res, 200, await actions.checkStorage(storageRequest(body)));
+          case '/api/storage/move':
+            await actions.moveStorage(storageRequest(body));
+            return send(res, 202, { ok: true });
+          case '/api/storage/cleanup':
+            return send(res, 200, { ok: true, ...(await actions.cleanupStorage()) });
           case '/api/telegram': {
             const value = typeof body.token === 'string' ? body.token.trim() : '';
             if (value && !TELEGRAM_TOKEN.test(value)) {
@@ -99,7 +120,7 @@ export function createStatusServer({ port, token, version, getStatus, tail, acti
       }
       return send(res, 404, { error: 'Not found' });
     } catch (error) {
-      return send(res, error.status || 500, { error: error.status ? error.message : 'Something went wrong' });
+      return send(res, error.status || 500, { error: error.status ? error.message : 'Something went wrong', ...(error.fields ? { fields: error.fields } : {}) });
     }
   });
 

@@ -14,13 +14,15 @@ for whoever builds or changes it.
   runtime\node\             Node.js
   runtime\postgres\         PostgreSQL 16
   runtime\redis\            Redis for Windows
-  runtime\temporal\         Temporal dev server (Postiz needs one to start)
+  runtime\temporal\         Temporal dev server (the platform needs one to start)
   runtime\vc\               Visual C++ runtime DLLs (so a brand-new Windows needs nothing)
   app\backend|orchestrator  compiled NestJS apps
   app\frontend              Next.js standalone server
   app\node_modules          only what the backend can reach
   app\prisma                schema + migrations
-%LOCALAPPDATA%\AgencyOS\    data: pg\, uploads\, ollama\, logs\, config\ (never touched by upgrades)
+%LOCALAPPDATA%\AgencyOS\    locations.json: where the data lives (always here)
+<data folder>\             pg\, uploads\, logs\, config\, redis\, temporal\ (default: %LOCALAPPDATA%\AgencyOS; never touched by upgrades)
+<AI folder>\               app\ (Ollama), models\ (default: <data folder>\ollama)
 ```
 
 ## How it runs
@@ -49,8 +51,10 @@ AgencyOS.exe (Electron)
 | `launcher/lib/ai.mjs` | plans, installs Ollama, pulls models, benchmarks, steps down |
 | `launcher/lib/ollama.mjs` | Ollama client, registry lookups, runtime install |
 | `launcher/lib/supervisor.mjs`, `services.mjs`, `app.mjs` | process control and the service definitions |
+| `launcher/lib/paths.mjs` | resolves every folder; reads and writes `locations.json` |
+| `launcher/lib/storage.mjs` | checks a chosen folder, copies, verifies, switches, and removes the old copy on request |
 | `launcher/lib/status-*.mjs` | the loopback status page and API |
-| `desktop/` | Electron shell: `main.js`, `policy.js` (navigation rules, tested), `splash.html`, icons |
+| `desktop/` | Electron shell: `main.js`, `preload.js` (the folder picker, status page only), `policy.js` (navigation rules, tested), `splash.html`, icons |
 | `build/stage-app.mjs` | assembles `app/` and `launcher/` from a finished build, verifies it |
 | `build/stage-runtime.mjs` | downloads and checks Node, PostgreSQL, Redis, Temporal, VC++ DLLs |
 | `build/make-icons.mjs` | draws the icon (PNG, tray, ICO) without external tools |

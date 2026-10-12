@@ -20,6 +20,7 @@ import clsx from 'clsx';
 import { TeamsComponent } from '@gitroom/frontend/components/settings/teams.component';
 import { useUser } from '@gitroom/frontend/components/layout/user.context';
 import { LogoutComponent } from '@gitroom/frontend/components/layout/logout.component';
+import StorageComponent from '@gitroom/frontend/components/settings/storage.component';
 import { useSearchParams } from 'next/navigation';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { PublicComponent } from '@gitroom/frontend/components/public-api/public.component';
@@ -37,7 +38,7 @@ import { Plugs } from '@gitroom/frontend/components/plugs/plugs';
 export const SettingsPopup: FC<{
   getRef?: Ref<any>;
 }> = (props) => {
-  const { isGeneral } = useVariables();
+  const { isGeneral, isLocal } = useVariables();
   const { getRef } = props;
   const fetch = useFetch();
   const toast = useToaster();
@@ -88,7 +89,8 @@ export const SettingsPopup: FC<{
     const arr = [];
     arr.push({ tab: 'global_settings', label: t('global_settings', 'Global Settings') });
     // Populate tabs based on user permissions
-    if (user?.tier?.public_api && isGeneral && showLogout) {
+    // The agents page explains connecting hosted AI tools; a local-only app has no use for it.
+    if (user?.tier?.public_api && isGeneral && showLogout && !isLocal) {
       arr.push({ tab: 'agents', label: t('agents', 'Agents') });
     }
     if (user?.tier?.team_members && isGeneral && user?.role !== 'USER') {
@@ -106,12 +108,15 @@ export const SettingsPopup: FC<{
     if (user?.tier.current !== 'FREE') {
       arr.push({ tab: 'signatures', label: t('signatures', 'Signatures') });
     }
+    if (isLocal) {
+      arr.push({ tab: 'storage', label: t('storage', 'Storage') });
+    }
     arr.push({ tab: 'integrations', label: t('integrations', 'Integrations') });
     arr.push({ tab: 'plugs', label: t('plugs', 'Plugs') });
     arr.push({ tab: 'apps', label: t('apps', 'Apps') });
 
     return arr;
-  }, [user, isGeneral, showLogout, t]);
+  }, [user, isGeneral, isLocal, showLogout, t]);
 
   const [tab, setTab] = useState(() => {
     const requested = url.get('tab');
@@ -207,6 +212,12 @@ export const SettingsPopup: FC<{
                 </div>
               )}
 
+              {tab === 'storage' && isLocal && (
+                <div>
+                  <StorageComponent />
+                </div>
+              )}
+
               {tab === 'integrations' && (
                 <div>
                   <ThirdPartyComponent />
@@ -222,7 +233,8 @@ export const SettingsPopup: FC<{
               {tab === 'agents' &&
                 !!user?.tier?.public_api &&
                 isGeneral &&
-                showLogout && (
+                showLogout &&
+                !isLocal && (
                   <div>
                     <PublicComponent />
                   </div>

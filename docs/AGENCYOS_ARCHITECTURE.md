@@ -1,12 +1,12 @@
 # AgencyOS — Architecture
 
-How the agency layer is built on the Postiz monorepo. Everything below describes code that
+How AgencyOS is built. Everything below describes code that
 exists; the places where the original plan was not followed are called out.
 
 ## Stack
 
 NestJS backend (`apps/backend`), Next.js 16 App Router frontend (`apps/frontend`), Prisma 6.5
-on PostgreSQL, Redis, and Temporal (required by Postiz to start, not used for agency
+on PostgreSQL, Redis, and Temporal (required by the platform to start, not used for agency
 publishing). Managed with pnpm workspaces. No vector database: PostgreSQL stores embeddings
 as JSON and similarity is computed in the service.
 

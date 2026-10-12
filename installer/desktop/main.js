@@ -4,7 +4,7 @@
 // server, local AI) through the launcher that ships next to it. The app is shown inside this
 // window; nothing is opened in a web browser.
 
-const { app, BrowserWindow, Menu, Tray, shell, dialog, nativeTheme, nativeImage, session, screen, Notification } = require('electron');
+const { app, BrowserWindow, Menu, Tray, shell, dialog, nativeTheme, nativeImage, session, screen, Notification, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -17,7 +17,7 @@ const installRoot = process.env.AGENCYOS_HOME || (app.isPackaged ? path.dirname(
 const nodeExe = process.env.AGENCYOS_NODE || path.join(installRoot, 'runtime', 'node', isWindows ? 'node.exe' : path.join('bin', 'node'));
 const launcherScript = path.join(installRoot, 'launcher', 'agencyos.mjs');
 const dataRoot = process.env.AGENCYOS_DATA || (isWindows ? path.join(process.env.LOCALAPPDATA || app.getPath('appData'), 'AgencyOS') : path.join(app.getPath('home'), '.local', 'share', 'agencyos'));
-const logsDir = path.join(dataRoot, 'logs');
+const preloadScript = path.join(__dirname, 'preload.js');
 const assets = path.join(__dirname, 'assets');
 const iconPath = path.join(assets, 'icon.png');
 
@@ -49,6 +49,10 @@ app.on('second-instance', (_event, argv) => {
 });
 
 // ---- launcher ------------------------------------------------------------------------------
+
+// The person may keep their data on another drive, so ask the running launcher where it is.
+const currentDataRoot = () => (latestStatus && latestStatus.dataDir) || dataRoot;
+const currentLogsDir = () => (latestStatus && latestStatus.logsDir) || path.join(dataRoot, 'logs');
 
 function runLauncher(args, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -149,7 +153,7 @@ function createMainWindow() {
     icon: iconPath,
     backgroundColor: backgroundColor(),
     autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: true, devTools: flags.debug },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: true, devTools: flags.debug, preload: preloadScript },
   });
   if (saved.maximized) win.maximize();
   win.once('ready-to-show', () => {
@@ -214,7 +218,7 @@ function showStatusPage(target = null) {
     icon: iconPath,
     backgroundColor: backgroundColor(),
     autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, devTools: flags.debug },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, devTools: flags.debug, preload: preloadScript },
   });
   statusWindow.on('page-title-updated', (e) => e.preventDefault());
   statusWindow.loadURL(url);
@@ -262,6 +266,10 @@ function startPolling() {
       if (phase === 'ready' && !appShown && mainWindow && !mainWindow.isDestroyed()) {
         appShown = true;
         mainWindow.loadURL(status.url);
+      } else if (phase === 'moving' && appShown && mainWindow && !mainWindow.isDestroyed()) {
+        // The app is stopped while its files are copied: show the progress instead of a broken page.
+        appShown = false;
+        showStatusPage(mainWindow);
       }
     } catch {
       failedPolls += 1;
@@ -336,7 +344,7 @@ function buildTray() {
         checked: loginItemEnabled(),
         click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked, path: process.execPath, args: ['--hidden'], name: LOGIN_NAME }),
       },
-      { label: 'Open logs folder', click: () => shell.openPath(logsDir) },
+      { label: 'Open logs folder', click: () => shell.openPath(currentLogsDir()) },
       { type: 'separator' },
       { label: 'Quit AgencyOS', click: () => quitAgencyOS({ confirm: true }) },
     ]);
@@ -351,7 +359,7 @@ function buildMenu() {
       label: 'AgencyOS',
       submenu: [
         { label: 'Status and settings…', click: () => showStatusPage() },
-        { label: 'Open logs folder', click: () => shell.openPath(logsDir) },
+        { label: 'Open logs folder', click: () => shell.openPath(currentLogsDir()) },
         { type: 'separator' },
         { label: 'Quit AgencyOS', accelerator: 'CmdOrCtrl+Q', click: () => quitAgencyOS({ confirm: true }) },
       ],
@@ -376,7 +384,7 @@ function buildMenu() {
       label: 'Help',
       submenu: [
         { label: 'Try starting again', click: () => boot() },
-        { label: 'Open logs folder', click: () => shell.openPath(logsDir) },
+        { label: 'Open logs folder', click: () => shell.openPath(currentLogsDir()) },
         { type: 'separator' },
         {
           label: 'About AgencyOS',
@@ -386,7 +394,7 @@ function buildMenu() {
               icon: nativeImage.createFromPath(iconPath),
               title: 'About AgencyOS',
               message: `AgencyOS ${app.getVersion()}`,
-              detail: `Runs entirely on this computer.\nYour data: ${dataRoot}\n\nElectron ${process.versions.electron} · Chromium ${process.versions.chrome}`,
+              detail: `Created by NextGen OS.\nRuns entirely on this computer.\nYour data: ${currentDataRoot()}\n\nElectron ${process.versions.electron} · Chromium ${process.versions.chrome}`,
             }),
         },
       ],
@@ -406,6 +414,17 @@ function notifyOnce(title, body) {
   }
   new Notification({ title, body, icon: iconPath }).show();
 }
+
+// ---- folder picker -------------------------------------------------------------------------
+
+ipcMain.handle('agencyos:pick-folder', async (event, current) => {
+  const frameUrl = event.senderFrame && event.senderFrame.url;
+  if (!statusPort || !policy.isStatusPage(frameUrl, statusPort)) return null;
+  const owner = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const defaultPath = typeof current === 'string' && current && fs.existsSync(current) ? current : undefined;
+  const { canceled, filePaths } = await dialog.showOpenDialog(owner, { title: 'Choose a folder for AgencyOS', defaultPath, properties: ['openDirectory', 'createDirectory'] });
+  return canceled || !filePaths.length ? null : filePaths[0];
+});
 
 // ---- hardening ----------------------------------------------------------------------------
 

@@ -35,6 +35,11 @@ interface VariableContextInterface {
   googleAdsId?: string;
   googleAdsTrialTracking?: string;
   recaptchaSiteKey?: string;
+  // The desktop app: one person, one computer, no sign-in. The folders are shown in Settings.
+  isLocal?: boolean;
+  agencyDataFolder?: string;
+  agencyAiFolder?: string;
+  agencyStatusUrl?: string;
 }
 const VariableContext = createContext({
   stripeClient: '',

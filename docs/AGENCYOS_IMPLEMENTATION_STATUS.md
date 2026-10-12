@@ -158,6 +158,22 @@ covered by unit tests of the selection logic only), Windows on ARM (the ARM runt
 checksum recorded but was not run), the system-tray behaviour of the desktop shell, a laptop with a
 slow disk or a flaky connection, or an upgrade over a previous version.
 
+## Local desktop: where files are stored, and no sign-in
+
+| Capability | State | Evidence |
+| --- | --- | --- |
+| The person chooses where the data (database, uploads, logs) and, separately, the AI engine and models live; one small file (`locations.json`) tells the launcher, the desktop shell and the uninstaller | Done in the launcher | Tests with real folders: defaults, a saved choice, a damaged or relative pointer is ignored, `AGENCYOS_DATA` freezes the choice, Windows paths, the exact file the installer writes (CRLF, escaped backslashes, with or without a byte-order mark) |
+| Moving it later is safe: the folder and free space are checked while typing, services stop, files are copied (large files in chunks, progress shown), the copy is compared with the original, the pointer is switched, a fresh supervisor starts from the new place, and the old copy is removed only on request | Done in the launcher | Tests: moves data and AI files together or separately; a failed copy is rolled back and services restarted; a database that did not stop cleanly is refused; a log line added mid-check does not fail a good copy; the old copy and the pointer survive correctly on cleanup; nothing in use is ever deleted; an unplugged drive stops the start |
+| Status page Storage section (inline validation, advanced AI folder, confirmation, progress, "Delete the old copy") and the control API behind it | Done | HTTP tests (token required, bad folder reported with its field); the page script is compiled in a test and every element it uses is checked |
+| Native folder picker in the desktop window, answering only the status page | Written | The origin rule is unit tested; **not run in a real Electron window** |
+| Installer wizard page (data folder, optional AI folder, validation, free space), silent switches `/DATADIR` `/AIDIR`, an uninstaller that lists the folders before deleting | Written | **Not compiled or run here** (no Inno Setup or Windows in this environment). The Windows CI job compiles it and its smoke test now asserts `locations.json` is created |
+| No sign-in on a person's own computer: the app server opens the one local workspace with a per-install key; sign-in, sign-up and password-reset routes are switched off | Done | 5 HTTP tests on the compiled backend with PostgreSQL (wrong or missing key creates nothing, the session works on the real API, asking again gives the same workspace, the closed routes create no account, normal sign-in is untouched outside local mode); the frontend proxy was exercised with a real Next.js server and a stand-in backend (cookie set once, sign-in and logout addresses lead to the workspace) |
+| Settings → Storage tab in the app; Logout and the Agents tab hidden in local mode | Done | Type-checked; **not clicked through in a browser** |
+| One identity: AgencyOS, created by NextGen OS, in the app, window titles, logos, favicon, translations, emails, installer metadata and docs | Done for everything a person sees | Code identifiers, environment variable names and the `@gitroom/*` import aliases are internal and unchanged |
+
+Because there is no sign-in in this mode, the client portal and per-person roles do not apply to the
+desktop app; they remain for server deployments, where sign-in stays on.
+
 ## The 13 required scenarios
 
 | # | Scenario | Test |
@@ -179,6 +195,6 @@ slow disk or a flaky connection, or an upgrade over a previous version.
 ## Known defects and limits
 
 * A full Jest run failed once, and another run of the same suite failed the same way, on a timing race in a test helper (a job is marked done a moment before its campaign is reconciled). The helper now waits for that state; five consecutive full runs after the fix passed. It was a test-synchronization issue; the production code reconciles immediately after the job.
-* The Postiz shell still asks the server for connected accounts and notifications when a CLIENT opens the portal; those calls are refused (403) and the portal is unaffected, but the browser console shows the refusals.
-* The development server's error overlay in the screenshots comes from Postiz's own chat widget (it cannot reach the backend from the test harness), not from AgencyOS screens.
-* `pm2-run` now applies migrations instead of `db push`. Anyone merging upstream Postiz changes that alter the schema must add a migration for them.
+* The app shell still asks the server for connected accounts and notifications when a CLIENT opens the portal; those calls are refused (403) and the portal is unaffected, but the browser console shows the refusals.
+* The development server's error overlay in the screenshots comes from the app's own chat widget (it cannot reach the backend from the test harness), not from AgencyOS screens.
+* `pm2-run` now applies migrations instead of `db push`. Any change that alters the schema must come with a migration.

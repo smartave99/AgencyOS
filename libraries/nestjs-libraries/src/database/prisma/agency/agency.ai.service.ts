@@ -107,29 +107,49 @@ export class AgencyAiService {
 
       clearTimeout(timeoutId);
 
-      if (!res.ok) return null;
+      if (!res.ok) {
+        this.logger.warn(
+          `Ollama generate answered ${res.status}: ${(await res.text()).slice(
+            0,
+            200
+          )}`
+        );
+        return null;
+      }
       const data = await res.json();
       const parsed = JSON.parse(data.response);
-      const isTextList = (v: unknown) =>
-        Array.isArray(v) &&
-        v.length > 0 &&
-        v.every((x) => typeof x === 'string');
-      if (
-        isTextList(parsed.headlines) &&
-        isTextList(parsed.bodyVariants) &&
-        isTextList(parsed.callToActions)
-      ) {
-        return {
-          headlines: parsed.headlines,
-          bodyVariants: parsed.bodyVariants,
-          callToActions: parsed.callToActions,
-        };
+      const headlines = this.toTextList(parsed.headlines);
+      const bodyVariants = this.toTextList(parsed.bodyVariants);
+      const callToActions = this.toTextList(parsed.callToActions);
+      if (headlines.length && bodyVariants.length && callToActions.length) {
+        return { headlines, bodyVariants, callToActions };
       }
+      this.logger.warn(
+        `Ollama reply did not have the three lists: ${String(
+          data.response
+        ).slice(0, 300)}`
+      );
       return null;
-    } catch {
+    } catch (e: any) {
       clearTimeout(timeoutId);
+      this.logger.warn(`Ollama generation failed: ${e.message}`);
       return null;
     }
+  }
+
+  // Small local models sometimes answer with one string or with {text: "..."} objects
+  // instead of a plain list of strings; accept those, drop anything else.
+  private toTextList(value: unknown): string[] {
+    const items = Array.isArray(value) ? value : value ? [value] : [];
+    return items
+      .map((x: any) =>
+        typeof x === 'string'
+          ? x
+          : x && typeof x === 'object'
+          ? x.text || x.headline || x.body || x.cta || x.content
+          : ''
+      )
+      .filter((x: unknown): x is string => typeof x === 'string' && !!x.trim());
   }
 
   // ==========================================

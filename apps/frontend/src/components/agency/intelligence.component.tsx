@@ -1,7 +1,6 @@
 'use client';
 
-import React, { FC, useEffect, useState } from 'react';
-import clsx from 'clsx';
+import React, { FC, useState } from 'react';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
 import {
@@ -12,15 +11,24 @@ import {
 import {
   Btn,
   Card,
+  CheckField,
+  Dialog,
   EmptyState,
   formatDate,
   humanize,
+  Icon,
   inputClass,
-  labelClass,
   LoadError,
   Loading,
+  Notice,
   PageHeader,
   PageShell,
+  SelectField,
+  Stat,
+  TextArea,
+  TextField,
+  useBusy,
+  useTouched,
 } from '@gitroom/frontend/components/agency/agency.ui';
 
 interface SearchResult {
@@ -49,6 +57,15 @@ const CATEGORIES = [
   'MARKET_RESEARCH',
 ];
 
+const CATEGORY_LABEL: Record<string, string> = {
+  DISCUSSION: 'Discussion',
+  CAMPAIGN_BRIEF: 'Campaign brief',
+  FAQ: 'FAQ',
+  SOP: 'SOP',
+  MARKET_RESEARCH: 'Market research',
+};
+const categoryLabel = (key: string) => CATEGORY_LABEL[key] ?? humanize(key);
+
 const sentimentWord = (score: number) =>
   score > 0.15 ? 'Positive' : score < -0.15 ? 'Negative' : 'Neutral';
 
@@ -61,6 +78,8 @@ const AddDocumentDialog: FC<{ onClose: () => void; onSaved: () => void }> = ({
 }) => {
   const api = useAgencyApi();
   const toaster = useToaster();
+  const touched = useTouched();
+  const { busy, run } = useBusy();
   const [form, setForm] = useState({
     title: '',
     category: 'FAQ',
@@ -69,15 +88,6 @@ const AddDocumentDialog: FC<{ onClose: () => void; onSaved: () => void }> = ({
     content: '',
     authorizationConfirmed: false,
   });
-  const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) =>
-      e.key === 'Escape' && !busy && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [busy, onClose]);
 
   const errors: Record<string, string | null> = {
     title: form.title.trim() ? null : 'Give the document a title.',
@@ -86,166 +96,110 @@ const AddDocumentDialog: FC<{ onClose: () => void; onSaved: () => void }> = ({
       ? null
       : 'Confirm you are allowed to store this content.',
   };
-  const invalid = Object.values(errors).some(Boolean);
-  const blur = (key: string) => () =>
-    setTouched((t) => ({ ...t, [key]: true }));
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setTouched({ title: true, content: true, authorizationConfirmed: true });
-    if (invalid) return;
-    setBusy(true);
-    try {
-      await api.post('/agency/intelligence/ingest', {
-        title: form.title.trim(),
-        category: form.category,
-        source: form.source.trim() || undefined,
-        content: form.content.trim(),
-        tags: form.tags
-          .split(',')
-          .map((t) => t.trim())
-          .filter(Boolean),
-        authorizationConfirmed: true,
-      });
-      toaster.show('Document stored', 'success');
-      onSaved();
-    } catch (err) {
-      toaster.show((err as Error).message, 'warning');
-    } finally {
-      setBusy(false);
-    }
+    touched.all(Object.keys(errors));
+    if (Object.values(errors).some(Boolean)) return;
+    await run(async () => {
+      try {
+        await api.post('/agency/intelligence/ingest', {
+          title: form.title.trim(),
+          category: form.category,
+          source: form.source.trim() || undefined,
+          content: form.content.trim(),
+          tags: form.tags
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean),
+          authorizationConfirmed: true,
+        });
+        toaster.show('Document stored', 'success');
+        onSaved();
+      } catch (err) {
+        toaster.show((err as Error).message, 'warning');
+      }
+    });
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="doc-title"
-    >
-      <form
-        onSubmit={submit}
-        className="bg-newBgColorInner border border-newBgLineColor rounded-2xl p-6 max-w-lg w-full shadow-2xl flex flex-col gap-4"
-      >
-        <h3 id="doc-title" className="text-base font-bold text-newTextColor">
-          Add a document
-        </h3>
-
-        <div>
-          <label htmlFor="doc-name" className={labelClass}>
-            Title
-          </label>
-          <input
-            id="doc-name"
-            autoFocus
-            maxLength={300}
-            value={form.title}
-            onChange={(e) => setForm({ ...form, title: e.target.value })}
-            onBlur={blur('title')}
-            aria-invalid={touched.title && !!errors.title}
-            className={inputClass}
-          />
-          {touched.title && errors.title && (
-            <p className="text-[11px] text-rose-400 mt-1">{errors.title}</p>
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label htmlFor="doc-category" className={labelClass}>
-              Type
-            </label>
-            <select
-              id="doc-category"
-              value={form.category}
-              onChange={(e) => setForm({ ...form, category: e.target.value })}
-              className={inputClass}
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {humanize(c)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="doc-source" className={labelClass}>
-              Source (optional)
-            </label>
-            <input
-              id="doc-source"
-              value={form.source}
-              onChange={(e) => setForm({ ...form, source: e.target.value })}
-              className={inputClass}
-            />
-          </div>
-        </div>
-
-        <div>
-          <label htmlFor="doc-content" className={labelClass}>
-            Text
-          </label>
-          <textarea
-            id="doc-content"
-            rows={6}
-            maxLength={20000}
-            value={form.content}
-            onChange={(e) => setForm({ ...form, content: e.target.value })}
-            onBlur={blur('content')}
-            aria-invalid={touched.content && !!errors.content}
-            className={clsx(inputClass, 'resize-y')}
-          />
-          {touched.content && errors.content && (
-            <p className="text-[11px] text-rose-400 mt-1">{errors.content}</p>
-          )}
-        </div>
-
-        <div>
-          <label htmlFor="doc-tags" className={labelClass}>
-            Tags (optional, comma separated)
-          </label>
-          <input
-            id="doc-tags"
-            value={form.tags}
-            onChange={(e) => setForm({ ...form, tags: e.target.value })}
-            className={inputClass}
-          />
-        </div>
-
-        <label className="flex items-start gap-2 text-xs text-newTextColor">
-          <input
-            type="checkbox"
-            checked={form.authorizationConfirmed}
-            onChange={(e) =>
-              setForm({ ...form, authorizationConfirmed: e.target.checked })
-            }
-            onBlur={blur('authorizationConfirmed')}
-            aria-invalid={
-              touched.authorizationConfirmed && !!errors.authorizationConfirmed
-            }
-            className="mt-0.5"
-          />
-          <span>
-            I am allowed to store this. If it comes from a group chat, the
-            group’s administrator authorized it and its members were told.
-          </span>
-        </label>
-        {touched.authorizationConfirmed && errors.authorizationConfirmed && (
-          <p className="text-[11px] text-rose-400 -mt-2">
-            {errors.authorizationConfirmed}
-          </p>
-        )}
-
-        <div className="flex justify-end gap-2 pt-3 border-t border-newBgLineColor">
-          <Btn type="button" onClick={onClose} disabled={busy}>
+    <Dialog
+      size="lg"
+      title="Add a document"
+      onClose={onClose}
+      busy={busy}
+      onSubmit={submit}
+      footer={
+        <>
+          <Btn onClick={onClose} disabled={busy}>
             Cancel
           </Btn>
           <Btn type="submit" variant="primary" busy={busy}>
             Store document
           </Btn>
-        </div>
-      </form>
-    </div>
+        </>
+      }
+    >
+      <TextField
+        autoFocus
+        label="Title"
+        maxLength={300}
+        value={form.title}
+        onChange={(e) => setForm({ ...form, title: e.target.value })}
+        onBlur={touched.blur('title')}
+        error={touched.show('title', errors.title)}
+      />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <SelectField
+          label="Type"
+          value={form.category}
+          onChange={(e) => setForm({ ...form, category: e.target.value })}
+        >
+          {CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {categoryLabel(c)}
+            </option>
+          ))}
+        </SelectField>
+        <TextField
+          label="Source"
+          optional
+          value={form.source}
+          onChange={(e) => setForm({ ...form, source: e.target.value })}
+        />
+      </div>
+      <TextArea
+        label="Text"
+        rows={6}
+        maxLength={20000}
+        className="resize-y"
+        value={form.content}
+        onChange={(e) => setForm({ ...form, content: e.target.value })}
+        onBlur={touched.blur('content')}
+        error={touched.show('content', errors.content)}
+      />
+      <TextField
+        label="Tags"
+        optional
+        hint="Comma separated."
+        value={form.tags}
+        onChange={(e) => setForm({ ...form, tags: e.target.value })}
+      />
+      <CheckField
+        checked={form.authorizationConfirmed}
+        onChange={(e) =>
+          setForm({ ...form, authorizationConfirmed: e.target.checked })
+        }
+        onBlur={touched.blur('authorizationConfirmed')}
+        error={touched.show(
+          'authorizationConfirmed',
+          errors.authorizationConfirmed
+        )}
+      >
+        I am allowed to store this. If it comes from a group chat, the group’s
+        administrator authorized it and its members were told.
+      </CheckField>
+    </Dialog>
   );
 };
 
@@ -255,28 +209,27 @@ const AddDocumentDialog: FC<{ onClose: () => void; onSaved: () => void }> = ({
 const SearchPanel = () => {
   const api = useAgencyApi();
   const toaster = useToaster();
+  const { busy, run } = useBusy();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
-  const [busy, setBusy] = useState(false);
   const [response, setResponse] = useState<SearchResponse | null>(null);
 
   const search = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
-    setBusy(true);
-    try {
-      setResponse(
-        await api.post<SearchResponse>('/agency/intelligence/search', {
-          query: query.trim(),
-          category: category || undefined,
-          limit: 10,
-        })
-      );
-    } catch (err) {
-      toaster.show((err as Error).message, 'warning');
-    } finally {
-      setBusy(false);
-    }
+    await run(async () => {
+      try {
+        setResponse(
+          await api.post<SearchResponse>('/agency/intelligence/search', {
+            query: query.trim(),
+            category: category || undefined,
+            limit: 10,
+          })
+        );
+      } catch (err) {
+        toaster.show((err as Error).message, 'warning');
+      }
+    });
   };
 
   return (
@@ -285,35 +238,45 @@ const SearchPanel = () => {
       subtitle="Find stored documents related to a question or topic."
     >
       <form onSubmit={search} className="flex flex-wrap gap-2">
-        <label className="sr-only" htmlFor="kb-query">
-          Search query
-        </label>
-        <input
-          id="kb-query"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="e.g. refund policy for ad placements"
-          className={clsx(inputClass, 'flex-1 min-w-48')}
-        />
-        <label className="sr-only" htmlFor="kb-category">
-          Type
-        </label>
-        <select
-          id="kb-category"
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          className={clsx(inputClass, 'w-auto')}
-        >
-          <option value="">All types</option>
-          {CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {humanize(c)}
-            </option>
-          ))}
-        </select>
+        <div className="relative flex-1 min-w-48">
+          <Icon
+            name="search"
+            size={14}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-textItemBlur"
+          />
+          <label className="sr-only" htmlFor="kb-query">
+            Search query
+          </label>
+          <input
+            id="kb-query"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="e.g. refund policy for ad placements"
+            className={`${inputClass} pl-8`}
+          />
+        </div>
+        <div className="w-44">
+          <label className="sr-only" htmlFor="kb-category">
+            Type
+          </label>
+          <select
+            id="kb-category"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className={inputClass}
+          >
+            <option value="">All types</option>
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {categoryLabel(c)}
+              </option>
+            ))}
+          </select>
+        </div>
         <Btn
           type="submit"
           variant="primary"
+          size="md"
           busy={busy}
           disabled={!query.trim()}
         >
@@ -323,7 +286,7 @@ const SearchPanel = () => {
 
       {response && (
         <>
-          <p className="text-[11px] text-textItemBlur">
+          <p className="text-xs text-textItemBlur">
             {response.semantic
               ? `Ranked by meaning using ${response.method}.`
               : 'Ranked by shared words only. No embedding model is available, so related wording without the same words will not match.'}{' '}
@@ -331,27 +294,31 @@ const SearchPanel = () => {
             {response.documentsSearched === 1 ? '' : 's'} searched.
           </p>
           {response.results.length === 0 ? (
-            <EmptyState title="No matches" hint="Try different words." />
+            <EmptyState
+              icon="search"
+              title="No matches"
+              hint="Try different words."
+            />
           ) : (
             <ul className="flex flex-col gap-3">
               {response.results.map((r) => (
                 <li
                   key={r.id}
-                  className="rounded-lg border border-newBgLineColor bg-newBgColor p-3"
+                  className="rounded-xl bg-[var(--ag-neutral-bg)] p-4"
                 >
                   <div className="flex items-baseline justify-between gap-3">
-                    <h3 className="text-xs font-semibold text-newTextColor">
+                    <h3 className="text-[13px] font-semibold text-newTextColor">
                       {r.title}
                     </h3>
-                    <span className="text-[11px] text-textItemBlur whitespace-nowrap">
+                    <span className="text-xs text-textItemBlur whitespace-nowrap tabular-nums">
                       {Math.round(r.similarity * 100)}% match
                     </span>
                   </div>
-                  <p className="text-[11px] text-textItemBlur mt-0.5">
-                    {humanize(r.category)}
+                  <p className="text-xs text-textItemBlur mt-0.5">
+                    {categoryLabel(r.category)}
                     {r.source && ` · ${r.source}`}
                   </p>
-                  <p className="text-xs text-newTextColor mt-2 line-clamp-3 whitespace-pre-wrap break-words">
+                  <p className="text-[13px] leading-relaxed text-newTextColor mt-2 line-clamp-3 whitespace-pre-wrap break-words">
                     {r.content}
                   </p>
                 </li>
@@ -370,36 +337,34 @@ const SearchPanel = () => {
 const RetentionPanel: FC<{ onChanged: () => void }> = ({ onChanged }) => {
   const api = useAgencyApi();
   const toaster = useToaster();
+  const { busy, run } = useBusy();
   const [category, setCategory] = useState('');
   const [days, setDays] = useState('');
-  const [busy, setBusy] = useState(false);
 
-  const reindex = async () => {
-    setBusy(true);
-    try {
-      const r = await api.post<{ updated: number; remaining: number }>(
-        '/agency/intelligence/reindex'
-      );
-      toaster.show(
-        `${r.updated} document${r.updated === 1 ? '' : 's'} indexed${
-          r.remaining ? `, ${r.remaining} remaining` : ''
-        }`,
-        'success'
-      );
-      onChanged();
-    } catch (err) {
-      toaster.show((err as Error).message, 'warning');
-    } finally {
-      setBusy(false);
-    }
-  };
+  const reindex = () =>
+    run(async () => {
+      try {
+        const r = await api.post<{ updated: number; remaining: number }>(
+          '/agency/intelligence/reindex'
+        );
+        toaster.show(
+          `${r.updated} document${r.updated === 1 ? '' : 's'} indexed${
+            r.remaining ? `, ${r.remaining} remaining` : ''
+          }`,
+          'success'
+        );
+        onChanged();
+      } catch (err) {
+        toaster.show((err as Error).message, 'warning');
+      }
+    });
 
   const purge = async () => {
     const n = Number(days);
     if (!category && !(n > 0)) return;
     const scope = [
       category
-        ? `every ${humanize(category).toLowerCase()} document`
+        ? `every ${categoryLabel(category).toLowerCase()} document`
         : 'every document',
       n > 0 ? `older than ${n} days` : '',
     ]
@@ -411,34 +376,38 @@ const RetentionPanel: FC<{ onChanged: () => void }> = ({ onChanged }) => {
       ))
     )
       return;
-    setBusy(true);
-    try {
-      const params = new URLSearchParams();
-      if (category) params.set('category', category);
-      if (n > 0) params.set('olderThanDays', String(Math.floor(n)));
-      const r = await api.del<{ deleted: number }>(
-        `/agency/intelligence?${params.toString()}`
-      );
-      toaster.show(
-        `${r.deleted} document${r.deleted === 1 ? '' : 's'} deleted`,
-        'success'
-      );
-      onChanged();
-    } catch (err) {
-      toaster.show((err as Error).message, 'warning');
-    } finally {
-      setBusy(false);
-    }
+    await run(async () => {
+      try {
+        const params = new URLSearchParams();
+        if (category) params.set('category', category);
+        if (n > 0) params.set('olderThanDays', String(Math.floor(n)));
+        const r = await api.del<{ deleted: number }>(
+          `/agency/intelligence?${params.toString()}`
+        );
+        toaster.show(
+          `${r.deleted} document${r.deleted === 1 ? '' : 's'} deleted`,
+          'success'
+        );
+        onChanged();
+      } catch (err) {
+        toaster.show((err as Error).message, 'warning');
+      }
+    });
   };
 
   return (
-    <details className="bg-newBgColorInner border border-newBgLineColor rounded-2xl p-5">
-      <summary className="text-sm font-bold text-newTextColor cursor-pointer">
+    <details className="group rounded-2xl bg-newBgColorInner border border-[color:var(--ag-hairline)] shadow-[var(--ag-shadow)] p-5 sm:p-6">
+      <summary className="flex cursor-pointer list-none items-center justify-between text-[15px] font-semibold tracking-tight text-newTextColor">
         Data retention and indexing
+        <Icon
+          name="chevron"
+          size={16}
+          className="text-textItemBlur transition-transform group-open:rotate-180"
+        />
       </summary>
-      <div className="mt-4 flex flex-col gap-5">
+      <div className="mt-5 flex flex-col gap-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-textItemBlur max-w-md">
+          <p className="text-[13px] text-textItemBlur max-w-md">
             Documents stored while no embedding model was reachable only support
             keyword search. Re-index them once a model is available.
           </p>
@@ -447,41 +416,31 @@ const RetentionPanel: FC<{ onChanged: () => void }> = ({ onChanged }) => {
           </Btn>
         </div>
         <div>
-          <p className="text-xs text-textItemBlur mb-2">
+          <p className="text-[13px] text-textItemBlur mb-3">
             Delete stored documents by type, by age, or both.
           </p>
           <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <label htmlFor="purge-category" className={labelClass}>
-                Type
-              </label>
-              <select
-                id="purge-category"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className={clsx(inputClass, 'w-auto')}
-              >
-                <option value="">Any</option>
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {humanize(c)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="purge-days" className={labelClass}>
-                Older than (days)
-              </label>
-              <input
-                id="purge-days"
-                type="number"
-                min={1}
-                value={days}
-                onChange={(e) => setDays(e.target.value)}
-                className={clsx(inputClass, 'w-28')}
-              />
-            </div>
+            <SelectField
+              label="Type"
+              wrapperClassName="w-44"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
+              <option value="">Any</option>
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {categoryLabel(c)}
+                </option>
+              ))}
+            </SelectField>
+            <TextField
+              label="Older than (days)"
+              wrapperClassName="w-40"
+              type="number"
+              min={1}
+              value={days}
+              onChange={(e) => setDays(e.target.value)}
+            />
             <Btn
               variant="danger"
               onClick={purge}
@@ -523,12 +482,12 @@ export const AgencyIntelligenceComponent = () => {
   return (
     <PageShell>
       <PageHeader
-        crumb="Knowledge base"
         title="Knowledge base"
         subtitle="Briefs, FAQs and approved research your team stores to reuse. Only content you are authorized to keep belongs here."
         actions={
           canManage ? (
             <Btn variant="primary" onClick={() => setAdding(true)}>
+              <Icon name="plus" size={15} />
               Add document
             </Btn>
           ) : undefined
@@ -541,37 +500,30 @@ export const AgencyIntelligenceComponent = () => {
         <Loading />
       ) : (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="bg-newBgColorInner border border-newBgLineColor rounded-xl p-4">
-              <p className="text-xs text-textItemBlur">Documents</p>
-              <p className="mt-2 text-2xl font-bold text-newTextColor">
-                {data.totalDocuments}
-              </p>
-            </div>
-            <div className="bg-newBgColorInner border border-newBgLineColor rounded-xl p-4">
-              <p className="text-xs text-textItemBlur">Overall tone</p>
-              <p className="mt-2 text-2xl font-bold text-newTextColor">
-                {data.totalDocuments ? data.sentimentLabel : '—'}
-              </p>
-              <p className="text-[11px] text-textItemBlur mt-1">
-                Simple word-list score, not a trained model
-              </p>
-            </div>
-            <div className="bg-newBgColorInner border border-newBgLineColor rounded-xl p-4 col-span-2 lg:col-span-1">
-              <p className="text-xs text-textItemBlur">By type</p>
-              <p className="mt-2 text-xs text-newTextColor">
-                {Object.keys(data.categoryBreakdown).length
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <Stat label="Documents" value={data.totalDocuments} />
+            <Stat
+              label="Overall tone"
+              value={data.totalDocuments ? data.sentimentLabel : '—'}
+              hint="Simple word-list score, not a trained model"
+            />
+            <Stat
+              label="By type"
+              value={Object.keys(data.categoryBreakdown).length}
+              hint={
+                Object.keys(data.categoryBreakdown).length
                   ? Object.entries(data.categoryBreakdown)
-                      .map(([k, v]) => `${humanize(k)} ${v}`)
+                      .map(([k, v]) => `${categoryLabel(k)} ${v}`)
                       .join(' · ')
-                  : '—'}
-              </p>
-            </div>
+                  : 'Nothing stored yet'
+              }
+            />
           </div>
 
           {data.totalDocuments === 0 ? (
-            <div className="bg-newBgColorInner border border-newBgLineColor rounded-2xl">
+            <div className="rounded-2xl bg-newBgColorInner border border-[color:var(--ag-hairline)]">
               <EmptyState
+                icon="book"
                 title="Nothing stored yet"
                 hint="Add a brief, FAQ or research note and it becomes searchable here."
                 action={
@@ -589,29 +541,29 @@ export const AgencyIntelligenceComponent = () => {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <Card title="Recently added">
-                  <ul className="flex flex-col divide-y divide-newBgLineColor">
+                  <ul className="flex flex-col">
                     {data.recentInsights.map((d: any) => (
                       <li
                         key={d.id}
-                        className="py-2.5 flex items-center justify-between gap-3"
+                        className="py-3 flex items-center justify-between gap-3 border-t first:border-t-0 border-[color:var(--ag-hairline)]"
                       >
                         <div className="min-w-0">
-                          <p className="text-xs font-semibold text-newTextColor truncate">
+                          <p className="text-[13px] font-medium text-newTextColor truncate">
                             {d.title}
                           </p>
-                          <p className="text-[11px] text-textItemBlur">
-                            {humanize(d.category)} ·{' '}
+                          <p className="text-xs text-textItemBlur">
+                            {categoryLabel(d.category)} ·{' '}
                             {sentimentWord(d.sentimentScore)} ·{' '}
                             {formatDate(d.createdAt)}
                           </p>
                         </div>
                         {canManage && (
-                          <button
+                          <Btn
+                            variant="ghost"
                             onClick={() => void remove(d.id, d.title)}
-                            className="text-[11px] text-rose-400 hover:underline"
                           >
                             Delete
-                          </button>
+                          </Btn>
                         )}
                       </li>
                     ))}
@@ -623,16 +575,16 @@ export const AgencyIntelligenceComponent = () => {
                   subtitle="Counted from the tags on stored documents."
                 >
                   {data.trendingTopics.length === 0 ? (
-                    <EmptyState title="No tags yet" />
+                    <EmptyState icon="doc" title="No tags yet" />
                   ) : (
-                    <ul className="flex flex-col gap-2">
+                    <ul className="flex flex-col">
                       {data.trendingTopics.map((t: any) => (
                         <li
                           key={t.topic}
-                          className="flex items-center justify-between text-xs"
+                          className="flex items-center justify-between py-2 text-[13px] border-t first:border-t-0 border-[color:var(--ag-hairline)]"
                         >
                           <span className="text-newTextColor">{t.topic}</span>
-                          <span className="text-textItemBlur">
+                          <span className="text-textItemBlur tabular-nums">
                             {t.count} · {humanize(t.sentiment)}
                           </span>
                         </li>

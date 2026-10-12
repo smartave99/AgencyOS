@@ -643,20 +643,39 @@ describeDb('security and tenancy (real database)', () => {
       const second = await h.prisma.customer.create({
         data: { orgId: t.orgId, name: 'Other client' },
       });
-      await draftCampaign(h, t, [d.id], {
+      const mine = await draftCampaign(h, t, [d.id], {
         name: 'Mine',
         internalNotes: 'margin is 40%',
         budget: 9999,
       });
+      await h.agency.submitForApproval(t.sales, mine.id);
+      await draftCampaign(h, t, [d.id], { name: 'Unfinished draft' });
       await draftCampaign(h, t, [], { name: 'Theirs', customerId: second.id });
 
       const view = await h.portal.getClientPortalData(t.client, second.id); // tries to name another client
       expect(view.client.id).toBe(t.customerId); // pinned to its own regardless
+      // Their submitted ad shows; an unfinished draft and another client's work do not.
       expect(view.campaigns.map((c) => c.name)).toEqual(['Mine']);
       expect(JSON.stringify(view)).not.toMatch(
         /margin|9999|internalNotes|budget/
       );
       expect(view.viewer).toEqual({ isClient: true, canReview: true });
+    });
+
+    it('shows the client the ad exactly as it will be sent, with markup neutralised', async () => {
+      const d = await activeDestination(h, t.orgId);
+      const c = await draftCampaign(h, t, [d.id], {
+        contentBody: '<b>Big sale</b> <script>alert(1)</script>',
+        ctaLink: 'https://example.com/sale',
+        ctaText: 'Shop now',
+      });
+      await h.agency.submitForApproval(t.sales, c.id);
+      const view = await h.portal.getClientPortalData(t.client);
+      const html = view.campaigns.find((x) => x.id === c.id)!.preview.html;
+      expect(html).toContain('<b>Big sale</b>');
+      expect(html).toContain('&lt;script&gt;');
+      expect(html).not.toContain('<script>');
+      expect(html).toContain('https://example.com/sale');
     });
 
     it('staff can preview but cannot act as the client', async () => {

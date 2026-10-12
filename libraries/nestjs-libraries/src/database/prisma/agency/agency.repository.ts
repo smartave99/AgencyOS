@@ -1445,7 +1445,13 @@ export class AgencyRepository {
   // ==========================================
   async getPortalCampaigns(orgId: string, customerId: string) {
     return this.prisma.campaign.findMany({
-      where: { orgId, customerId, deletedAt: null },
+      where: {
+        orgId,
+        customerId,
+        deletedAt: null,
+        // Work in progress is the agency's own; a client sees an ad once it is submitted.
+        status: { notIn: [CampaignStatus.DRAFT, CampaignStatus.ARCHIVED] },
+      },
       select: {
         id: true,
         name: true,

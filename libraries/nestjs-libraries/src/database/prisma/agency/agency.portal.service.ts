@@ -6,6 +6,7 @@ import {
 import { CampaignStatus } from '@prisma/client';
 import { AgencyRepository } from './agency.repository';
 import { AgencyAccessService, AgencyActor } from './agency.access.service';
+import { AgencyPublishingService } from './agency.publishing.service';
 
 export interface ClientPortalOverview {
   client: {
@@ -44,6 +45,8 @@ export interface ClientPortalOverview {
     destinationsCount: number;
     awaitingClientApproval: boolean;
     clientApprovedAt?: Date;
+    /** The ad as Telegram will show it, built by the same code that sends it. */
+    preview: { html: string; format: string };
   }[];
 }
 
@@ -56,7 +59,8 @@ const AWAITING_REVIEW: CampaignStatus[] = [
 export class AgencyPortalService {
   constructor(
     private readonly repository: AgencyRepository,
-    private readonly access: AgencyAccessService
+    private readonly access: AgencyAccessService,
+    private readonly publishing: AgencyPublishingService
   ) {}
 
   /**
@@ -133,6 +137,12 @@ export class AgencyPortalService {
         totalClicks: clicks,
         leadsCount: camp._count.leads,
         destinationsCount: camp._count.destinations,
+        preview: (() => {
+          const { html, format } = this.publishing.previewAd(
+            this.publishing.buildAd(camp)
+          );
+          return { html, format };
+        })(),
         awaitingClientApproval:
           camp.requiresClientApproval &&
           !camp.clientApprovedAt &&

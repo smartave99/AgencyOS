@@ -1,7 +1,6 @@
 'use client';
 
 import React, { FC, useEffect, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { useToaster } from '@gitroom/react/toaster/toaster';
@@ -19,16 +18,27 @@ import {
   Btn,
   Card,
   EmptyState,
-  inputClass,
-  labelClass,
+  LinkBtn,
   Loading,
   LoadError,
+  Menu,
+  MenuItem,
+  Notice,
+  PageHeader,
   PageShell,
+  Stepper,
   StatusBadge,
+  TextField,
+  TONE_TEXT,
   formatDate,
   formatDateTime,
   humanize,
+  money,
+  prettySummary,
+  roleLabel,
+  tableClass,
   timeAgo,
+  useTouched,
 } from './agency.ui';
 
 const parseMedia = (raw: string | null) => {
@@ -44,6 +54,83 @@ const parseMedia = (raw: string | null) => {
       .filter((m) => !!m.path);
   } catch {
     return [];
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Where this campaign is in its life, and what happens next
+// ---------------------------------------------------------------------------
+const STEPS = [
+  { key: 'draft', label: 'Draft' },
+  { key: 'review', label: 'Review' },
+  { key: 'approved', label: 'Approved' },
+  { key: 'scheduled', label: 'Scheduled' },
+  { key: 'publishing', label: 'Publishing' },
+  { key: 'delivered', label: 'Delivered' },
+];
+
+const progress = (
+  status: string
+): { current: number; attention?: boolean } | null => {
+  switch (status) {
+    case 'DRAFT':
+      return { current: 0 };
+    case 'CHANGES_REQUESTED':
+      return { current: 0, attention: true };
+    case 'SUBMITTED':
+    case 'UNDER_REVIEW':
+      return { current: 1 };
+    case 'APPROVED':
+      return { current: 2 };
+    case 'SCHEDULED':
+      return { current: 3 };
+    case 'PUBLISHING':
+      return { current: 4 };
+    case 'PAUSED':
+      return { current: 4, attention: true };
+    case 'PARTIALLY_FAILED':
+    case 'FAILED':
+      return { current: 5, attention: true };
+    case 'COMPLETED':
+      return { current: STEPS.length };
+    default:
+      return null; // cancelled / archived: the badge says it all
+  }
+};
+
+const nextStep = (c: CampaignDetail): string => {
+  switch (c.status) {
+    case 'DRAFT':
+      return 'This is still a draft. Submit it for review when it is ready.';
+    case 'CHANGES_REQUESTED':
+      return 'A reviewer asked for changes. Edit the campaign and submit it again.';
+    case 'SUBMITTED':
+    case 'UNDER_REVIEW':
+      return c.requiresClientApproval && !c.clientApprovedAt
+        ? 'Waiting for a reviewer, and for the client to sign off.'
+        : 'Waiting for a reviewer. Nothing is published until it is approved.';
+    case 'APPROVED':
+      return c.startDate
+        ? 'Approved. Schedule it to queue the posts.'
+        : 'Approved, but it has no start time. Reopen it to set one.';
+    case 'SCHEDULED':
+      return 'Queued. Each destination receives it at the scheduled time.';
+    case 'PUBLISHING':
+      return 'Posts are going out now.';
+    case 'PAUSED':
+      return 'Paused. Nothing more is sent until it is resumed.';
+    case 'COMPLETED':
+      return 'Every destination has received this ad.';
+    case 'PARTIALLY_FAILED':
+      return 'Some destinations received it and some did not. See what happened below.';
+    case 'FAILED':
+      return 'It could not be delivered. See what happened below.';
+    case 'CANCELLED':
+      return 'Cancelled. Nothing further will be sent.';
+    case 'ARCHIVED':
+      return 'Archived.';
+    default:
+      return '';
   }
 };
 
@@ -99,51 +186,51 @@ const JobsTable: FC<{
       await api.post(`/agency/campaigns/jobs/${job.id}/resolve`, { outcome });
       toaster.show('Recorded', 'success');
       onChanged();
-    } catch (e: any) {
-      toaster.show(e.message, 'warning');
+    } catch (e) {
+      toaster.show((e as Error).message, 'warning');
     } finally {
       setBusy(null);
     }
   };
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-xs">
-        <thead className="text-textItemBlur font-medium border-b border-newBgLineColor">
+    <div className={tableClass.wrap}>
+      <table className={tableClass.table}>
+        <thead className={tableClass.head}>
           <tr>
-            <th className="py-2 px-3">Destination</th>
-            <th className="py-2 px-3">Status</th>
-            <th className="py-2 px-3">Attempts</th>
-            <th className="py-2 px-3">When</th>
-            <th className="py-2 px-3">Detail</th>
+            <th className={tableClass.th}>Destination</th>
+            <th className={tableClass.th}>Status</th>
+            <th className={tableClass.th}>Attempts</th>
+            <th className={tableClass.th}>When</th>
+            <th className={tableClass.th}>Detail</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-newBgLineColor/50">
+        <tbody>
           {jobs.map((j) => (
-            <tr key={j.id} className="align-top">
-              <td className="py-2.5 px-3 text-newTextColor font-medium">
+            <tr key={j.id} className={`${tableClass.row} align-top`}>
+              <td className={`${tableClass.td} font-medium text-newTextColor`}>
                 {j.telegramDestination?.title ?? '—'}
               </td>
-              <td className="py-2.5 px-3">
+              <td className={tableClass.td}>
                 <StatusBadge status={j.status} />
               </td>
-              <td className="py-2.5 px-3 text-textItemBlur">
+              <td className={`${tableClass.td} text-textItemBlur tabular-nums`}>
                 {j.attempts}/{j.maxAttempts}
               </td>
-              <td className="py-2.5 px-3 text-textItemBlur">
+              <td className={`${tableClass.td} text-textItemBlur`}>
                 {j.status === 'PENDING'
-                  ? `sends ${timeAgo(j.nextAttemptAt)}`
+                  ? `Sends ${timeAgo(j.nextAttemptAt)}`
                   : j.completedAt
                   ? formatDateTime(j.completedAt)
                   : '—'}
               </td>
-              <td className="py-2.5 px-3 text-textItemBlur max-w-sm">
+              <td className={`${tableClass.td} text-textItemBlur max-w-sm`}>
                 {j.releaseUrl ? (
                   <a
                     href={j.releaseUrl}
                     target="_blank"
-                    rel="noreferrer"
-                    className="text-blue-400 hover:underline"
+                    rel="noopener noreferrer"
+                    className="text-[color:var(--ag-accent-text)] hover:underline"
                   >
                     View on Telegram ↗
                   </a>
@@ -151,7 +238,7 @@ const JobsTable: FC<{
                   jobHint(j) || '—'
                 )}
                 {j.status === 'UNCERTAIN' && canControl && (
-                  <div className="flex gap-1.5 mt-1.5">
+                  <div className="flex flex-wrap gap-2 mt-2">
                     <Btn
                       busy={busy === j.id}
                       onClick={() => resolve(j, 'POSTED')}
@@ -182,6 +269,7 @@ const TrackingLinks: FC<{
 }> = ({ c, canWrite, onChanged }) => {
   const api = useAgencyApi();
   const toaster = useToaster();
+  const touched = useTouched();
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const valid = (() => {
@@ -197,6 +285,7 @@ const TrackingLinks: FC<{
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
+    touched.all(['url']);
     if (!valid) return;
     setBusy(true);
     try {
@@ -212,8 +301,8 @@ const TrackingLinks: FC<{
       setUrl('');
       toaster.show('Tracking link created', 'success');
       onChanged();
-    } catch (err: any) {
-      toaster.show(err.message, 'warning');
+    } catch (err) {
+      toaster.show((err as Error).message, 'warning');
     } finally {
       setBusy(false);
     }
@@ -225,64 +314,59 @@ const TrackingLinks: FC<{
       subtitle="Put a short link in the ad to count real clicks. Link-preview bots aren’t counted."
     >
       {c.trackingLinks.length === 0 ? (
-        <p className="text-xs text-textItemBlur">No tracked links yet.</p>
+        <p className="text-[13px] text-textItemBlur">No tracked links yet.</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {c.trackingLinks.map((l) => (
             <li
               key={l.id}
-              className="flex items-center justify-between gap-3 rounded-lg bg-newBgColor border border-newBgLineColor px-3 py-2 text-xs"
+              className="flex items-center justify-between gap-3 rounded-xl bg-[var(--ag-neutral-bg)] px-4 py-3 text-[13px]"
             >
               <div className="min-w-0">
-                <code className="text-newTextColor break-all">
+                <code className="text-newTextColor break-all text-xs">
                   {backendUrl}/l/{l.shortCode}
                 </code>
-                <div className="text-textItemBlur truncate">
+                <div className="text-textItemBlur truncate text-xs mt-0.5">
                   → {l.destinationUrl}
                 </div>
               </div>
-              <div className="text-right shrink-0">
-                <button
+              <div className="flex items-center gap-4 shrink-0">
+                <div className="text-right">
+                  <div className="text-newTextColor font-semibold tabular-nums">
+                    {l.totalClicks}
+                  </div>
+                  <div className="text-[11px] text-textItemBlur">clicks</div>
+                </div>
+                <Btn
                   onClick={() => {
                     void navigator.clipboard
                       ?.writeText(`${backendUrl}/l/${l.shortCode}`)
                       .then(() => toaster.show('Link copied', 'success'))
                       .catch(() => toaster.show('Could not copy', 'warning'));
                   }}
-                  className="text-[11px] text-blue-400 hover:underline mb-1"
                 >
                   Copy
-                </button>
-                <div className="text-newTextColor font-semibold">
-                  {l.totalClicks}
-                </div>
-                <div className="text-[10px] text-textItemBlur">clicks</div>
+                </Btn>
               </div>
             </li>
           ))}
         </ul>
       )}
       {canWrite && (
-        <form onSubmit={create} className="flex items-end gap-2">
-          <div className="flex-1">
-            <label htmlFor="tl" className={labelClass}>
-              Landing page
-            </label>
-            <input
-              id="tl"
-              className={inputClass}
-              placeholder="https://example.com/offer"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              aria-invalid={!!url && !valid}
-            />
-            {url && !valid && (
-              <p className="text-[11px] text-rose-400 mt-1">
-                Enter a full link starting with https://
-              </p>
+        <form onSubmit={create} noValidate className="flex items-start gap-2">
+          <TextField
+            wrapperClassName="flex-1"
+            label="Landing page"
+            placeholder="https://example.com/offer"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onBlur={touched.blur('url')}
+            error={touched.show(
+              'url',
+              valid ? null : 'Enter a full link starting with https://'
             )}
-          </div>
-          <Btn type="submit" busy={busy} disabled={!valid}>
+          />
+          <Btn type="submit" busy={busy} className="mt-[26px]">
             Create link
           </Btn>
         </form>
@@ -326,7 +410,7 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
   if (!c) {
     return (
       <PageShell>
-        <Loading label="Loading campaign…" />
+        <Loading label="Loading campaign" />
       </PageShell>
     );
   }
@@ -354,8 +438,8 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
       await api.post(path, {});
       toaster.show(done, 'success');
       await mutate();
-    } catch (e: any) {
-      toaster.show(e.message, 'warning');
+    } catch (e) {
+      toaster.show((e as Error).message, 'warning');
     } finally {
       setBusy(null);
     }
@@ -365,22 +449,14 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
   const s = c.status;
   const editable = s === 'DRAFT' || s === 'CHANGES_REQUESTED';
   const media = parseMedia(c.contentMedia);
-  const downloadCsv = async () => {
-    try {
-      await api.download(`${base}/export/csv`, `campaign-${c.id}.csv`);
-    } catch (e: any) {
-      toaster.show(e.message, 'warning');
-    }
-  };
+  const steps = progress(s);
 
-  const actions: React.ReactNode[] = [];
+  // ------------------------------------------------------------------ actions
+  // One primary action: the obvious next step. Everything else lives in the menu.
+  let primary: React.ReactNode = null;
   if (editable && can('campaign:write')) {
-    actions.push(
-      <Link key="edit" href={`${base}/edit`}>
-        <Btn>Edit</Btn>
-      </Link>,
+    primary = (
       <Btn
-        key="submit"
         variant="primary"
         busy={busy === 'submit'}
         onClick={() => act('submit', `${base}/submit`, 'Submitted for review')}
@@ -388,18 +464,18 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
         Submit for review
       </Btn>
     );
-  }
-  if ((s === 'SUBMITTED' || s === 'UNDER_REVIEW') && can('campaign:approve')) {
-    actions.push(
-      <Link key="review" href="/agency/approvals">
-        <Btn variant="primary">Review now</Btn>
-      </Link>
+  } else if (
+    (s === 'SUBMITTED' || s === 'UNDER_REVIEW') &&
+    can('campaign:approve')
+  ) {
+    primary = (
+      <LinkBtn href="/agency/approvals" variant="primary">
+        Review now
+      </LinkBtn>
     );
-  }
-  if (s === 'APPROVED' && can('campaign:schedule')) {
-    actions.push(
+  } else if (s === 'APPROVED' && can('campaign:schedule')) {
+    primary = (
       <Btn
-        key="schedule"
         variant="primary"
         disabled={!c.startDate}
         busy={busy === 'schedule'}
@@ -408,38 +484,9 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
         Schedule
       </Btn>
     );
-  }
-  if ((s === 'APPROVED' || s === 'SCHEDULED') && can('campaign:publish')) {
-    actions.push(
+  } else if (s === 'PAUSED' && can('campaign:control')) {
+    primary = (
       <Btn
-        key="publish"
-        busy={busy === 'publish'}
-        onClick={() =>
-          act('publish', `${base}/publish`, 'Queued to send now', {
-            message: `Send "${c.name}" to ${c.destinations.length} destination(s) right now?`,
-            button: 'Yes, send now',
-          })
-        }
-      >
-        Send now
-      </Btn>
-    );
-  }
-  if ((s === 'SCHEDULED' || s === 'PUBLISHING') && can('campaign:control')) {
-    actions.push(
-      <Btn
-        key="pause"
-        busy={busy === 'pause'}
-        onClick={() => act('pause', `${base}/pause`, 'Paused')}
-      >
-        Pause
-      </Btn>
-    );
-  }
-  if (s === 'PAUSED' && can('campaign:control')) {
-    actions.push(
-      <Btn
-        key="resume"
         variant="primary"
         busy={busy === 'resume'}
         onClick={() => act('resume', `${base}/resume`, 'Resumed')}
@@ -447,11 +494,12 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
         Resume
       </Btn>
     );
-  }
-  if ((s === 'FAILED' || s === 'PARTIALLY_FAILED') && can('campaign:control')) {
-    actions.push(
+  } else if (
+    (s === 'FAILED' || s === 'PARTIALLY_FAILED') &&
+    can('campaign:control')
+  ) {
+    primary = (
       <Btn
-        key="retry"
         variant="primary"
         busy={busy === 'retry'}
         onClick={() =>
@@ -462,93 +510,91 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
       </Btn>
     );
   }
+
+  const menu: MenuItem[] = [];
+  if ((s === 'APPROVED' || s === 'SCHEDULED') && can('campaign:publish')) {
+    menu.push({
+      label: 'Send now',
+      onClick: () =>
+        void act('publish', `${base}/publish`, 'Queued to send now', {
+          message: `Send "${c.name}" to ${c.destinations.length} destination(s) right now?`,
+          button: 'Yes, send now',
+        }),
+    });
+  }
+  if ((s === 'SCHEDULED' || s === 'PUBLISHING') && can('campaign:control')) {
+    menu.push({
+      label: 'Pause',
+      onClick: () => void act('pause', `${base}/pause`, 'Paused'),
+    });
+  }
   if (
     ['APPROVED', 'SCHEDULED', 'PAUSED', 'FAILED', 'PARTIALLY_FAILED'].includes(
       s
     ) &&
     can('campaign:control')
   ) {
-    actions.push(
-      <Btn
-        key="reopen"
-        busy={busy === 'reopen'}
-        onClick={() =>
-          act('reopen', `${base}/reopen`, 'Reopened as a draft', {
-            message:
-              'Reopening cancels anything still queued and voids the approval, so the edited version must be reviewed again.',
-            button: 'Yes, reopen it',
-          })
-        }
-      >
-        Reopen to edit
-      </Btn>
-    );
+    menu.push({
+      label: 'Reopen to edit',
+      onClick: () =>
+        void act('reopen', `${base}/reopen`, 'Reopened as a draft', {
+          message:
+            'Reopening cancels anything still queued and voids the approval, so the edited version must be reviewed again.',
+          button: 'Yes, reopen it',
+        }),
+    });
   }
   if (can('campaign:write')) {
-    actions.push(
-      <Btn
-        key="dup"
-        busy={busy === 'dup'}
-        onClick={async () => {
+    menu.push({
+      label: 'Duplicate',
+      onClick: () =>
+        void (async () => {
           setBusy('dup');
           try {
             const copy = await api.post<{ id: string }>(`${base}/duplicate`);
             toaster.show('Copied as a new draft', 'success');
             router.push(`/agency/campaigns/${copy.id}`);
-          } catch (e: any) {
-            toaster.show(e.message, 'warning');
+          } catch (e) {
+            toaster.show((e as Error).message, 'warning');
           } finally {
             setBusy(null);
           }
-        }}
-      >
-        Duplicate
-      </Btn>
-    );
+        })(),
+    });
   }
   if (can('analytics:read')) {
-    actions.push(
-      <Btn key="csv" variant="ghost" onClick={downloadCsv}>
-        Download report
-      </Btn>
-    );
+    menu.push({
+      label: 'Download delivery report (CSV)',
+      onClick: () =>
+        void api
+          .download(`${base}/export/csv`, `campaign-${c.id}.csv`)
+          .catch((e: Error) => toaster.show(e.message, 'warning')),
+    });
   }
   if (
     ['COMPLETED', 'CANCELLED', 'FAILED', 'PARTIALLY_FAILED'].includes(s) &&
     can('campaign:control')
   ) {
-    actions.push(
-      <Btn
-        key="archive"
-        variant="ghost"
-        busy={busy === 'archive'}
-        onClick={() => act('archive', `${base}/archive`, 'Archived')}
-      >
-        Archive
-      </Btn>
-    );
+    menu.push({
+      label: 'Archive',
+      onClick: () => void act('archive', `${base}/archive`, 'Archived'),
+    });
   }
   if (
     !['CANCELLED', 'COMPLETED', 'ARCHIVED'].includes(s) &&
     can('campaign:control')
   ) {
-    actions.push(
-      <Btn
-        key="cancel"
-        variant="danger"
-        busy={busy === 'cancel'}
-        onClick={() =>
-          act('cancel', `${base}/cancel`, 'Cancelled', {
-            message:
-              'Cancel this campaign? Anything not yet sent will not be sent.',
-            button: 'Yes, cancel it',
-            destructive: true,
-          })
-        }
-      >
-        Cancel campaign
-      </Btn>
-    );
+    menu.push({
+      label: 'Cancel campaign',
+      danger: true,
+      onClick: () =>
+        void act('cancel', `${base}/cancel`, 'Cancelled', {
+          message:
+            'Cancel this campaign? Anything not yet sent will not be sent.',
+          button: 'Yes, cancel it',
+          destructive: true,
+        }),
+    });
   }
 
   const delivered = c.postingJobs.filter(
@@ -557,48 +603,44 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
 
   return (
     <PageShell>
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-newBgLineColor pb-5">
-        <div className="min-w-0">
-          <Link
-            href="/agency/campaigns"
-            className="text-xs text-blue-400 hover:underline"
-          >
-            ← All campaigns
-          </Link>
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            <h1 className="text-2xl font-bold text-newTextColor tracking-tight">
-              {c.name}
-            </h1>
-            <StatusBadge status={c.status} />
-          </div>
-          <p className="text-xs text-textItemBlur mt-0.5">
-            {c.customer?.companyName || c.customer?.name} ·{' '}
-            {humanize(c.objective)} · created by {c.createdBy?.name} on{' '}
-            {formatDate(c.createdAt)}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 justify-end">
-          {actions}
-        </div>
-      </div>
+      <PageHeader
+        back={{ href: '/agency/campaigns', label: 'Campaigns' }}
+        title={c.name}
+        badge={<StatusBadge status={c.status} />}
+        subtitle={`${c.customer?.companyName || c.customer?.name} · ${humanize(
+          c.objective
+        )} · created by ${c.createdBy?.name} on ${formatDate(c.createdAt)}`}
+        actions={
+          <>
+            {editable && can('campaign:write') && (
+              <LinkBtn href={`${base}/edit`}>Edit</LinkBtn>
+            )}
+            {primary}
+            <Menu items={menu} />
+          </>
+        }
+      />
 
       {c.requiresAttention && (
-        <div
-          role="alert"
-          className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-400"
-        >
-          <strong>Needs attention.</strong> {c.attentionReason}
-        </div>
+        <Notice tone="warn">
+          <strong className="font-semibold">Needs attention.</strong>{' '}
+          {c.attentionReason}
+        </Notice>
       )}
-      {s === 'APPROVED' && !c.startDate && (
-        <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-xs text-blue-300">
-          It’s approved but has no start time yet. Reopen it, set one, and have
-          it approved again, or ask the author to set it before approval.
-        </div>
+
+      {steps && (
+        <Card>
+          <Stepper
+            steps={STEPS}
+            current={steps.current}
+            attention={steps.attention}
+          />
+          <p className="text-[13px] text-textItemBlur">{nextStep(c)}</p>
+        </Card>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-7 flex flex-col gap-6">
+        <div className="lg:col-span-7 flex flex-col gap-6 min-w-0">
           <Card
             title="Delivery"
             subtitle={
@@ -615,6 +657,7 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
               />
             ) : c.destinations.length === 0 ? (
               <EmptyState
+                icon="send"
                 title="No destinations chosen"
                 hint="Edit the campaign to choose where it should post."
               />
@@ -623,7 +666,7 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
                 {c.destinations.map((d) => (
                   <li
                     key={d.id}
-                    className="flex items-center justify-between gap-3 rounded-lg bg-newBgColor border border-newBgLineColor px-3 py-2 text-xs"
+                    className="flex items-center justify-between gap-3 rounded-xl bg-[var(--ag-neutral-bg)] px-4 py-3 text-[13px]"
                   >
                     <span className="text-newTextColor font-medium">
                       {d.telegramDestination?.title ??
@@ -643,40 +686,40 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
 
           <Card title="Review history">
             {c.approvals.length === 0 ? (
-              <p className="text-xs text-textItemBlur">
+              <p className="text-[13px] text-textItemBlur">
                 Not submitted for review yet.
               </p>
             ) : (
-              <ol className="flex flex-col gap-3">
+              <ol className="flex flex-col gap-4">
                 {c.approvals.map((a) => (
                   <li
                     key={a.id}
-                    className="text-xs flex flex-col gap-1 border-l-2 border-newBgLineColor pl-3"
+                    className="text-[13px] flex flex-col gap-1.5 border-l-2 border-[color:var(--ag-hairline)] pl-4"
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <StatusBadge status={a.status} />
                       <span className="text-textItemBlur">
-                        submitted by {a.submittedByUser?.name} ·{' '}
+                        Submitted by {a.submittedByUser?.name} ·{' '}
                         {formatDateTime(a.createdAt)}
                       </span>
                     </div>
                     {a.submissionNotes && (
-                      <div className="text-textItemBlur italic">
+                      <p className="text-textItemBlur italic">
                         “{a.submissionNotes}”
-                      </div>
+                      </p>
                     )}
                     {a.reviewedAt && (
                       <div className="text-textItemBlur">
-                        reviewed by {a.reviewedByUser?.name ?? 'a manager'} ·{' '}
+                        Reviewed by {a.reviewedByUser?.name ?? 'a manager'} ·{' '}
                         {formatDateTime(a.reviewedAt)}
                         {a.selfApproved && (
-                          <span className="text-amber-400">
+                          <span className={TONE_TEXT.warn}>
                             {' '}
-                            · approved by its own submitter (owner/admin)
+                            · approved by its own submitter (owner or admin)
                           </span>
                         )}
                         {a.reviewNotes && (
-                          <div className="italic">“{a.reviewNotes}”</div>
+                          <p className="italic">“{a.reviewNotes}”</p>
                         )}
                       </div>
                     )}
@@ -685,14 +728,14 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
               </ol>
             )}
             {c.requiresClientApproval && (
-              <p className="text-xs text-textItemBlur">
-                Client sign-off required:{' '}
+              <p className="text-[13px] text-textItemBlur">
+                Client sign-off:{' '}
                 {c.clientApprovedAt ? (
-                  <span className="text-emerald-400">
+                  <span className={TONE_TEXT.good}>
                     given {formatDateTime(c.clientApprovedAt)}
                   </span>
                 ) : (
-                  <span className="text-amber-400">not given yet</span>
+                  <span className={TONE_TEXT.warn}>not given yet</span>
                 )}
               </p>
             )}
@@ -707,29 +750,30 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
           {can('audit:read') && (
             <Card title="Activity" subtitle="Who did what, and when.">
               {!audit ? (
-                <Loading />
+                <Loading rows={3} />
               ) : audit.length === 0 ? (
-                <p className="text-xs text-textItemBlur">
+                <p className="text-[13px] text-textItemBlur">
                   No activity recorded.
                 </p>
               ) : (
-                <ul className="flex flex-col gap-1.5">
+                <ul className="flex flex-col">
                   {audit.map((a) => (
                     <li
                       key={a.id}
-                      className="text-xs flex items-baseline justify-between gap-3"
+                      className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 border-t first:border-t-0 border-[color:var(--ag-hairline)] py-2.5 text-[13px]"
                     >
                       <span className="text-newTextColor">
                         {humanize(a.action.replace('.', ' '))}
                         {a.summary && (
                           <span className="text-textItemBlur">
                             {' '}
-                            · {a.summary}
+                            · {prettySummary(a.summary)}
                           </span>
                         )}
                       </span>
-                      <span className="text-[11px] text-textItemBlur shrink-0">
-                        {a.actorRole ?? 'System'} · {timeAgo(a.createdAt)}
+                      <span className="text-xs text-textItemBlur shrink-0">
+                        {a.actorRole ? roleLabel(a.actorRole) : 'System'} ·{' '}
+                        {timeAgo(a.createdAt)}
                       </span>
                     </li>
                   ))}
@@ -739,32 +783,36 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
           )}
         </div>
 
-        <div className="lg:col-span-5 flex flex-col gap-6">
+        <div className="lg:col-span-5 flex flex-col gap-6 min-w-0">
           <TelegramPreview preview={preview} media={media} />
           <Card title="Details">
-            <dl className="grid grid-cols-2 gap-y-2 text-xs">
+            <dl className="grid grid-cols-2 gap-y-3 text-[13px]">
               <dt className="text-textItemBlur">Starts</dt>
-              <dd className="text-newTextColor">
+              <dd className="text-newTextColor text-right">
                 {formatDateTime(c.startDate)}
               </dd>
               <dt className="text-textItemBlur">Stops sending</dt>
-              <dd className="text-newTextColor">
+              <dd className="text-newTextColor text-right">
                 {c.endDate ? formatDateTime(c.endDate) : 'No end'}
               </dd>
               <dt className="text-textItemBlur">Budget</dt>
-              <dd className="text-newTextColor">
-                {c.budget ? `$${Number(c.budget).toLocaleString()}` : '—'}
+              <dd className="text-newTextColor text-right">
+                {money(c.budget)}
               </dd>
               <dt className="text-textItemBlur">Approved</dt>
-              <dd className="text-newTextColor">
+              <dd className="text-newTextColor text-right">
                 {c.approvedAt ? formatDateTime(c.approvedAt) : '—'}
               </dd>
               <dt className="text-textItemBlur">Version</dt>
-              <dd className="text-newTextColor">{c.revision}</dd>
+              <dd className="text-newTextColor text-right tabular-nums">
+                {c.revision}
+              </dd>
             </dl>
             {c.internalNotes && (
-              <div className="text-xs">
-                <div className={labelClass}>Internal notes</div>
+              <div className="text-[13px] border-t border-[color:var(--ag-hairline)] pt-4">
+                <div className="text-xs font-medium text-textItemBlur mb-1.5">
+                  Internal notes
+                </div>
                 <p className="text-newTextColor whitespace-pre-wrap">
                   {c.internalNotes}
                 </p>

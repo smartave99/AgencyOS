@@ -1,116 +1,134 @@
 'use client';
 
-import React, { FC, ReactNode } from 'react';
+import React, { FC } from 'react';
 import Link from 'next/link';
 import { useCan, useDashboard } from './agency.hooks';
 import {
-  Btn,
   Card,
   EmptyState,
+  Icon,
+  IconName,
+  LinkBtn,
   Loading,
   LoadError,
+  PageHeader,
   PageShell,
+  Stat,
   StatusBadge,
+  Tone,
+  TONE_TEXT,
+  tableClass,
   timeAgo,
 } from './agency.ui';
 import { SystemBanner } from './system-banner.component';
 
-const Kpi: FC<{
-  label: string;
-  value: ReactNode;
-  hint?: string;
-  href?: string;
-  linkLabel?: string;
-}> = ({ label, value, hint, href, linkLabel }) => (
-  <div className="bg-newBgColorInner border border-newBgLineColor rounded-xl p-4 flex flex-col gap-3">
-    <span className="text-xs font-medium text-textItemBlur uppercase tracking-wider">
-      {label}
-    </span>
-    <div className="text-2xl font-bold text-newTextColor">{value}</div>
-    <div className="text-xs text-textItemBlur flex items-center justify-between">
-      <span>{hint}</span>
-      {href && (
-        <Link href={href} className="text-blue-400 hover:underline">
-          {linkLabel} →
-        </Link>
-      )}
+const AttentionRow: FC<{
+  count: number;
+  text: string;
+  href: string;
+  icon: IconName;
+  tone: Tone;
+}> = ({ count, text, href, icon, tone }) =>
+  count > 0 ? (
+    <Link
+      href={href}
+      className="group flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-[var(--ag-neutral-bg)]"
+    >
+      <span
+        className={`flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--ag-neutral-bg)] ${TONE_TEXT[tone]}`}
+      >
+        <Icon name={icon} size={17} />
+      </span>
+      <span className="flex-1 text-[13px] text-newTextColor">
+        <strong className="font-semibold tabular-nums">{count}</strong> {text}
+      </span>
+      <Icon
+        name="arrow"
+        size={15}
+        className="text-textItemBlur group-hover:text-newTextColor group-hover:translate-x-0.5 transition-transform"
+      />
+    </Link>
+  ) : null;
+
+const MiniStat: FC<{ label: string; value: number; tone: Tone }> = ({
+  label,
+  value,
+  tone,
+}) => (
+  <div className="rounded-xl bg-[var(--ag-neutral-bg)] p-3.5">
+    <span className="text-xs text-textItemBlur">{label}</span>
+    <div
+      className={`mt-0.5 text-xl font-semibold tabular-nums tracking-tight ${TONE_TEXT[tone]}`}
+    >
+      {value}
     </div>
   </div>
 );
 
-const AttentionItem: FC<{ count: number; text: string; href: string }> = ({
-  count,
-  text,
-  href,
-}) =>
-  count > 0 ? (
-    <Link
-      href={href}
-      className="flex items-center justify-between gap-4 rounded-lg px-3 py-2 hover:bg-newBgColor transition-colors"
-    >
-      <span className="text-xs text-newTextColor">
-        <strong className="text-amber-400">{count}</strong> {text}
-      </span>
-      <span className="text-xs text-blue-400">Review →</span>
-    </Link>
-  ) : null;
-
 export const AgencyDashboardComponent: FC = () => {
-  const { data, error, isLoading, mutate } = useDashboard();
-  const { can, isClient } = useCan();
+  const { can, isClient, isLoading: roleLoading } = useCan();
+  const { data, error, mutate } = useDashboard(!roleLoading && !isClient);
 
-  if (isClient) {
+  if (roleLoading) {
     return (
       <PageShell>
-        <EmptyState
-          title="Your campaigns live in the client portal"
-          action={
-            <Link href="/agency/portal">
-              <Btn variant="primary">Open client portal</Btn>
-            </Link>
-          }
-        />
+        <Loading />
       </PageShell>
     );
   }
 
-  const attention =
-    (data?.campaignsNeedingAttention ?? 0) +
-    (data?.destinationsNeedingAttention ?? 0) +
-    (data?.blockedPosts ?? 0) +
-    (data?.pendingApprovalsCount ?? 0);
+  if (isClient) {
+    return (
+      <PageShell>
+        <div className="rounded-2xl bg-newBgColorInner border border-[color:var(--ag-hairline)]">
+          <EmptyState
+            icon="doc"
+            title="Your campaigns live in the client portal"
+            hint="See the ads waiting for your approval and how your campaigns are going."
+            action={
+              <LinkBtn href="/agency/portal" variant="primary" size="md">
+                Open client portal
+              </LinkBtn>
+            }
+          />
+        </div>
+      </PageShell>
+    );
+  }
+
+  const attention = data
+    ? data.campaignsNeedingAttention +
+      data.destinationsNeedingAttention +
+      data.blockedPosts +
+      data.pendingApprovalsCount
+    : 0;
 
   return (
     <PageShell>
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-newBgLineColor pb-5">
-        <div>
-          <h1 className="text-2xl font-bold text-newTextColor tracking-tight">
-            Agency dashboard
-          </h1>
-          <p className="text-xs text-textItemBlur mt-0.5">
-            Everything that needs you, then how the work is going.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {can('client:write') && (
-            <Link href="/agency/clients">
-              <Btn>Onboard client</Btn>
-            </Link>
-          )}
-          {can('campaign:write') && (
-            <Link href="/agency/campaigns/new">
-              <Btn variant="primary">New campaign</Btn>
-            </Link>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        subtitle="What needs you first, then how the work is going."
+        actions={
+          <>
+            {can('client:write') && (
+              <LinkBtn href="/agency/clients">Add client</LinkBtn>
+            )}
+            {can('campaign:write') && (
+              <LinkBtn href="/agency/campaigns/new" variant="primary">
+                <Icon name="plus" size={15} />
+                New campaign
+              </LinkBtn>
+            )}
+          </>
+        }
+      />
 
       <SystemBanner />
 
       {error ? (
         <LoadError error={error} onRetry={() => mutate()} />
-      ) : isLoading || !data ? (
-        <Loading label="Loading dashboard…" />
+      ) : !data ? (
+        <Loading label="Loading dashboard" />
       ) : (
         <>
           <Card
@@ -122,59 +140,67 @@ export const AgencyDashboardComponent: FC = () => {
             }
           >
             {attention > 0 && (
-              <div className="flex flex-col">
-                <AttentionItem
+              <div className="flex flex-col -mx-2">
+                <AttentionRow
                   count={data.campaignsNeedingAttention}
                   text="campaign(s) have failed or paused posts"
                   href="/agency/campaigns"
+                  icon="alert"
+                  tone="bad"
                 />
-                <AttentionItem
+                <AttentionRow
                   count={data.destinationsNeedingAttention}
                   text="Telegram destination(s) lost authorization or access"
                   href="/agency/telegram"
+                  icon="send"
+                  tone="bad"
                 />
-                <AttentionItem
+                <AttentionRow
                   count={data.blockedPosts}
                   text="queued post(s) are paused until a destination is fixed"
                   href="/agency/telegram"
+                  icon="clock"
+                  tone="warn"
                 />
-                <AttentionItem
+                <AttentionRow
                   count={data.pendingApprovalsCount}
                   text="campaign(s) are waiting for review"
                   href="/agency/approvals"
+                  icon="check"
+                  tone="info"
                 />
               </div>
             )}
           </Card>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Kpi
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <Stat
               label="Active clients"
               value={data.activeClientsCount}
               hint="Managed portfolios"
               href="/agency/clients"
-              linkLabel="Directory"
+              linkLabel="Open"
             />
-            <Kpi
-              label="Running campaigns"
+            <Stat
+              label="In flight"
               value={data.activeCampaignsCount}
-              hint={`of ${data.totalCampaignsCount} total`}
+              hint="Approved, scheduled or publishing"
               href="/agency/campaigns"
-              linkLabel="Manage"
+              linkLabel="Open"
             />
-            <Kpi
+            <Stat
               label="Awaiting review"
               value={data.pendingApprovalsCount}
               hint="In the approval inbox"
               href="/agency/approvals"
               linkLabel="Review"
             />
-            <Kpi
+            <Stat
               label="Authorized destinations"
               value={data.telegramDestinationsCount}
               hint="Can receive ads today"
               href="/agency/telegram"
-              linkLabel="Registry"
+              linkLabel="Open"
             />
           </div>
 
@@ -185,61 +211,67 @@ export const AgencyDashboardComponent: FC = () => {
               right={
                 <Link
                   href="/agency/campaigns"
-                  className="text-xs text-blue-400 hover:underline"
+                  className="text-[13px] font-medium text-[color:var(--ag-accent-text)] hover:underline"
                 >
-                  View all ({data.totalCampaignsCount})
+                  View all
                 </Link>
               }
             >
               {data.recentCampaigns.length === 0 ? (
                 <EmptyState
+                  icon="megaphone"
                   title="No campaigns yet"
-                  hint="Create a campaign for a client, pick authorized destinations, and send it for review."
+                  hint="Create a campaign for a client, pick authorized destinations and send it for review."
                   action={
                     can('campaign:write') ? (
-                      <Link href="/agency/campaigns/new">
-                        <Btn variant="primary">Create the first campaign</Btn>
-                      </Link>
+                      <LinkBtn href="/agency/campaigns/new" variant="primary">
+                        Create the first campaign
+                      </LinkBtn>
                     ) : undefined
                   }
                 />
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="text-textItemBlur font-medium border-b border-newBgLineColor">
+                <div className={tableClass.wrap}>
+                  <table className={tableClass.table}>
+                    <thead className={tableClass.head}>
                       <tr>
-                        <th className="py-2">Campaign</th>
-                        <th className="py-2">Client</th>
-                        <th className="py-2">Status</th>
-                        <th className="py-2">Destinations</th>
+                        <th className={tableClass.th}>Campaign</th>
+                        <th className={tableClass.th}>Client</th>
+                        <th className={tableClass.th}>Status</th>
+                        <th className={`${tableClass.th} text-right`}>
+                          Destinations
+                        </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-newBgLineColor/40">
+                    <tbody>
                       {data.recentCampaigns.map((c) => (
-                        <tr key={c.id} className="hover:bg-newBgColor/40">
-                          <td className="py-3 font-medium text-newTextColor">
+                        <tr key={c.id} className={tableClass.row}>
+                          <td className={`${tableClass.td} font-medium`}>
                             <Link
                               href={`/agency/campaigns/${c.id}`}
-                              className="hover:text-blue-400"
+                              className="text-newTextColor hover:text-[color:var(--ag-accent-text)]"
                             >
                               {c.name}
                             </Link>
                             {c.requiresAttention && (
                               <span
-                                className="ml-2 text-amber-400"
+                                className={`ml-2 ${TONE_TEXT.warn}`}
                                 title="Needs attention"
+                                aria-label="Needs attention"
                               >
                                 ●
                               </span>
                             )}
                           </td>
-                          <td className="py-3 text-textItemBlur">
+                          <td className={`${tableClass.td} text-textItemBlur`}>
                             {c.customer?.companyName || c.customer?.name}
                           </td>
-                          <td className="py-3">
+                          <td className={tableClass.td}>
                             <StatusBadge status={c.status} />
                           </td>
-                          <td className="py-3 text-textItemBlur">
+                          <td
+                            className={`${tableClass.td} text-right tabular-nums text-textItemBlur`}
+                          >
                             {c._count?.destinations ?? 0}
                           </td>
                         </tr>
@@ -252,53 +284,45 @@ export const AgencyDashboardComponent: FC = () => {
 
             <Card title="Delivery" subtitle="Counted from stored send results.">
               <div className="grid grid-cols-2 gap-3">
-                <Stat
+                <MiniStat
                   label="Delivered"
                   value={data.successfulPosts}
-                  tone="text-emerald-400"
+                  tone="good"
                 />
-                <Stat
-                  label="Failed"
-                  value={data.failedPosts}
-                  tone="text-rose-400"
-                />
-                <Stat
+                <MiniStat label="Failed" value={data.failedPosts} tone="bad" />
+                <MiniStat
                   label="Paused"
                   value={data.blockedPosts}
-                  tone="text-amber-400"
+                  tone="warn"
                 />
-                <Stat
-                  label="Queued"
-                  value={data.queuedPosts}
-                  tone="text-blue-400"
-                />
+                <MiniStat label="Queued" value={data.queuedPosts} tone="info" />
               </div>
-              <div className="text-xs text-textItemBlur">
+              <p className="text-[13px] text-textItemBlur">
                 Delivery rate{' '}
-                <strong className="text-newTextColor">
+                <strong className="text-newTextColor font-semibold">
                   {data.deliveryRate === null ? '—' : `${data.deliveryRate}%`}
                 </strong>
-                {data.deliveryRate === null && ' (nothing has been sent yet)'}
-              </div>
-              <div className="flex flex-col gap-2">
-                <span className="text-xs font-semibold text-textItemBlur uppercase">
+                {data.deliveryRate === null && ' · nothing has been sent yet'}
+              </p>
+              <div className="flex flex-col gap-2 pt-1">
+                <span className="text-xs font-medium text-textItemBlur">
                   Recent attempts
                 </span>
                 {data.recentEvents.length === 0 ? (
-                  <div className="py-4 text-center text-xs text-textItemBlur">
+                  <p className="py-4 text-center text-[13px] text-textItemBlur">
                     Nothing sent yet.
-                  </div>
+                  </p>
                 ) : (
                   data.recentEvents.map((e) => (
                     <div
                       key={e.id}
-                      className="p-2.5 rounded-lg bg-newBgColor border border-newBgLineColor/50 flex items-center justify-between gap-2"
+                      className="p-3 rounded-xl bg-[var(--ag-neutral-bg)] flex items-center justify-between gap-2"
                     >
                       <div className="min-w-0">
-                        <div className="text-xs font-medium text-newTextColor truncate">
+                        <div className="text-[13px] font-medium text-newTextColor truncate">
                           {e.campaign?.name}
                         </div>
-                        <div className="text-[11px] text-textItemBlur truncate">
+                        <div className="text-xs text-textItemBlur truncate">
                           {e.telegramDestination?.title ?? 'Telegram'} ·{' '}
                           {timeAgo(e.executedAt)}
                         </div>
@@ -315,16 +339,3 @@ export const AgencyDashboardComponent: FC = () => {
     </PageShell>
   );
 };
-
-const Stat: FC<{ label: string; value: number; tone: string }> = ({
-  label,
-  value,
-  tone,
-}) => (
-  <div className="p-3 rounded-lg bg-newBgColor border border-newBgLineColor">
-    <span className="text-[11px] text-textItemBlur uppercase font-semibold">
-      {label}
-    </span>
-    <div className={`text-lg font-bold mt-0.5 ${tone}`}>{value}</div>
-  </div>
-);

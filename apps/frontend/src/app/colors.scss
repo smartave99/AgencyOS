@@ -238,3 +238,64 @@
     --color-modalCustom: transparent;
   }
 }
+
+// AgencyOS design tokens. Status colours are chosen per theme so text keeps a readable
+// contrast on both the light and dark surfaces; there is a single accent.
+:root {
+  .dark {
+    --ag-accent: #7c4dff;
+    --ag-accent-hover: #8f68ff;
+    --ag-accent-fg: #ffffff;
+    --ag-accent-text: #b39dff;
+    --ag-accent-soft: rgba(124, 77, 255, 0.14);
+    --ag-good-fg: #5fd38d;
+    --ag-good-bg: rgba(95, 211, 141, 0.12);
+    --ag-good-line: rgba(95, 211, 141, 0.28);
+    --ag-info-fg: #6cb2ff;
+    --ag-info-bg: rgba(108, 178, 255, 0.12);
+    --ag-info-line: rgba(108, 178, 255, 0.28);
+    --ag-warn-fg: #f5b942;
+    --ag-warn-bg: rgba(245, 185, 66, 0.12);
+    --ag-warn-line: rgba(245, 185, 66, 0.3);
+    --ag-bad-fg: #ff7b8c;
+    --ag-bad-bg: rgba(255, 123, 140, 0.12);
+    --ag-bad-line: rgba(255, 123, 140, 0.3);
+    --ag-neutral-fg: #a7a7b0;
+    --ag-neutral-bg: rgba(167, 167, 176, 0.1);
+    --ag-neutral-line: rgba(167, 167, 176, 0.24);
+    --ag-surface: var(--new-bgColorInner);
+    --ag-surface-raised: #222121;
+    --ag-hairline: rgba(255, 255, 255, 0.08);
+    --ag-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
+    --ag-shadow-pop: 0 24px 64px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    --ag-scrim: rgba(0, 0, 0, 0.55);
+  }
+  .light {
+    --ag-accent: #5b2fd1;
+    --ag-accent-hover: #4a23b3;
+    --ag-accent-fg: #ffffff;
+    --ag-accent-text: #5b2fd1;
+    --ag-accent-soft: rgba(91, 47, 209, 0.09);
+    --ag-good-fg: #11693a;
+    --ag-good-bg: #e3f6ea;
+    --ag-good-line: #b4e3c6;
+    --ag-info-fg: #1650b5;
+    --ag-info-bg: #e5eefc;
+    --ag-info-line: #bcd2f5;
+    --ag-warn-fg: #8a4b06;
+    --ag-warn-bg: #fdf0d5;
+    --ag-warn-line: #f2d596;
+    --ag-bad-fg: #b0173a;
+    --ag-bad-bg: #fde7eb;
+    --ag-bad-line: #f5bcc7;
+    --ag-neutral-fg: #55555e;
+    --ag-neutral-bg: #efeff2;
+    --ag-neutral-line: #dcdce2;
+    --ag-surface: var(--new-bgColorInner);
+    --ag-surface-raised: #ffffff;
+    --ag-hairline: rgba(0, 0, 0, 0.07);
+    --ag-shadow: 0 1px 2px rgba(20, 20, 40, 0.04), 0 8px 24px rgba(20, 20, 40, 0.04);
+    --ag-shadow-pop: 0 24px 64px rgba(30, 20, 70, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.06);
+    --ag-scrim: rgba(24, 16, 48, 0.4);
+  }
+}

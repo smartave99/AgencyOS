@@ -1,7 +1,6 @@
 'use client';
 
-import React, { FC, useEffect, useMemo, useState } from 'react';
-import clsx from 'clsx';
+import React, { FC, useMemo, useState } from 'react';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
 import {
@@ -12,20 +11,33 @@ import {
 } from '@gitroom/frontend/components/agency/agency.hooks';
 import {
   Btn,
+  Dialog,
   EmptyState,
   formatDate,
-  inputClass,
-  labelClass,
+  Icon,
   LoadError,
   Loading,
   money,
   PageHeader,
   PageShell,
+  Segmented,
+  SelectField,
   StatusBadge,
+  TextArea,
+  TextField,
+  TONE_TEXT,
+  Tone,
+  tableClass,
+  useBusy,
+  useTouched,
 } from '@gitroom/frontend/components/agency/agency.ui';
 
 // Invoices are created as DRAFT and end as PAID; AgencyOS does not send them or track overdue.
-const FILTERS = ['ALL', 'DRAFT', 'PAID'] as const;
+const FILTERS = [
+  { value: 'ALL', label: 'All' },
+  { value: 'DRAFT', label: 'Draft' },
+  { value: 'PAID', label: 'Paid' },
+];
 
 /** Totals are kept per currency. Amounts in different currencies are never added. */
 const sumByCurrency = (rows: Array<{ amount: string; currency: string }>) => {
@@ -40,21 +52,24 @@ const Total: FC<{
   label: string;
   hint: string;
   totals: Record<string, number>;
-}> = ({ label, hint, totals }) => {
+  tone?: Tone;
+}> = ({ label, hint, totals, tone }) => {
   const entries = Object.entries(totals);
   return (
-    <div className="p-4 rounded-xl bg-newBgColorInner border border-newBgLineColor">
-      <span className="text-[11px] font-semibold text-textItemBlur uppercase">
-        {label}
-      </span>
-      <div className="text-xl font-bold text-newTextColor mt-1">
+    <div className="rounded-2xl bg-newBgColorInner border border-[color:var(--ag-hairline)] shadow-[var(--ag-shadow)] p-5">
+      <span className="text-xs font-medium text-textItemBlur">{label}</span>
+      <div
+        className={`mt-1 text-2xl font-semibold tracking-tight tabular-nums ${
+          tone ? TONE_TEXT[tone] : 'text-newTextColor'
+        }`}
+      >
         {entries.length === 0
           ? '—'
           : entries.map(([cur, amount]) => (
               <div key={cur}>{money(amount, cur)}</div>
             ))}
       </div>
-      <span className="text-[11px] text-textItemBlur mt-1 block">{hint}</span>
+      <span className="mt-2 block text-xs text-textItemBlur">{hint}</span>
     </div>
   );
 };
@@ -66,6 +81,8 @@ const InvoiceDialog: FC<{ onClose: () => void; onSaved: () => void }> = ({
   const api = useAgencyApi();
   const toaster = useToaster();
   const clients = useClients();
+  const touched = useTouched();
+  const { busy, run } = useBusy();
   const [form, setForm] = useState({
     customerId: '',
     amount: '',
@@ -74,15 +91,14 @@ const InvoiceDialog: FC<{ onClose: () => void; onSaved: () => void }> = ({
     items: '',
     notes: '',
   });
-  const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) =>
-      e.key === 'Escape' && !busy && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [busy, onClose]);
+  const set =
+    (key: keyof typeof form) =>
+    (
+      e: React.ChangeEvent<
+        HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+      >
+    ) =>
+      setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const errors: Record<string, string | null> = {
     customerId: form.customerId ? null : 'Choose a client.',
@@ -91,165 +107,107 @@ const InvoiceDialog: FC<{ onClose: () => void; onSaved: () => void }> = ({
       ? null
       : 'Use a 3-letter code.',
   };
-  const invalid = Object.values(errors).some(Boolean);
-  const blur = (key: string) => () =>
-    setTouched((t) => ({ ...t, [key]: true }));
-  const err = (key: string) =>
-    touched[key] && errors[key] ? (
-      <p className="text-[11px] text-rose-400 mt-1">{errors[key]}</p>
-    ) : null;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setTouched({ customerId: true, amount: true, currency: true });
-    if (invalid) return;
-    setBusy(true);
-    try {
-      const invoice = await api.post<{ invoiceNumber: string }>(
-        '/agency/invoices',
-        {
-          customerId: form.customerId,
-          amount: Number(form.amount),
-          currency: form.currency.toUpperCase(),
-          dueDate: form.dueDate || undefined,
-          items: form.items.trim() || undefined,
-          notes: form.notes.trim() || undefined,
-        }
-      );
-      toaster.show(`Invoice ${invoice.invoiceNumber} created`, 'success');
-      onSaved();
-    } catch (error) {
-      toaster.show((error as Error).message, 'warning');
-    } finally {
-      setBusy(false);
-    }
+    touched.all(Object.keys(errors));
+    if (Object.values(errors).some(Boolean)) return;
+    await run(async () => {
+      try {
+        const invoice = await api.post<{ invoiceNumber: string }>(
+          '/agency/invoices',
+          {
+            customerId: form.customerId,
+            amount: Number(form.amount),
+            currency: form.currency.toUpperCase(),
+            dueDate: form.dueDate || undefined,
+            items: form.items.trim() || undefined,
+            notes: form.notes.trim() || undefined,
+          }
+        );
+        toaster.show(`Invoice ${invoice.invoiceNumber} created`, 'success');
+        onSaved();
+      } catch (error) {
+        toaster.show((error as Error).message, 'warning');
+      }
+    });
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="invoice-title"
-    >
-      <form
-        onSubmit={submit}
-        className="bg-newBgColorInner border border-newBgLineColor rounded-2xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4"
-      >
-        <h3
-          id="invoice-title"
-          className="text-base font-bold text-newTextColor"
-        >
-          New invoice
-        </h3>
-
-        <div>
-          <label htmlFor="inv-client" className={labelClass}>
-            Client
-          </label>
-          <select
-            id="inv-client"
-            autoFocus
-            value={form.customerId}
-            onChange={(e) => setForm({ ...form, customerId: e.target.value })}
-            onBlur={blur('customerId')}
-            aria-invalid={touched.customerId && !!errors.customerId}
-            className={inputClass}
-          >
-            <option value="">Select…</option>
-            {(clients.data ?? []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.companyName ? `${c.companyName} (${c.name})` : c.name}
-              </option>
-            ))}
-          </select>
-          {err('customerId')}
-        </div>
-
-        <div className="grid grid-cols-3 gap-3">
-          <div className="col-span-2">
-            <label htmlFor="inv-amount" className={labelClass}>
-              Amount
-            </label>
-            <input
-              id="inv-amount"
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.amount}
-              onChange={(e) => setForm({ ...form, amount: e.target.value })}
-              onBlur={blur('amount')}
-              aria-invalid={touched.amount && !!errors.amount}
-              className={inputClass}
-            />
-            {err('amount')}
-          </div>
-          <div>
-            <label htmlFor="inv-currency" className={labelClass}>
-              Currency
-            </label>
-            <input
-              id="inv-currency"
-              maxLength={3}
-              value={form.currency}
-              onChange={(e) => setForm({ ...form, currency: e.target.value })}
-              onBlur={blur('currency')}
-              aria-invalid={touched.currency && !!errors.currency}
-              className={inputClass}
-            />
-            {err('currency')}
-          </div>
-        </div>
-
-        <div>
-          <label htmlFor="inv-due" className={labelClass}>
-            Due date (optional)
-          </label>
-          <input
-            id="inv-due"
-            type="date"
-            value={form.dueDate}
-            onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
-            className={inputClass}
-          />
-        </div>
-
-        <div>
-          <label htmlFor="inv-items" className={labelClass}>
-            What it covers (optional)
-          </label>
-          <input
-            id="inv-items"
-            value={form.items}
-            onChange={(e) => setForm({ ...form, items: e.target.value })}
-            placeholder="e.g. 10 Telegram placements + copywriting"
-            className={inputClass}
-          />
-        </div>
-
-        <div>
-          <label htmlFor="inv-notes" className={labelClass}>
-            Internal notes (optional)
-          </label>
-          <textarea
-            id="inv-notes"
-            rows={2}
-            value={form.notes}
-            onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            className={clsx(inputClass, 'resize-none')}
-          />
-        </div>
-
-        <div className="flex justify-end gap-2 pt-3 border-t border-newBgLineColor">
-          <Btn type="button" onClick={onClose} disabled={busy}>
+    <Dialog
+      title="New invoice"
+      onClose={onClose}
+      busy={busy}
+      onSubmit={submit}
+      footer={
+        <>
+          <Btn onClick={onClose} disabled={busy}>
             Cancel
           </Btn>
           <Btn type="submit" variant="primary" busy={busy}>
             Create invoice
           </Btn>
-        </div>
-      </form>
-    </div>
+        </>
+      }
+    >
+      <SelectField
+        autoFocus
+        label="Client"
+        value={form.customerId}
+        onChange={set('customerId')}
+        onBlur={touched.blur('customerId')}
+        error={touched.show('customerId', errors.customerId)}
+      >
+        <option value="">Select…</option>
+        {(clients.data ?? []).map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.companyName ? `${c.companyName} (${c.name})` : c.name}
+          </option>
+        ))}
+      </SelectField>
+      <div className="grid grid-cols-3 gap-3">
+        <TextField
+          wrapperClassName="col-span-2"
+          label="Amount"
+          type="number"
+          min="0"
+          step="0.01"
+          value={form.amount}
+          onChange={set('amount')}
+          onBlur={touched.blur('amount')}
+          error={touched.show('amount', errors.amount)}
+        />
+        <TextField
+          label="Currency"
+          maxLength={3}
+          value={form.currency}
+          onChange={set('currency')}
+          onBlur={touched.blur('currency')}
+          error={touched.show('currency', errors.currency)}
+        />
+      </div>
+      <TextField
+        label="Due date"
+        optional
+        type="date"
+        value={form.dueDate}
+        onChange={set('dueDate')}
+      />
+      <TextField
+        label="What it covers"
+        optional
+        placeholder="e.g. 10 Telegram placements + copywriting"
+        value={form.items}
+        onChange={set('items')}
+      />
+      <TextArea
+        label="Internal notes"
+        optional
+        rows={2}
+        value={form.notes}
+        onChange={set('notes')}
+      />
+    </Dialog>
   );
 };
 
@@ -257,7 +215,7 @@ export const AgencyBillingComponent = () => {
   const api = useAgencyApi();
   const toaster = useToaster();
   const { can } = useCan();
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]>('ALL');
+  const [filter, setFilter] = useState('ALL');
   const [creating, setCreating] = useState(false);
   const invoices = useInvoices(filter === 'ALL' ? '' : filter);
   const all = useInvoices('');
@@ -303,12 +261,12 @@ export const AgencyBillingComponent = () => {
   return (
     <PageShell>
       <PageHeader
-        crumb="Billing"
         title="Invoices"
         subtitle="Invoice records for your clients and whether you have recorded them as paid. AgencyOS does not email invoices or process payments; payment is recorded by hand."
         actions={
           canWrite ? (
             <Btn variant="primary" onClick={() => setCreating(true)}>
+              <Icon name="plus" size={15} />
               New invoice
             </Btn>
           ) : undefined
@@ -321,45 +279,31 @@ export const AgencyBillingComponent = () => {
           label="Recorded as paid"
           hint="Marked paid by your team"
           totals={totals.paid}
+          tone="good"
         />
         <Total
           label="Outstanding"
           hint="Not yet recorded as paid"
           totals={totals.outstanding}
+          tone="warn"
         />
       </div>
 
-      <div
-        className="flex items-center gap-2 border-b border-newBgLineColor pb-2"
-        role="tablist"
-      >
-        {FILTERS.map((status) => (
-          <button
-            key={status}
-            role="tab"
-            aria-selected={filter === status}
-            onClick={() => setFilter(status)}
-            className={clsx(
-              'px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
-              filter === status
-                ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
-                : 'text-textItemBlur hover:text-newTextColor'
-            )}
-          >
-            {status === 'ALL'
-              ? 'All'
-              : status.charAt(0) + status.slice(1).toLowerCase()}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        ariaLabel="Invoice status"
+        value={filter}
+        onChange={setFilter}
+        options={FILTERS}
+      />
 
       {invoices.error ? (
         <LoadError error={invoices.error} onRetry={() => invoices.mutate()} />
       ) : !invoices.data ? (
-        <Loading label="Loading invoices…" />
+        <Loading label="Loading invoices" />
       ) : rows.length === 0 ? (
-        <div className="bg-newBgColorInner border border-newBgLineColor rounded-2xl">
+        <div className="rounded-2xl bg-newBgColorInner border border-[color:var(--ag-hairline)]">
           <EmptyState
+            icon="card"
             title="No invoices"
             hint={
               filter === 'ALL'
@@ -376,49 +320,57 @@ export const AgencyBillingComponent = () => {
           />
         </div>
       ) : (
-        <div className="rounded-xl border border-newBgLineColor bg-newBgColorInner overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-newBgLineColor text-textItemBlur uppercase text-[10px] font-semibold">
+        <div className="ag-rise rounded-2xl bg-newBgColorInner border border-[color:var(--ag-hairline)] shadow-[var(--ag-shadow)] p-2 sm:p-3">
+          <div className={tableClass.wrap}>
+            <table className={tableClass.table}>
+              <thead className={tableClass.head}>
                 <tr>
-                  <th className="py-3 px-4">Invoice</th>
-                  <th className="py-3 px-4">Client</th>
-                  <th className="py-3 px-4">Amount</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4">Due</th>
-                  <th className="py-3 px-4">Covers</th>
-                  <th className="py-3 px-4 text-right">
+                  <th className={tableClass.th}>Invoice</th>
+                  <th className={tableClass.th}>Client</th>
+                  <th className={`${tableClass.th} text-right`}>Amount</th>
+                  <th className={tableClass.th}>Status</th>
+                  <th className={tableClass.th}>Due</th>
+                  <th className={tableClass.th}>Covers</th>
+                  <th className={tableClass.th}>
                     <span className="sr-only">Actions</span>
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-newBgLineColor">
+              <tbody>
                 {rows.map((inv) => (
-                  <tr key={inv.id}>
-                    <td className="py-3.5 px-4 font-mono font-medium text-newTextColor">
+                  <tr key={inv.id} className={tableClass.row}>
+                    <td
+                      className={`${tableClass.td} font-mono text-xs text-newTextColor`}
+                    >
                       {inv.invoiceNumber}
                     </td>
-                    <td className="py-3.5 px-4 font-semibold text-newTextColor">
+                    <td
+                      className={`${tableClass.td} font-medium text-newTextColor`}
+                    >
                       {inv.customer.companyName || inv.customer.name}
                     </td>
-                    <td className="py-3.5 px-4 font-bold text-newTextColor">
+                    <td
+                      className={`${tableClass.td} text-right font-semibold tabular-nums text-newTextColor`}
+                    >
                       {money(inv.amount, inv.currency)}
                     </td>
-                    <td className="py-3.5 px-4">
+                    <td className={tableClass.td}>
                       <StatusBadge status={inv.status} />
                       {inv.paidAt && (
-                        <span className="block text-[11px] text-textItemBlur mt-0.5">
+                        <span className="block text-xs text-textItemBlur mt-1">
                           {formatDate(inv.paidAt)}
                         </span>
                       )}
                     </td>
-                    <td className="py-3.5 px-4 text-textItemBlur">
+                    <td className={`${tableClass.td} text-textItemBlur`}>
                       {inv.dueDate ? formatDate(inv.dueDate) : '—'}
                     </td>
-                    <td className="py-3.5 px-4 text-textItemBlur truncate max-w-xs">
+                    <td
+                      className={`${tableClass.td} text-textItemBlur truncate max-w-xs`}
+                    >
                       {inv.items || '—'}
                     </td>
-                    <td className="py-3.5 px-4 text-right">
+                    <td className={`${tableClass.td} text-right`}>
                       {canWrite && inv.status !== 'PAID' && (
                         <Btn onClick={() => void markPaid(inv)}>
                           Record as paid

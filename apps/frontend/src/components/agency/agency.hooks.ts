@@ -248,6 +248,7 @@ export interface PortalOverview {
     destinationsCount: number;
     awaitingClientApproval: boolean;
     clientApprovedAt?: string;
+    preview: { html: string; format: string };
   }>;
 }
 
@@ -342,19 +343,23 @@ const useResource = <T>(
 export const useAgencyMe = () =>
   useResource<AgencyMe>(['agency-me'], '/agency/me');
 
-export const useDashboard = () =>
+export const useDashboard = (enabled = true) =>
   useResource<DashboardResponse>(
-    ['agency-dashboard'],
+    enabled ? ['agency-dashboard'] : null,
     '/agency/dashboard',
     15000
   );
 
-export const useCampaigns = (status: string, search: string) => {
+export const useCampaigns = (
+  status: string,
+  search: string,
+  enabled = true
+) => {
   const params = new URLSearchParams();
   if (status !== 'ALL') params.set('status', status);
   if (search.trim()) params.set('search', search.trim());
   return useResource<CampaignSummary[]>(
-    ['agency-campaigns', status, search],
+    enabled ? ['agency-campaigns', status, search] : null,
     `/agency/campaigns?${params.toString()}`,
     20000
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { FC, useEffect, useState } from 'react';
+import React, { FC, useState } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
 import { useToaster } from '@gitroom/react/toaster/toaster';
@@ -12,14 +12,22 @@ import {
 } from '@gitroom/frontend/components/agency/agency.hooks';
 import {
   Btn,
+  Dialog,
   EmptyState,
+  Icon,
   inputClass,
-  labelClass,
   LoadError,
   Loading,
+  Menu,
+  MenuItem,
   PageHeader,
   PageShell,
   StatusBadge,
+  TextArea,
+  TextField,
+  tableClass,
+  useBusy,
+  useTouched,
 } from '@gitroom/frontend/components/agency/agency.ui';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -49,16 +57,9 @@ const ClientDialog: FC<{ onClose: () => void; onSaved: () => void }> = ({
 }) => {
   const api = useAgencyApi();
   const toaster = useToaster();
+  const touched = useTouched();
+  const { busy, run } = useBusy();
   const [form, setForm] = useState(EMPTY);
-  const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) =>
-      e.key === 'Escape' && !busy && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [busy, onClose]);
 
   const errors: Record<string, string | null> = {
     name: form.name.trim() ? null : 'Who is the main contact?',
@@ -71,107 +72,105 @@ const ClientDialog: FC<{ onClose: () => void; onSaved: () => void }> = ({
         ? 'Start with https://'
         : null,
   };
-  const invalid = Object.values(errors).some(Boolean);
 
   const set =
     (key: keyof typeof EMPTY) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setForm((f) => ({ ...f, [key]: e.target.value }));
-  const blur = (key: string) => () =>
-    setTouched((t) => ({ ...t, [key]: true }));
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setTouched({ name: true, email: true, website: true });
-    if (invalid) return;
-    setBusy(true);
-    try {
-      const body = Object.fromEntries(
-        Object.entries(form)
-          .map(([k, v]) => [k, v.trim()])
-          .filter(([, v]) => v)
-      );
-      await api.post('/agency/clients', body);
-      toaster.show('Client added', 'success');
-      onSaved();
-    } catch (err) {
-      toaster.show((err as Error).message, 'warning');
-    } finally {
-      setBusy(false);
-    }
+    touched.all(Object.keys(errors));
+    if (Object.values(errors).some(Boolean)) return;
+    await run(async () => {
+      try {
+        const body = Object.fromEntries(
+          Object.entries(form)
+            .map(([k, v]) => [k, v.trim()])
+            .filter(([, v]) => v)
+        );
+        await api.post('/agency/clients', body);
+        toaster.show('Client added', 'success');
+        onSaved();
+      } catch (err) {
+        toaster.show((err as Error).message, 'warning');
+      }
+    });
   };
 
-  const field = (
-    key: keyof typeof EMPTY,
-    label: string,
-    props: React.InputHTMLAttributes<HTMLInputElement> = {}
-  ) => (
-    <div>
-      <label htmlFor={`client-${key}`} className={labelClass}>
-        {label}
-      </label>
-      <input
-        id={`client-${key}`}
-        value={form[key]}
-        onChange={set(key)}
-        onBlur={blur(key)}
-        aria-invalid={touched[key] && !!errors[key]}
-        className={inputClass}
-        {...props}
-      />
-      {touched[key] && errors[key] && (
-        <p className="text-[11px] text-rose-400 mt-1">{errors[key]}</p>
-      )}
-    </div>
-  );
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="client-title"
-    >
-      <form
-        onSubmit={submit}
-        className="bg-newBgColorInner border border-newBgLineColor rounded-2xl p-6 max-w-lg w-full shadow-2xl flex flex-col gap-4"
-      >
-        <h3 id="client-title" className="text-base font-bold text-newTextColor">
-          Add a client
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {field('name', 'Contact name', { autoFocus: true })}
-          {field('companyName', 'Company (optional)')}
-          {field('email', 'Email (optional)', { type: 'email' })}
-          {field('phone', 'Phone (optional)')}
-          {field('industry', 'Industry (optional)')}
-          {field('website', 'Website (optional)', {
-            type: 'url',
-            placeholder: 'https://',
-          })}
-        </div>
-        <div>
-          <label htmlFor="client-notes" className={labelClass}>
-            Internal notes (optional)
-          </label>
-          <textarea
-            id="client-notes"
-            rows={2}
-            value={form.notes}
-            onChange={set('notes')}
-            className={clsx(inputClass, 'resize-none')}
-          />
-        </div>
-        <div className="flex justify-end gap-2 pt-3 border-t border-newBgLineColor">
-          <Btn type="button" onClick={onClose} disabled={busy}>
+    <Dialog
+      size="lg"
+      title="Add a client"
+      onClose={onClose}
+      busy={busy}
+      onSubmit={submit}
+      footer={
+        <>
+          <Btn onClick={onClose} disabled={busy}>
             Cancel
           </Btn>
           <Btn type="submit" variant="primary" busy={busy}>
             Add client
           </Btn>
-        </div>
-      </form>
-    </div>
+        </>
+      }
+    >
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <TextField
+          autoFocus
+          label="Contact name"
+          value={form.name}
+          onChange={set('name')}
+          onBlur={touched.blur('name')}
+          error={touched.show('name', errors.name)}
+        />
+        <TextField
+          label="Company"
+          optional
+          value={form.companyName}
+          onChange={set('companyName')}
+        />
+        <TextField
+          label="Email"
+          optional
+          type="email"
+          value={form.email}
+          onChange={set('email')}
+          onBlur={touched.blur('email')}
+          error={touched.show('email', errors.email)}
+        />
+        <TextField
+          label="Phone"
+          optional
+          value={form.phone}
+          onChange={set('phone')}
+        />
+        <TextField
+          label="Industry"
+          optional
+          value={form.industry}
+          onChange={set('industry')}
+        />
+        <TextField
+          label="Website"
+          optional
+          type="url"
+          placeholder="https://"
+          value={form.website}
+          onChange={set('website')}
+          onBlur={touched.blur('website')}
+          error={touched.show('website', errors.website)}
+        />
+      </div>
+      <TextArea
+        label="Internal notes"
+        optional
+        rows={2}
+        value={form.notes}
+        onChange={set('notes')}
+      />
+    </Dialog>
   );
 };
 
@@ -204,20 +203,25 @@ export const AgencyClientsComponent = () => {
   return (
     <PageShell>
       <PageHeader
-        crumb="Clients"
         title="Clients"
         subtitle="The businesses you run campaigns for."
         actions={
           canWrite ? (
             <Btn variant="primary" onClick={() => setAdding(true)}>
+              <Icon name="plus" size={15} />
               Add client
             </Btn>
           ) : undefined
         }
       />
 
-      <div className="flex items-center justify-between gap-4 bg-newBgColorInner border border-newBgLineColor rounded-xl p-3">
-        <div className="flex-1 max-w-md">
+      <div className="flex items-center justify-between gap-4">
+        <div className="relative w-full max-w-sm">
+          <Icon
+            name="search"
+            size={14}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-textItemBlur"
+          />
           <label htmlFor="client-search" className="sr-only">
             Search clients
           </label>
@@ -227,10 +231,10 @@ export const AgencyClientsComponent = () => {
             placeholder="Search by name, company or email"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className={inputClass}
+            className={clsx(inputClass, 'pl-8')}
           />
         </div>
-        <div className="text-xs text-textItemBlur">
+        <div className="text-xs text-textItemBlur whitespace-nowrap">
           {data ? `${data.length} client${data.length === 1 ? '' : 's'}` : ''}
         </div>
       </div>
@@ -238,10 +242,11 @@ export const AgencyClientsComponent = () => {
       {error ? (
         <LoadError error={error} onRetry={() => mutate()} />
       ) : !data ? (
-        <Loading label="Loading clients…" />
+        <Loading label="Loading clients" />
       ) : data.length === 0 ? (
-        <div className="bg-newBgColorInner border border-newBgLineColor rounded-2xl">
+        <div className="rounded-2xl bg-newBgColorInner border border-[color:var(--ag-hairline)]">
           <EmptyState
+            icon="users"
             title={search ? 'No matching clients' : 'No clients yet'}
             hint={
               search
@@ -258,78 +263,94 @@ export const AgencyClientsComponent = () => {
           />
         </div>
       ) : (
-        <div className="bg-newBgColorInner border border-newBgLineColor rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-newBgColor border-b border-newBgLineColor text-textItemBlur font-medium">
+        <div className="ag-rise rounded-2xl bg-newBgColorInner border border-[color:var(--ag-hairline)] shadow-[var(--ag-shadow)] p-2 sm:p-3">
+          <div className={tableClass.wrap}>
+            <table className={tableClass.table}>
+              <thead className={tableClass.head}>
                 <tr>
-                  <th className="py-3 px-4">Company</th>
-                  <th className="py-3 px-4">Contact</th>
-                  <th className="py-3 px-4">Industry</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4">Campaigns</th>
-                  <th className="py-3 px-4 text-right">
+                  <th className={tableClass.th}>Company</th>
+                  <th className={tableClass.th}>Contact</th>
+                  <th className={tableClass.th}>Industry</th>
+                  <th className={tableClass.th}>Status</th>
+                  <th className={`${tableClass.th} text-right`}>Campaigns</th>
+                  <th className={tableClass.th}>
                     <span className="sr-only">Actions</span>
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-newBgLineColor">
-                {data.map((client) => (
-                  <tr key={client.id}>
-                    <td className="py-3.5 px-4">
-                      <div className="font-semibold text-newTextColor">
-                        {client.companyName || client.name}
-                      </div>
-                      {client.website && isUrl(client.website) && (
-                        <a
-                          href={client.website}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[11px] text-blue-400 hover:underline"
-                        >
-                          {client.website.replace(/^https?:\/\//, '')}
-                        </a>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="text-newTextColor font-medium">
-                        {client.name}
-                      </div>
-                      <div className="text-[11px] text-textItemBlur">
-                        {client.email || 'No email'}
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 text-textItemBlur">
-                      {client.industry || '—'}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <StatusBadge status={client.status} />
-                    </td>
-                    <td className="py-3.5 px-4 text-textItemBlur">
-                      {client._count?.campaigns ?? 0}
-                    </td>
-                    <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end gap-3">
-                        {can('campaign:write') && (
-                          <Link
-                            href={`/agency/campaigns/new?client=${client.id}`}
-                            className="text-[11px] font-semibold text-blue-400 hover:underline"
+              <tbody>
+                {data.map((client) => {
+                  const menu: MenuItem[] = [];
+                  if (can('client:delete')) {
+                    menu.push({
+                      label: 'Remove client',
+                      danger: true,
+                      onClick: () =>
+                        void remove(
+                          client.id,
+                          client.companyName || client.name
+                        ),
+                    });
+                  }
+                  return (
+                    <tr key={client.id} className={tableClass.row}>
+                      <td className={tableClass.td}>
+                        <div className="font-semibold text-newTextColor">
+                          {client.companyName || client.name}
+                        </div>
+                        {client.website && isUrl(client.website) && (
+                          <a
+                            href={client.website}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-[color:var(--ag-accent-text)] hover:underline"
                           >
-                            New campaign
-                          </Link>
+                            {client.website.replace(/^https?:\/\//, '')}
+                          </a>
                         )}
-                        {can('client:delete') && (
-                          <button
-                            onClick={() => void remove(client.id, client.name)}
-                            className="text-[11px] text-rose-400 hover:underline"
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className={tableClass.td}>
+                        <div className="text-newTextColor">{client.name}</div>
+                        <div className="text-xs text-textItemBlur">
+                          {client.email || 'No email'}
+                        </div>
+                      </td>
+                      <td className={`${tableClass.td} text-textItemBlur`}>
+                        {client.industry || '—'}
+                      </td>
+                      <td className={tableClass.td}>
+                        <StatusBadge
+                          status={client.status}
+                          label={
+                            client.status.charAt(0) +
+                            client.status.slice(1).toLowerCase()
+                          }
+                        />
+                      </td>
+                      <td
+                        className={`${tableClass.td} text-right tabular-nums text-textItemBlur`}
+                      >
+                        {client._count?.campaigns ?? 0}
+                      </td>
+                      <td className={tableClass.td}>
+                        <div className="flex items-center justify-end gap-2">
+                          {can('campaign:write') && (
+                            <Link
+                              href={`/agency/campaigns/new?client=${client.id}`}
+                              className="text-[13px] font-medium text-[color:var(--ag-accent-text)] hover:underline whitespace-nowrap"
+                            >
+                              New campaign
+                            </Link>
+                          )}
+                          <Menu
+                            label={`Actions for ${client.name}`}
+                            items={menu}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

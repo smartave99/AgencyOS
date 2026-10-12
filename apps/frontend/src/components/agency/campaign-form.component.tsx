@@ -21,12 +21,22 @@ import {
 import {
   Btn,
   Card,
+  CheckField,
+  EmptyState,
+  Icon,
+  LinkBtn,
+  Loading,
+  PageHeader,
+  PageShell,
+  SelectField,
+  StatusBadge,
+  TextArea,
+  TextField,
+  TONE_TEXT,
+  humanize,
   inputClass,
   labelClass,
-  Loading,
-  PageShell,
-  StatusBadge,
-  humanize,
+  useTouched,
 } from './agency.ui';
 
 interface Media {
@@ -112,6 +122,8 @@ const isHttpUrl = (v: string) => {
   }
 };
 
+const isVideo = (path: string) => /\.(mp4|mov|webm|m4v)(\?|$)/i.test(path);
+
 const MediaSection: FC<{
   media: Media[];
   onChange: (m: Media[]) => void;
@@ -146,19 +158,23 @@ const MediaSection: FC<{
   return (
     <div>
       <div className="flex items-center justify-between">
-        <label className={labelClass}>Images or video (optional)</label>
+        <span className={labelClass + ' !mb-0'}>
+          Images or video
+          <span className="font-normal text-textItemBlur/70"> · optional</span>
+        </span>
         <Btn type="button" onClick={open}>
-          {media.length ? 'Add more' : 'Upload or choose'}
+          <Icon name="plus" size={14} />
+          {media.length ? 'Add more' : 'Add media'}
         </Btn>
       </div>
       {media.length > 0 && (
-        <ul className="grid grid-cols-4 gap-2 mt-2">
+        <ul className="grid grid-cols-4 sm:grid-cols-5 gap-2 mt-3">
           {media.map((m) => (
             <li
               key={m.path}
-              className="relative aspect-square rounded-lg overflow-hidden border border-newBgLineColor bg-newBgColor"
+              className="group relative aspect-square rounded-xl overflow-hidden border border-[color:var(--ag-hairline)] bg-newBgColor"
             >
-              {/\.(mp4|mov|webm|m4v)(\?|$)/i.test(m.path) ? (
+              {isVideo(m.path) ? (
                 <video
                   src={dir.set(m.path)}
                   className="w-full h-full object-cover"
@@ -175,16 +191,16 @@ const MediaSection: FC<{
                 type="button"
                 aria-label="Remove media"
                 onClick={() => onChange(media.filter((x) => x.path !== m.path))}
-                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 text-white text-[10px] leading-5"
+                className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white opacity-0 group-hover:opacity-100 focus:opacity-100"
               >
-                ✕
+                <Icon name="x" size={12} />
               </button>
             </li>
           ))}
         </ul>
       )}
       {media.length > 10 && (
-        <p className="text-[11px] text-rose-400 mt-1">
+        <p className={clsx('mt-2 text-xs', TONE_TEXT.bad)}>
           Telegram allows at most 10 files per post.
         </p>
       )}
@@ -192,90 +208,119 @@ const MediaSection: FC<{
   );
 };
 
+/**
+ * The ad exactly as Telegram will show it. The HTML is built by the same server code
+ * that sends the post, so the preview cannot drift from the real thing. It is drawn in
+ * Telegram's own dark palette in both themes, like a device mock.
+ */
+export const TelegramBubble: FC<{
+  html: string | null | undefined;
+  media: Media[];
+  empty?: string;
+}> = ({ html, media, empty = 'Your ad will appear here as you type.' }) => {
+  const dir = useMediaDirectory();
+  return (
+    <div className="rounded-2xl bg-[#0e1621] p-4 min-h-[160px] flex flex-col gap-2 ring-1 ring-black/20">
+      <div className="bg-[#182533] rounded-2xl rounded-tl-md p-3.5 max-w-[95%] self-start shadow-lg flex flex-col gap-2 text-white">
+        {media.length > 0 && (
+          <div
+            className={clsx(
+              'grid gap-1',
+              media.length > 1 ? 'grid-cols-2' : 'grid-cols-1'
+            )}
+          >
+            {media
+              .slice(0, 4)
+              .map((m) =>
+                isVideo(m.path) ? (
+                  <video
+                    key={m.path}
+                    src={dir.set(m.path)}
+                    className="rounded-lg w-full"
+                    muted
+                  />
+                ) : (
+                  <img
+                    key={m.path}
+                    src={dir.set(m.path)}
+                    alt=""
+                    className="rounded-lg w-full"
+                  />
+                )
+              )}
+          </div>
+        )}
+        {html ? (
+          <div
+            className="text-[13px] text-slate-100 whitespace-pre-wrap leading-relaxed break-words [&_a]:text-sky-400 [&_a]:underline [&_code]:font-mono"
+            // Server-built HTML: everything user-supplied is escaped, and only a fixed set of
+            // formatting tags plus a validated http(s) link survive (see TelegramGateway).
+            dangerouslySetInnerHTML={{ __html: html }}
+            onClick={(e) => {
+              if ((e.target as HTMLElement).closest('a')) e.preventDefault();
+            }}
+          />
+        ) : (
+          <div className="text-[13px] text-slate-400">{empty}</div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const TelegramPreview: FC<{
   preview: Preview | null;
   media: Media[];
-}> = ({ preview, media }) => {
-  const dir = useMediaDirectory();
-  return (
-    <Card
-      title="Preview"
-      subtitle="Rendered by the same code that sends the post."
-      right={
-        preview && (
-          <span
-            className={clsx(
-              'text-[11px] font-mono',
-              preview.visibleLength > preview.limits.message
-                ? 'text-rose-400'
-                : 'text-textItemBlur'
-            )}
-          >
-            {preview.visibleLength} / {preview.limits.message}
-          </span>
-        )
-      }
-    >
-      <div className="rounded-xl bg-[#0e1621] p-4 min-h-[220px] flex flex-col gap-2 border border-slate-800">
-        <div className="bg-[#182533] rounded-2xl rounded-tl-sm p-3.5 max-w-[95%] self-start shadow-md flex flex-col gap-2 text-white">
-          {media.length > 0 && (
-            <div
-              className={clsx(
-                'grid gap-1',
-                media.length > 1 ? 'grid-cols-2' : 'grid-cols-1'
-              )}
-            >
-              {media
-                .slice(0, 4)
-                .map((m) =>
-                  /\.(mp4|mov|webm|m4v)(\?|$)/i.test(m.path) ? (
-                    <video
-                      key={m.path}
-                      src={dir.set(m.path)}
-                      className="rounded-lg w-full"
-                      muted
-                    />
-                  ) : (
-                    <img
-                      key={m.path}
-                      src={dir.set(m.path)}
-                      alt=""
-                      className="rounded-lg w-full"
-                    />
-                  )
-                )}
-            </div>
+}> = ({ preview, media }) => (
+  <Card
+    title="Preview"
+    subtitle="Rendered by the same code that sends the post."
+    right={
+      preview && (
+        <span
+          className={clsx(
+            'text-xs tabular-nums',
+            preview.visibleLength > preview.limits.message
+              ? TONE_TEXT.bad
+              : 'text-textItemBlur'
           )}
-          {preview && preview.html ? (
-            <div
-              className="text-xs text-slate-100 whitespace-pre-wrap leading-relaxed break-words [&_a]:text-sky-400 [&_a]:underline [&_code]:font-mono"
-              // Server-built HTML: everything user-supplied is escaped, and only a fixed set of
-              // formatting tags plus a validated http(s) link survive (see TelegramGateway).
-              dangerouslySetInnerHTML={{ __html: preview.html }}
-              onClick={(e) => {
-                if ((e.target as HTMLElement).closest('a')) e.preventDefault();
-              }}
-            />
-          ) : (
-            <div className="text-xs text-slate-400">
-              Your ad will appear here as you type.
-            </div>
-          )}
-        </div>
-      </div>
-      {preview?.problem && (
-        <p role="alert" className="text-xs text-rose-400">
-          {preview.problem}
-        </p>
-      )}
-      {preview && !preview.problem && preview.html && (
-        <p className="text-[11px] text-textItemBlur">
-          {FORMAT_TEXT[preview.format]}.
-        </p>
-      )}
-    </Card>
-  );
-};
+        >
+          {preview.visibleLength} / {preview.limits.message}
+        </span>
+      )
+    }
+  >
+    <TelegramBubble html={preview?.html} media={media} />
+    {preview?.problem && (
+      <p role="alert" className={clsx('text-[13px]', TONE_TEXT.bad)}>
+        {preview.problem}
+      </p>
+    )}
+    {preview && !preview.problem && preview.html && (
+      <p className="text-xs text-textItemBlur">
+        {FORMAT_TEXT[preview.format]}.
+      </p>
+    )}
+  </Card>
+);
+
+const Step: FC<{ n: number; title: string; subtitle?: string }> = ({
+  n,
+  title,
+  subtitle,
+}) => (
+  <div className="flex items-center gap-3">
+    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--ag-accent-soft)] text-xs font-semibold text-[color:var(--ag-accent-text)]">
+      {n}
+    </span>
+    <div>
+      <h2 className="text-[15px] font-semibold tracking-tight text-newTextColor">
+        {title}
+      </h2>
+      {subtitle && <p className="text-[13px] text-textItemBlur">{subtitle}</p>}
+    </div>
+  </div>
+);
 
 export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
   campaignId,
@@ -286,6 +331,7 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
   const search = useSearchParams();
   const { can, isLoading: roleLoading } = useCan();
   const timezones = useTimezones();
+  const touched = useTouched();
   const { data: clients } = useClients();
   const { data: destinations } = useTelegramDestinations();
   const { data: existing } = useCampaign(campaignId ?? '');
@@ -370,7 +416,7 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
     return () => clearTimeout(t);
   }, [contentTitle, contentBody, ctaLink, ctaText, channelLink, mediaKey, api]);
 
-  // --- validation, shown as you go --------------------------------------------
+  // --- validation: shown once a field is touched, and everywhere after a failed save
   const errors = {
     customer: customerId ? null : 'Choose the client this campaign is for.',
     name: name.trim() ? null : 'Give the campaign a name.',
@@ -391,17 +437,10 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
     media:
       media.length > 10 ? 'Telegram allows at most 10 files per post.' : null,
   };
-  const show = (e: string | null) => (tried ? e : null);
-  const draftBlockers = [
-    errors.customer,
-    errors.name,
-    errors.body,
-    errors.cta,
-    errors.channel,
-    errors.budget,
-    errors.dates,
-    errors.media,
-  ].filter(Boolean);
+  const err = (key: keyof typeof errors) =>
+    tried ? errors[key] ?? undefined : touched.show(key, errors[key]);
+
+  const draftBlockers = Object.values(errors).filter(Boolean);
   const submitBlockers = [
     ...draftBlockers,
     picked.length === 0 ? 'Choose at least one authorized destination.' : null,
@@ -459,8 +498,8 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
         });
         id = created.id;
       }
-    } catch (e: any) {
-      toaster.show(e.message, 'warning');
+    } catch (e) {
+      toaster.show((e as Error).message, 'warning');
       setBusy(null);
       return;
     }
@@ -471,10 +510,10 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
           notes: 'Submitted from the composer',
         });
         toaster.show('Submitted. A manager can review it now.', 'success');
-      } catch (e: any) {
+      } catch (e) {
         // Saved, but not submitted: say exactly that, and take them where they can fix it.
         toaster.show(
-          `Saved as a draft, but it was not submitted: ${e.message}`,
+          `Saved as a draft, but it was not submitted: ${(e as Error).message}`,
           'warning'
         );
       }
@@ -509,18 +548,28 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
           channelType: 'TELEGRAM',
         })
       );
-    } catch (e: any) {
-      toaster.show(e.message, 'warning');
+    } catch (e) {
+      toaster.show((e as Error).message, 'warning');
     } finally {
       setAiBusy(false);
     }
   };
 
-  if (roleLoading) return <Loading />;
+  if (roleLoading) {
+    return (
+      <PageShell>
+        <Loading />
+      </PageShell>
+    );
+  }
   if (!can('campaign:write')) {
     return (
       <PageShell>
-        <p className="text-sm text-newTextColor">
+        <PageHeader
+          back={{ href: '/agency/campaigns', label: 'Campaigns' }}
+          title="New campaign"
+        />
+        <p className="text-[13px] text-textItemBlur">
           Your role can view campaigns but not create or edit them.
         </p>
       </PageShell>
@@ -529,17 +578,15 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
   if (campaignId && existing && !EDITABLE.includes(existing.status)) {
     return (
       <PageShell>
-        <p className="text-sm text-newTextColor">
-          This campaign is <StatusBadge status={existing.status} /> and its
-          content is locked so that what was reviewed is what gets sent. Reopen
-          it from the campaign page to edit.
+        <PageHeader
+          back={{ href: `/agency/campaigns/${campaignId}`, label: 'Campaign' }}
+          title="This campaign is locked"
+          badge={<StatusBadge status={existing.status} />}
+        />
+        <p className="max-w-xl text-[13px] leading-relaxed text-textItemBlur">
+          Its content is locked so that what was reviewed is what gets sent.
+          Reopen it from the campaign page to edit.
         </p>
-        <Link
-          href={`/agency/campaigns/${campaignId}`}
-          className="text-blue-400 text-xs hover:underline"
-        >
-          ← Back to the campaign
-        </Link>
       </PageShell>
     );
   }
@@ -547,170 +594,134 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
   const checklist: Array<[string, boolean]> = [
     ['Client chosen', !errors.customer],
     ['Ad text written', !errors.body],
-    ['Fits Telegram’s limits', !!preview && !preview.problem],
+    ['Fits Telegram’s limits', !errors.body && !!preview && !preview.problem],
     ['At least one authorized destination', picked.length > 0],
     ['Start time set', !!startDate],
   ];
+  const ready = checklist.every(([, ok]) => ok);
+
+  const suggestion = (kind: string, text: string, apply: () => void) => (
+    <button
+      key={`${kind}-${text}`}
+      type="button"
+      onClick={apply}
+      className="text-left rounded-xl border border-[color:var(--ag-hairline)] bg-newBgColorInner px-3 py-2.5 hover:border-[color:var(--ag-accent)] text-[13px] text-newTextColor whitespace-pre-wrap"
+    >
+      <span className="block text-[11px] font-medium text-textItemBlur mb-0.5">
+        {kind}
+      </span>
+      {text}
+    </button>
+  );
 
   return (
     <PageShell>
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-newBgLineColor pb-4">
-        <div>
-          <Link
-            href={
-              campaignId
-                ? `/agency/campaigns/${campaignId}`
-                : '/agency/campaigns'
-            }
-            className="text-xs text-blue-400 hover:underline"
-          >
-            ← {campaignId ? 'Back to the campaign' : 'All campaigns'}
-          </Link>
-          <h1 className="text-xl font-bold text-newTextColor mt-1">
-            {campaignId ? 'Edit campaign' : 'New campaign'}
-          </h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Btn
-            busy={busy === 'draft'}
-            disabled={busy !== null}
-            onClick={() => save(false)}
-          >
-            Save draft
-          </Btn>
-          <Btn
-            variant="primary"
-            busy={busy === 'submit'}
-            disabled={busy !== null}
-            onClick={() => save(true)}
-          >
-            Submit for review
-          </Btn>
-        </div>
-      </div>
+      <PageHeader
+        back={
+          campaignId
+            ? { href: `/agency/campaigns/${campaignId}`, label: 'Campaign' }
+            : { href: '/agency/campaigns', label: 'Campaigns' }
+        }
+        title={campaignId ? 'Edit campaign' : 'New campaign'}
+        actions={
+          <>
+            <Btn
+              busy={busy === 'draft'}
+              disabled={busy !== null}
+              onClick={() => save(false)}
+            >
+              Save draft
+            </Btn>
+            <Btn
+              variant="primary"
+              busy={busy === 'submit'}
+              disabled={busy !== null}
+              onClick={() => save(true)}
+            >
+              Submit for review
+            </Btn>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-7 flex flex-col gap-6">
-          <Card title="1 · The brief">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="client" className={labelClass}>
-                  Client *
-                </label>
-                <select
-                  id="client"
-                  className={inputClass}
-                  value={customerId}
-                  disabled={!!campaignId}
-                  onChange={(e) => setCustomerId(e.target.value)}
-                  aria-invalid={!!show(errors.customer)}
-                >
-                  <option value="">Choose a client…</option>
-                  {(clients ?? []).map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.companyName || c.name}
-                    </option>
-                  ))}
-                </select>
-                {show(errors.customer) && (
-                  <p className="text-[11px] text-rose-400 mt-1">
-                    {errors.customer}
-                  </p>
-                )}
-                {clients && clients.length === 0 && (
-                  <p className="text-[11px] text-textItemBlur mt-1">
-                    No clients yet.{' '}
-                    <Link
-                      href="/agency/clients"
-                      className="text-blue-400 hover:underline"
-                    >
-                      Add one first
-                    </Link>
-                    .
-                  </p>
-                )}
-              </div>
-              <div>
-                <label htmlFor="name" className={labelClass}>
-                  Campaign name *
-                </label>
-                <input
-                  id="name"
-                  className={inputClass}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Spring offer"
-                  aria-invalid={!!show(errors.name)}
-                />
-                {show(errors.name) && (
-                  <p className="text-[11px] text-rose-400 mt-1">
-                    {errors.name}
-                  </p>
-                )}
-              </div>
-              <div>
-                <label htmlFor="objective" className={labelClass}>
-                  Objective
-                </label>
-                <select
-                  id="objective"
-                  className={inputClass}
-                  value={objective}
-                  onChange={(e) => setObjective(e.target.value)}
-                >
-                  {OBJECTIVES.map((o) => (
-                    <option key={o} value={o}>
-                      {humanize(o)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="budget" className={labelClass}>
-                  Budget (optional)
-                </label>
-                <input
-                  id="budget"
-                  type="number"
-                  min={0}
-                  className={inputClass}
-                  value={budget}
-                  onChange={(e) => setBudget(e.target.value)}
-                  placeholder="1500"
-                />
-                {show(errors.budget) && (
-                  <p className="text-[11px] text-rose-400 mt-1">
-                    {errors.budget}
-                  </p>
-                )}
-              </div>
+        <div className="lg:col-span-7 flex flex-col gap-6 min-w-0">
+          <Card>
+            <Step n={1} title="The brief" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <SelectField
+                label="Client"
+                value={customerId}
+                disabled={!!campaignId}
+                onChange={(e) => setCustomerId(e.target.value)}
+                onBlur={touched.blur('customer')}
+                error={err('customer')}
+                hint={
+                  clients && clients.length === 0
+                    ? 'No clients yet. Add one on the Clients page first.'
+                    : undefined
+                }
+              >
+                <option value="">Choose a client…</option>
+                {(clients ?? []).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.companyName || c.name}
+                  </option>
+                ))}
+              </SelectField>
+              <TextField
+                label="Campaign name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={touched.blur('name')}
+                error={err('name')}
+                placeholder="Spring offer"
+              />
+              <SelectField
+                label="Objective"
+                value={objective}
+                onChange={(e) => setObjective(e.target.value)}
+              >
+                {OBJECTIVES.map((o) => (
+                  <option key={o} value={o}>
+                    {humanize(o)}
+                  </option>
+                ))}
+              </SelectField>
+              <TextField
+                label="Budget"
+                optional
+                type="number"
+                min={0}
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+                onBlur={touched.blur('budget')}
+                error={err('budget')}
+                placeholder="1500"
+              />
             </div>
           </Card>
 
-          <Card
-            title="2 · The ad"
-            right={
-              <Btn
-                type="button"
-                variant="ghost"
-                onClick={() => setAiOpen((v) => !v)}
-              >
+          <Card>
+            <div className="flex items-start justify-between gap-3">
+              <Step n={2} title="The ad" />
+              <Btn variant="ghost" onClick={() => setAiOpen((v) => !v)}>
                 {aiOpen ? 'Hide writing help' : 'Help me write it'}
               </Btn>
-            }
-          >
+            </div>
+
             {aiOpen && (
-              <div className="rounded-xl border border-newBgLineColor bg-newBgColor p-3 flex flex-col gap-2">
-                <textarea
+              <div className="ag-rise rounded-xl bg-[var(--ag-neutral-bg)] p-4 flex flex-col gap-3">
+                <TextArea
+                  label="What are we advertising, and to whom?"
                   rows={2}
-                  className={inputClass + ' resize-none'}
-                  placeholder="What are we advertising, and to whom?"
                   value={aiBrief}
                   onChange={(e) => setAiBrief(e.target.value)}
                 />
-                <div className="flex items-center gap-2">
-                  <select
-                    className={inputClass + ' w-auto'}
+                <div className="flex flex-wrap items-end gap-3">
+                  <SelectField
+                    label="Tone"
+                    wrapperClassName="w-44"
                     value={aiTone}
                     onChange={(e) => setAiTone(e.target.value)}
                   >
@@ -718,173 +729,127 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
                     <option value="PROFESSIONAL">Professional</option>
                     <option value="CASUAL">Casual</option>
                     <option value="URGENT">Urgent</option>
-                  </select>
-                  <Btn type="button" busy={aiBusy} onClick={generate}>
+                  </SelectField>
+                  <Btn busy={aiBusy} onClick={generate}>
                     Suggest copy
                   </Btn>
                 </div>
                 {aiResult && (
-                  <div className="flex flex-col gap-2 text-xs">
-                    <p className="text-textItemBlur">
+                  <div className="flex flex-col gap-2">
+                    <p className="text-xs text-textItemBlur">
                       {aiResult.providerUsed === 'heuristic_engine'
                         ? 'Template draft. No AI model was reachable, so these are fill-in-the-blank suggestions. Edit freely.'
                         : `Written by ${aiResult.providerUsed}. Review before using.`}
                     </p>
-                    {aiResult.headlines.slice(0, 3).map((h) => (
-                      <button
-                        key={h}
-                        type="button"
-                        onClick={() => setContentTitle(h)}
-                        className="text-left rounded-lg border border-newBgLineColor px-2.5 py-1.5 hover:border-blue-500 text-newTextColor"
-                      >
-                        <span className="text-[10px] uppercase text-textItemBlur">
-                          Headline ·{' '}
-                        </span>
-                        {h}
-                      </button>
-                    ))}
-                    {aiResult.bodyVariants.slice(0, 3).map((b) => (
-                      <button
-                        key={b}
-                        type="button"
-                        onClick={() => setContentBody(b)}
-                        className="text-left rounded-lg border border-newBgLineColor px-2.5 py-1.5 hover:border-blue-500 text-newTextColor whitespace-pre-wrap"
-                      >
-                        <span className="text-[10px] uppercase text-textItemBlur">
-                          Text ·{' '}
-                        </span>
-                        {b}
-                      </button>
-                    ))}
-                    {aiResult.callToActions.slice(0, 3).map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => setCtaText(c)}
-                        className="text-left rounded-lg border border-newBgLineColor px-2.5 py-1.5 hover:border-blue-500 text-newTextColor"
-                      >
-                        <span className="text-[10px] uppercase text-textItemBlur">
-                          Button text ·{' '}
-                        </span>
-                        {c}
-                      </button>
-                    ))}
+                    {aiResult.headlines
+                      .slice(0, 3)
+                      .map((h) =>
+                        suggestion('Headline', h, () => setContentTitle(h))
+                      )}
+                    {aiResult.bodyVariants
+                      .slice(0, 3)
+                      .map((b) =>
+                        suggestion('Text', b, () => setContentBody(b))
+                      )}
+                    {aiResult.callToActions
+                      .slice(0, 3)
+                      .map((c) =>
+                        suggestion('Button text', c, () => setCtaText(c))
+                      )}
                   </div>
                 )}
               </div>
             )}
 
-            <div>
-              <label htmlFor="title" className={labelClass}>
-                Headline (optional)
-              </label>
-              <input
-                id="title"
-                className={inputClass}
-                value={contentTitle}
-                onChange={(e) => setContentTitle(e.target.value)}
-                placeholder="Fresh fruit, delivered"
-              />
-            </div>
-            <div>
-              <label htmlFor="body" className={labelClass}>
-                Ad text *
-              </label>
-              <textarea
-                id="body"
-                rows={7}
-                className={inputClass + ' resize-y'}
-                value={contentBody}
-                onChange={(e) => setContentBody(e.target.value)}
-                placeholder="Write what people should read. You can use <b>bold</b>, <i>italic</i>, <u>underline</u> and <code>code</code>."
-                aria-invalid={!!show(errors.body)}
-              />
-              {show(errors.body) && (
-                <p className="text-[11px] text-rose-400 mt-1">{errors.body}</p>
-              )}
-            </div>
+            <TextField
+              label="Headline"
+              optional
+              value={contentTitle}
+              onChange={(e) => setContentTitle(e.target.value)}
+              placeholder="Fresh fruit, delivered"
+            />
+            <TextArea
+              label="Ad text"
+              rows={7}
+              className="resize-y"
+              value={contentBody}
+              onChange={(e) => setContentBody(e.target.value)}
+              onBlur={touched.blur('body')}
+              error={err('body')}
+              hint="You can use <b>bold</b>, <i>italic</i>, <u>underline</u> and <code>code</code>."
+            />
             <MediaSection media={media} onChange={setMedia} />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="cta" className={labelClass}>
-                  Link (optional)
-                </label>
-                <input
-                  id="cta"
-                  className={inputClass}
-                  value={ctaLink}
-                  onChange={(e) => setCtaLink(e.target.value)}
-                  placeholder="https://example.com/offer"
-                  aria-invalid={!!errors.cta}
-                />
-                {errors.cta && ctaLink && (
-                  <p className="text-[11px] text-rose-400 mt-1">{errors.cta}</p>
-                )}
-              </div>
-              <div>
-                <label htmlFor="ctatext" className={labelClass}>
-                  Link text
-                </label>
-                <input
-                  id="ctatext"
-                  className={inputClass}
-                  value={ctaText}
-                  onChange={(e) => setCtaText(e.target.value)}
-                />
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <TextField
+                label="Link"
+                optional
+                value={ctaLink}
+                onChange={(e) => setCtaLink(e.target.value)}
+                onBlur={touched.blur('cta')}
+                error={err('cta')}
+                placeholder="https://example.com/offer"
+              />
+              <TextField
+                label="Link text"
+                value={ctaText}
+                onChange={(e) => setCtaText(e.target.value)}
+              />
             </div>
           </Card>
 
-          <Card
-            title="3 · Where it posts"
-            subtitle="Only destinations whose admins authorized you can be chosen."
-          >
+          <Card>
+            <Step
+              n={3}
+              title="Where it posts"
+              subtitle="Only destinations whose admins authorized you can be chosen."
+            />
             {!destinations ? (
-              <Loading />
+              <Loading rows={2} />
             ) : destinations.length === 0 ? (
-              <p className="text-xs text-textItemBlur">
-                No destinations yet.{' '}
-                <Link
-                  href="/agency/telegram"
-                  className="text-blue-400 hover:underline"
-                >
-                  Connect a group or channel
-                </Link>
-                .
-              </p>
+              <EmptyState
+                icon="send"
+                title="No destinations yet"
+                hint="Connect a group or channel and have its admin authorize it."
+                action={
+                  <LinkBtn href="/agency/telegram" variant="primary">
+                    Connect a chat
+                  </LinkBtn>
+                }
+              />
             ) : (
-              <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {destinations.map((d) => {
                   const ok = usable(d);
+                  const on = picked.includes(d.id);
                   return (
                     <li key={d.id}>
                       <label
                         className={clsx(
-                          'p-3 rounded-lg border flex items-start gap-2.5 transition-all',
+                          'p-4 rounded-xl border flex items-start gap-3',
                           ok
                             ? 'cursor-pointer'
                             : 'opacity-60 cursor-not-allowed',
-                          picked.includes(d.id)
-                            ? 'bg-blue-600/10 border-blue-500/40'
-                            : 'bg-newBgColor border-newBgLineColor'
+                          on
+                            ? 'bg-[var(--ag-accent-soft)] border-[color:var(--ag-accent)]'
+                            : 'bg-newBgColor border-[color:var(--ag-hairline)] hover:border-[color:var(--ag-neutral-line)]'
                         )}
                       >
                         <input
                           type="checkbox"
-                          className="mt-0.5"
+                          className="mt-0.5 h-4 w-4 accent-[color:var(--ag-accent)]"
                           disabled={!ok}
-                          checked={picked.includes(d.id)}
+                          checked={on}
                           onChange={() => toggle(d.id)}
                         />
                         <div className="min-w-0">
-                          <div className="text-xs font-medium text-newTextColor truncate">
+                          <div className="text-[13px] font-medium text-newTextColor truncate">
                             {d.title}
                           </div>
-                          <div className="mt-1">
+                          <div className="mt-1.5">
                             <StatusBadge status={d.authorizationStatus} />
                           </div>
                           {!ok && (
-                            <div className="text-[11px] text-textItemBlur mt-1">
+                            <div className="text-xs text-textItemBlur mt-1.5">
                               Can’t be used until a group admin authorizes it.
                             </div>
                           )}
@@ -895,62 +860,57 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
                 })}
               </ul>
             )}
-            <p className="text-[11px] text-textItemBlur">
+            <p className="text-xs text-textItemBlur">
               Social accounts aren’t dispatched from campaigns yet. Schedule
               those from{' '}
-              <Link href="/launches" className="text-blue-400 hover:underline">
+              <Link
+                href="/launches"
+                className="text-[color:var(--ag-accent-text)] hover:underline"
+              >
                 Launches
               </Link>
               .
             </p>
           </Card>
 
-          <Card title="4 · When">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="start" className={labelClass}>
-                  Start *
-                </label>
-                <input
-                  id="start"
-                  type="datetime-local"
-                  className={inputClass}
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                />
-                <p className="text-[11px] text-textItemBlur mt-1">
-                  Posts once to each destination at this time (or right away if
-                  it’s already past).
-                </p>
-              </div>
-              <div>
-                <label htmlFor="end" className={labelClass}>
-                  Stop sending after (optional)
-                </label>
-                <input
-                  id="end"
-                  type="datetime-local"
-                  className={inputClass}
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  aria-invalid={!!errors.dates}
-                />
-                {errors.dates && (startDate || endDate) && (
-                  <p className="text-[11px] text-rose-400 mt-1">
-                    {errors.dates}
-                  </p>
-                )}
-              </div>
+          <Card>
+            <Step n={4} title="When" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <TextField
+                label="Start"
+                type="datetime-local"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                hint="Posts once to each destination at this time, or right away if it is already past."
+              />
+              <TextField
+                label="Stop sending after"
+                optional
+                type="datetime-local"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                onBlur={touched.blur('dates')}
+                error={err('dates')}
+              />
             </div>
             <button
               type="button"
-              className="text-xs text-blue-400 hover:underline self-start"
+              aria-expanded={showAdvanced}
+              className="inline-flex items-center gap-1 self-start text-[13px] font-medium text-[color:var(--ag-accent-text)] hover:underline"
               onClick={() => setShowAdvanced((v) => !v)}
             >
-              {showAdvanced ? 'Hide advanced' : 'Advanced options'}
+              <Icon
+                name="chevron"
+                size={14}
+                className={clsx(
+                  'transition-transform',
+                  showAdvanced && 'rotate-180'
+                )}
+              />
+              {showAdvanced ? 'Hide advanced options' : 'Advanced options'}
             </button>
             {showAdvanced && (
-              <div className="flex flex-col gap-3">
+              <div className="ag-rise flex flex-col gap-4">
                 <div>
                   <label htmlFor="tz" className={labelClass}>
                     Time zone
@@ -968,60 +928,53 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
                     ))}
                   </datalist>
                 </div>
-                <div>
-                  <label htmlFor="channel" className={labelClass}>
-                    Community link (optional)
-                  </label>
-                  <input
-                    id="channel"
-                    className={inputClass}
-                    value={channelLink}
-                    onChange={(e) => setChannelLink(e.target.value)}
-                    placeholder="https://t.me/yourcommunity"
-                    aria-invalid={!!errors.channel}
-                  />
-                  {errors.channel && channelLink && (
-                    <p className="text-[11px] text-rose-400 mt-1">
-                      {errors.channel}
-                    </p>
-                  )}
-                </div>
-                <label className="flex items-center gap-2 text-xs text-newTextColor">
-                  <input
-                    type="checkbox"
-                    checked={needsClient}
-                    onChange={(e) => setNeedsClient(e.target.checked)}
-                  />
+                <TextField
+                  label="Community link"
+                  optional
+                  value={channelLink}
+                  onChange={(e) => setChannelLink(e.target.value)}
+                  onBlur={touched.blur('channel')}
+                  error={err('channel')}
+                  placeholder="https://t.me/yourcommunity"
+                />
+                <CheckField
+                  checked={needsClient}
+                  onChange={(e) => setNeedsClient(e.target.checked)}
+                >
                   The client must approve this before we can
-                </label>
-                <div>
-                  <label htmlFor="notes" className={labelClass}>
-                    Internal notes
-                  </label>
-                  <textarea
-                    id="notes"
-                    rows={2}
-                    className={inputClass + ' resize-none'}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Only your team sees this."
-                  />
-                </div>
+                </CheckField>
+                <TextArea
+                  label="Internal notes"
+                  optional
+                  rows={2}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Only your team sees this."
+                />
               </div>
             )}
           </Card>
         </div>
 
-        <div className="lg:col-span-5 flex flex-col gap-4 lg:sticky lg:top-4 self-start">
+        <div className="lg:col-span-5 flex flex-col gap-6 lg:sticky lg:top-6 self-start min-w-0">
           <TelegramPreview preview={preview} media={media} />
-          <Card title="Ready to submit?">
-            <ul className="flex flex-col gap-1.5">
+          <Card title={ready ? 'Ready to submit' : 'Before you submit'}>
+            <ul className="flex flex-col gap-2">
               {checklist.map(([label, ok]) => (
-                <li key={label} className="flex items-center gap-2 text-xs">
+                <li
+                  key={label}
+                  className="flex items-center gap-2.5 text-[13px]"
+                >
                   <span
-                    className={ok ? 'text-emerald-400' : 'text-textItemBlur'}
+                    className={clsx(
+                      'flex h-5 w-5 items-center justify-center rounded-full border',
+                      ok
+                        ? 'bg-[var(--ag-good-bg)] border-[color:var(--ag-good-line)] ' +
+                            TONE_TEXT.good
+                        : 'border-[color:var(--ag-hairline)] text-transparent'
+                    )}
                   >
-                    {ok ? '✓' : '○'}
+                    <Icon name="tick" size={11} />
                   </span>
                   <span
                     className={ok ? 'text-newTextColor' : 'text-textItemBlur'}
@@ -1031,9 +984,9 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
                 </li>
               ))}
             </ul>
-            <p className="text-[11px] text-textItemBlur">
+            <p className="text-xs leading-relaxed text-textItemBlur">
               Submitting sends it to the approval inbox. Nothing is posted until
-              a manager approves it and it is scheduled. Press ⌘/Ctrl + S to
+              a manager approves it and it is scheduled. Press ⌘ or Ctrl + S to
               save a draft.
             </p>
           </Card>

@@ -155,7 +155,7 @@ export async function buildHarness(): Promise<Harness> {
     gateway
   );
   const agency = new AgencyService(agencyRepo, jobsRepo, publishing, access);
-  const portal = new AgencyPortalService(agencyRepo, access);
+  const portal = new AgencyPortalService(agencyRepo, access, publishing);
   const platforms = new AgencyPlatformsService(agencyRepo, access);
   const crm = new AgencyCrmService(
     new AgencyCrmRepository(prisma),

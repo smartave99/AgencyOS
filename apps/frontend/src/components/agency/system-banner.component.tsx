@@ -2,10 +2,11 @@
 
 import React, { FC } from 'react';
 import { useDashboard } from './agency.hooks';
+import { Notice } from './agency.ui';
 
 /**
  * Tells the truth about whether anything can actually be sent. Without a dispatcher a
- * "scheduled" campaign just waits, and without a bot token no destination can be
+ * “scheduled” campaign just waits, and without a bot token no destination can be
  * authorized, so both are surfaced instead of implied.
  */
 export const SystemBanner: FC = () => {
@@ -34,18 +35,11 @@ export const SystemBanner: FC = () => {
   if (issues.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-2" role="status">
+    <div className="flex flex-col gap-2">
       {issues.map((issue) => (
-        <div
-          key={issue.text}
-          className={
-            issue.tone === 'bad'
-              ? 'rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-2.5 text-xs text-rose-400'
-              : 'rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-400'
-          }
-        >
+        <Notice key={issue.text} tone={issue.tone}>
           {issue.text}
-        </div>
+        </Notice>
       ))}
     </div>
   );

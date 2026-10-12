@@ -7,6 +7,7 @@
 // Every step either passes or fails the whole run; nothing is skipped silently.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 
@@ -37,7 +38,8 @@ const dataDirNow = () => {
     return defaultDataDir;
   }
 };
-const movedDataDir = path.join(process.env.RUNNER_TEMP || process.env.TEMP || '.', 'AgencyOS-moved-data');
+// On the system drive: the runner's second drive is small, and a move needs room for a second copy.
+const movedDataDir = path.join(os.homedir(), 'AgencyOS-moved-data');
 const exe = path.join(installDir, 'AgencyOS.exe');
 const nodeExe = path.join(installDir, 'runtime', 'node', 'node.exe');
 const launcher = path.join(installDir, 'launcher', 'agencyos.mjs');

@@ -217,7 +217,7 @@ function AiFolderProblem(const DataDir, AiDir: String): String;
 begin
   Result := FolderProblem(AiDir, 'AI models');
   if (Result = '') and (AiDir <> '') and IsInside(AiDir, DataDir) then
-    Result := 'The AI models folder must be outside your data folder, or left empty to keep them with your data.';
+    Result := 'The AI models folder must be outside your data folder, or left as it is to keep them inside it.';
 end;
 
 function ChosenDataDir(): String;
@@ -227,10 +227,23 @@ begin
   if Result = '' then Result := DefaultDataDir();
 end;
 
-function ChosenAiDir(): String;
+// The AI box is never empty (Setup checks every box on a folder page as a full path), so it starts
+// out holding the default place inside the data folder. That value, and the same place under whatever
+// data folder was chosen, both mean "keep the AI files with my data"; anything else is a folder of its own.
+function AiFromPage(const DataDir, Raw: String): String;
 begin
-  Result := Trim(ExpandConstant('{param:AIDIR|}'));
-  if Result = '' then Result := Trim(LocationsPage.Values[1]);
+  Result := Trim(Raw);
+  if (CompareText(Result, DefaultDataDir() + '\ollama') = 0) or (CompareText(Result, DataDir + '\ollama') = 0) then
+    Result := '';
+end;
+
+function ChosenAiDir(): String;
+var
+  Raw: String;
+begin
+  Raw := Trim(ExpandConstant('{param:AIDIR|}'));
+  if Raw = '' then Raw := LocationsPage.Values[1];
+  Result := AiFromPage(ChosenDataDir(), Raw);
 end;
 
 function JsonPath(const P: String): String;
@@ -263,9 +276,9 @@ begin
     'Choose a folder on a drive with plenty of free space. Your data stays there when AgencyOS is updated, and you can move it later in AgencyOS under Status and settings.',
     False, '');
   LocationsPage.Add('Data folder (database, uploads, logs):');
-  LocationsPage.Add('Local AI models folder (optional; models can take several GB). Leave empty to keep them with your data:');
+  LocationsPage.Add('Local AI models folder (optional; models can take several GB). The default keeps them inside your data folder:');
   LocationsPage.Values[0] := DefaultDataDir();
-  LocationsPage.Values[1] := '';
+  LocationsPage.Values[1] := DefaultDataDir() + '\ollama';
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
@@ -285,7 +298,7 @@ begin
   if LocationsPage = nil then Exit;
   if CurPageID <> LocationsPage.ID then Exit;
   Problem := FolderProblem(Trim(LocationsPage.Values[0]), 'data');
-  if Problem = '' then Problem := AiFolderProblem(Trim(LocationsPage.Values[0]), Trim(LocationsPage.Values[1]));
+  if Problem = '' then Problem := AiFolderProblem(Trim(LocationsPage.Values[0]), AiFromPage(Trim(LocationsPage.Values[0]), LocationsPage.Values[1]));
   if Problem <> '' then
   begin
     MsgBox(Problem, mbError, MB_OK);

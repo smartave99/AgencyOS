@@ -111,8 +111,12 @@ jobs:
       - name: Compile the installer (Inno Setup)
         shell: pwsh
         run: |
+          # Test builds compress fast; a build made to be published compresses as small as it can.
+          $compression = 'lzma2/fast'
+          if ('${{ inputs.publish }}' -eq 'true') { $compression = 'lzma2/max' }
+          "compression: $compression"
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc /Qp "/DAppVersion=$env:VERSION" "/DNumericVersion=$env:VERSION.0" "/DStageDir=$PWD\installer\dist\stage" "/DOutDir=$PWD\installer\dist\out" "/DIconFile=$PWD\installer\desktop\assets\icon.ico" installer\windows\agencyos.iss
+          & $iscc /Qp "/DAppVersion=$env:VERSION" "/DNumericVersion=$env:VERSION.0" "/DCompression=$compression" "/DStageDir=$PWD\installer\dist\stage" "/DOutDir=$PWD\installer\dist\out" "/DIconFile=$PWD\installer\desktop\assets\icon.ico" installer\windows\agencyos.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-ChildItem installer/dist/out | ForEach-Object { '{0}  {1:N0} MB' -f $_.Name, ($_.Length / 1MB) }
           $exe = Get-ChildItem installer/dist/out/*.exe | Select-Object -First 1

@@ -373,15 +373,33 @@ export const gatewayError = (
 
 /** Waits for fire-and-forget dispatches (kicked by publish/retry) to finish. */
 export async function settle(h: Harness, campaignId: string, timeoutMs = 3000) {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const deadline = Date.now() + timeoutMs;
+  // 1. wait for any in-flight send (a fire-and-forget dispatch may own it) to finish
   while (Date.now() < deadline) {
     if (
       (await h.prisma.postingJob.count({
         where: { campaignId, status: 'SENDING' },
       })) === 0
     )
-      return;
-    await new Promise((r) => setTimeout(r, 25));
+      break;
+    await sleep(25);
+  }
+  // 2. a job is marked done a moment before its campaign is reconciled; PUBLISHING with
+  //    nothing left to send is that in-between state, so give the reconcile a short window
+  const reconcileDeadline = Math.min(deadline, Date.now() + 500);
+  while (Date.now() < reconcileDeadline) {
+    const [campaign, open] = await Promise.all([
+      h.prisma.campaign.findUnique({
+        where: { id: campaignId },
+        select: { status: true },
+      }),
+      h.prisma.postingJob.count({
+        where: { campaignId, status: { in: ['PENDING', 'SENDING'] } },
+      }),
+    ]);
+    if (!(campaign?.status === 'PUBLISHING' && open === 0)) return;
+    await sleep(25);
   }
 }
 

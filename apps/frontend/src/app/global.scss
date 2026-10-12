@@ -876,7 +876,15 @@ html[dir='rtl'] [dir='ltr'] {
 // ---------------------------------------------------------------------------
 // The app resets every outline above, so keyboard focus is drawn with a ring instead.
 .ag-scope {
-  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  :where(
+      a,
+      button,
+      input,
+      select,
+      textarea,
+      summary,
+      [tabindex]
+    ):focus-visible {
     box-shadow: 0 0 0 2px var(--new-bgColorInner), 0 0 0 4px var(--ag-accent);
     border-radius: 8px;
   }
@@ -888,25 +896,51 @@ html[dir='rtl'] [dir='ltr'] {
 }
 
 @keyframes ag-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @keyframes ag-pop {
-  from { opacity: 0; transform: translateY(6px) scale(0.975); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 @keyframes ag-rise {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 @keyframes ag-shimmer {
-  from { background-position: 200% 0; }
-  to { background-position: -200% 0; }
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
 }
 
-.ag-fade { animation: ag-fade 160ms ease both; }
-.ag-pop { animation: ag-pop 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
-.ag-rise { animation: ag-rise 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.ag-fade {
+  animation: ag-fade 160ms ease both;
+}
+.ag-pop {
+  animation: ag-pop 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.ag-rise {
+  animation: ag-rise 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
 .ag-skeleton {
   background: linear-gradient(
     90deg,
@@ -919,6 +953,51 @@ html[dir='rtl'] [dir='ltr'] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ag-fade, .ag-pop, .ag-rise, .ag-skeleton { animation: none; }
-  .ag-scope :where(button, a, select, summary) { transition: none; }
+  .ag-fade,
+  .ag-pop,
+  .ag-rise,
+  .ag-skeleton {
+    animation: none;
+  }
+  .ag-scope :where(button, a, select, summary) {
+    transition: none;
+  }
+}
+
+@media print {
+  // Print only the report area: the app chrome is hidden, not removed, so the area is
+  // pulled to the top-left and the page is not padded with blank sheets.
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  body * {
+    visibility: hidden !important;
+  }
+  .ag-print-area,
+  .ag-print-area * {
+    visibility: visible !important;
+  }
+  .ag-print-area {
+    position: absolute !important;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 0 !important;
+  }
+  .ag-no-print {
+    display: none !important;
+  }
+  .ag-print-area .ag-card {
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+  .ag-print-only {
+    display: block !important;
+  }
+}
+.ag-print-only {
+  display: none;
 }

@@ -201,6 +201,48 @@ export interface Deal {
   customer: { id: string; name: string } | null;
 }
 
+export interface ReportTally {
+  queued: number;
+  delivered: number;
+  failed: number;
+  paused: number;
+  uncertain: number;
+  cancelled: number;
+}
+
+export interface PublishingReport {
+  range: { from: string; to: string; timezone: string };
+  customerId: string | null;
+  totals: ReportTally & { deliveryRate: number | null; trackedClicks: number };
+  campaigns: Array<
+    ReportTally & {
+      id: string;
+      name: string;
+      status: string;
+      client: string;
+      deliveryRate: number | null;
+      trackedClicks: number;
+      lastDeliveredAt: string | null;
+    }
+  >;
+  destinations: Array<
+    ReportTally & {
+      id: string;
+      title: string;
+      deliveryRate: number | null;
+      lastDeliveredAt: string | null;
+    }
+  >;
+  daily: Array<{
+    date: string;
+    delivered: number;
+    failed: number;
+    other: number;
+  }>;
+  dailyTruncated: boolean;
+  notes: string[];
+}
+
 export interface TeamMember {
   userId: string;
   name: string | null;
@@ -425,6 +467,19 @@ export const useDealSummary = () =>
       totals: Record<string, number>;
     }>;
   }>(['agency-deal-summary'], '/agency/crm/summary');
+
+export const usePublishingReport = (
+  from: string,
+  to: string,
+  customerId: string
+) => {
+  const params = new URLSearchParams({ from, to });
+  if (customerId) params.set('customerId', customerId);
+  return useResource<PublishingReport>(
+    ['agency-report', from, to, customerId],
+    `/agency/reports/publishing?${params.toString()}`
+  );
+};
 
 export const useTeam = () =>
   useResource<TeamMember[]>(['agency-team'], '/agency/team');

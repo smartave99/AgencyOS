@@ -20,6 +20,9 @@ const OPEN_JOB_STATUSES: PostingJobStatus[] = [
   PostingJobStatus.BLOCKED,
 ];
 
+/** A report's daily chart reads at most this many jobs; beyond it the chart says so. */
+export const REPORT_SERIES_CAP = 50000;
+
 @Injectable()
 export class AgencyPublishingRepository {
   constructor(private prisma: PrismaService) {}
@@ -440,6 +443,114 @@ export class AgencyPublishingRepository {
     for (const s of Object.values(PostingJobStatus)) counts[s] = 0;
     for (const r of rows) counts[r.status] = r._count.status;
     return counts;
+  }
+
+  /**
+   * Everything a publishing report needs, straight from stored send results. Jobs are
+   * selected by the day they were due (`scheduledFor`), counts are exact (grouped in the
+   * database), and nothing here is estimated.
+   */
+  async getReportData(
+    orgId: string,
+    range: { from: Date; to: Date },
+    customerId?: string
+  ) {
+    const campaign = {
+      deletedAt: null,
+      ...(customerId ? { customerId } : {}),
+    };
+    const where = {
+      orgId,
+      scheduledFor: { gte: range.from, lt: range.to },
+      campaign,
+    };
+    const [
+      byCampaign,
+      byDestination,
+      lastByCampaign,
+      lastByDestination,
+      series,
+    ] = await Promise.all([
+      this.prisma.postingJob.groupBy({
+        by: ['campaignId', 'status'],
+        where,
+        _count: { _all: true },
+      }),
+      this.prisma.postingJob.groupBy({
+        by: ['telegramDestinationId', 'status'],
+        where: { ...where, telegramDestinationId: { not: null } },
+        _count: { _all: true },
+      }),
+      this.prisma.postingJob.groupBy({
+        by: ['campaignId'],
+        where: { ...where, status: PostingJobStatus.SUCCEEDED },
+        _max: { completedAt: true },
+      }),
+      this.prisma.postingJob.groupBy({
+        by: ['telegramDestinationId'],
+        where: {
+          ...where,
+          status: PostingJobStatus.SUCCEEDED,
+          telegramDestinationId: { not: null },
+        },
+        _max: { completedAt: true },
+      }),
+      this.prisma.postingJob.findMany({
+        where,
+        select: { scheduledFor: true, status: true },
+        orderBy: { scheduledFor: 'asc' },
+        take: REPORT_SERIES_CAP + 1,
+      }),
+    ]);
+
+    const campaignIds = [...new Set(byCampaign.map((r) => r.campaignId))];
+    const destinationIds = [
+      ...new Set(
+        byDestination
+          .map((r) => r.telegramDestinationId)
+          .filter((id): id is string => !!id)
+      ),
+    ];
+    const [campaigns, destinations, links] = await Promise.all([
+      this.prisma.campaign.findMany({
+        where: { id: { in: campaignIds }, orgId },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          customer: { select: { id: true, name: true, companyName: true } },
+        },
+      }),
+      this.prisma.telegramDestination.findMany({
+        where: { id: { in: destinationIds }, orgId },
+        select: { id: true, title: true },
+      }),
+      this.prisma.trackingLink.findMany({
+        where: { campaign: { orgId, ...campaign } },
+        select: {
+          campaignId: true,
+          _count: {
+            select: {
+              clicks: {
+                where: { clickedAt: { gte: range.from, lt: range.to } },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      byCampaign,
+      byDestination,
+      lastByCampaign,
+      lastByDestination,
+      series: series.slice(0, REPORT_SERIES_CAP),
+      seriesTruncated: series.length > REPORT_SERIES_CAP,
+      campaigns,
+      destinations,
+      links,
+    };
   }
 
   async listJobs(

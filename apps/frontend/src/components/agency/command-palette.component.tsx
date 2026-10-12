@@ -52,6 +52,7 @@ const Palette: FC<{ onClose: () => void }> = ({ onClose }) => {
       ['Campaigns', '/agency/campaigns', 'megaphone', 'campaign:read'],
       ['Approvals', '/agency/approvals', 'check', 'campaign:read'],
       ['Telegram destinations', '/agency/telegram', 'send', 'destination:read'],
+      ['Reports', '/agency/reports', 'doc', 'analytics:read'],
       ['Sales pipeline', '/agency/crm', 'chart', 'crm:read'],
       ['Invoices', '/agency/billing', 'card', 'billing:read'],
       ['Knowledge base', '/agency/intelligence', 'book', 'intelligence:read'],

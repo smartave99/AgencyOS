@@ -785,6 +785,205 @@ export class AgencyService {
     return { ...metrics, system };
   }
 
+  /**
+   * Publishing report for a period: what was due, what Telegram confirmed, what failed,
+   * and real tracked-link clicks. Every number is counted from stored send results;
+   * there are deliberately no impressions, views or reach, because nothing AgencyOS
+   * integrates with provides a verified source for them.
+   */
+  async getPublishingReport(
+    actor: AgencyActor,
+    query: { from?: string; to?: string; customerId?: string }
+  ) {
+    this.access.assert(actor, 'analytics:read');
+    const day = /^\d{4}-\d{2}-\d{2}$/;
+    const startOfDay = (value: string) => {
+      if (!day.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
+        throw new BadRequestException('Dates must look like 2026-03-31');
+      }
+      return new Date(`${value}T00:00:00Z`);
+    };
+    const DAY = 24 * 3600 * 1000;
+    const today = new Date();
+    const toDay = query.to
+      ? startOfDay(query.to)
+      : new Date(
+          Date.UTC(
+            today.getUTCFullYear(),
+            today.getUTCMonth(),
+            today.getUTCDate()
+          )
+        );
+    const fromDay = query.from
+      ? startOfDay(query.from)
+      : new Date(toDay.getTime() - 29 * DAY);
+    if (fromDay > toDay) {
+      throw new BadRequestException(
+        'The start date must not be after the end date'
+      );
+    }
+    if ((toDay.getTime() - fromDay.getTime()) / DAY > 365) {
+      throw new BadRequestException('A report can cover at most one year');
+    }
+    const range = { from: fromDay, to: new Date(toDay.getTime() + DAY) };
+    if (query.customerId)
+      await this.requireClient(actor.orgId, query.customerId);
+
+    const data = await this.jobsRepo.getReportData(
+      actor.orgId,
+      range,
+      query.customerId
+    );
+
+    type Tally = {
+      queued: number;
+      delivered: number;
+      failed: number;
+      paused: number;
+      uncertain: number;
+      cancelled: number;
+    };
+    const empty = (): Tally => ({
+      queued: 0,
+      delivered: 0,
+      failed: 0,
+      paused: 0,
+      uncertain: 0,
+      cancelled: 0,
+    });
+    const bucket = (status: PostingJobStatus): keyof Tally =>
+      status === PostingJobStatus.SUCCEEDED
+        ? 'delivered'
+        : status === PostingJobStatus.DEAD
+        ? 'failed'
+        : status === PostingJobStatus.BLOCKED
+        ? 'paused'
+        : status === PostingJobStatus.UNCERTAIN
+        ? 'uncertain'
+        : status === PostingJobStatus.CANCELLED
+        ? 'cancelled'
+        : 'queued'; // PENDING and SENDING: still on their way
+    const rate = (t: Tally) =>
+      t.delivered + t.failed > 0
+        ? Math.round((t.delivered / (t.delivered + t.failed)) * 1000) / 10
+        : null;
+
+    const totals = empty();
+    const perCampaign = new Map<string, Tally>();
+    for (const r of data.byCampaign) {
+      const key = bucket(r.status);
+      totals[key] += r._count._all;
+      const t = perCampaign.get(r.campaignId) ?? empty();
+      t[key] += r._count._all;
+      perCampaign.set(r.campaignId, t);
+    }
+    const perDestination = new Map<string, Tally>();
+    for (const r of data.byDestination) {
+      if (!r.telegramDestinationId) continue;
+      const t = perDestination.get(r.telegramDestinationId) ?? empty();
+      t[bucket(r.status)] += r._count._all;
+      perDestination.set(r.telegramDestinationId, t);
+    }
+
+    const clicksByCampaign = new Map<string, number>();
+    let trackedClicks = 0;
+    for (const l of data.links) {
+      const n = l._count.clicks;
+      trackedClicks += n;
+      clicksByCampaign.set(
+        l.campaignId,
+        (clicksByCampaign.get(l.campaignId) ?? 0) + n
+      );
+    }
+    const lastCampaign = new Map(
+      data.lastByCampaign.map((r) => [r.campaignId, r._max.completedAt])
+    );
+    const lastDestination = new Map(
+      data.lastByDestination.map((r) => [
+        r.telegramDestinationId as string,
+        r._max.completedAt,
+      ])
+    );
+
+    const campaigns = data.campaigns
+      .map((c) => {
+        const t = perCampaign.get(c.id) ?? empty();
+        return {
+          id: c.id,
+          name: c.name,
+          status: c.status,
+          client: c.customer.companyName || c.customer.name,
+          ...t,
+          deliveryRate: rate(t),
+          trackedClicks: clicksByCampaign.get(c.id) ?? 0,
+          lastDeliveredAt: lastCampaign.get(c.id) ?? null,
+        };
+      })
+      .sort(
+        (a, b) => b.delivered - a.delivered || a.name.localeCompare(b.name)
+      );
+
+    const destinations = data.destinations
+      .map((d) => {
+        const t = perDestination.get(d.id) ?? empty();
+        return {
+          id: d.id,
+          title: d.title,
+          ...t,
+          deliveryRate: rate(t),
+          lastDeliveredAt: lastDestination.get(d.id) ?? null,
+        };
+      })
+      .sort(
+        (a, b) => b.delivered - a.delivered || a.title.localeCompare(b.title)
+      );
+
+    // One row per UTC day in the period, including quiet days, so the chart is honest.
+    const daily: Array<{
+      date: string;
+      delivered: number;
+      failed: number;
+      other: number;
+    }> = [];
+    const byDay = new Map<
+      string,
+      { delivered: number; failed: number; other: number }
+    >();
+    for (let t = fromDay.getTime(); t <= toDay.getTime(); t += DAY) {
+      const row = { delivered: 0, failed: 0, other: 0 };
+      byDay.set(new Date(t).toISOString().slice(0, 10), row);
+    }
+    for (const j of data.series) {
+      const row = byDay.get(j.scheduledFor.toISOString().slice(0, 10));
+      if (!row) continue;
+      const key = bucket(j.status);
+      if (key === 'delivered') row.delivered++;
+      else if (key === 'failed') row.failed++;
+      else row.other++;
+    }
+    for (const [date, row] of byDay) daily.push({ date, ...row });
+
+    return {
+      range: {
+        from: fromDay.toISOString().slice(0, 10),
+        to: toDay.toISOString().slice(0, 10),
+        timezone: 'UTC',
+      },
+      customerId: query.customerId ?? null,
+      totals: { ...totals, deliveryRate: rate(totals), trackedClicks },
+      campaigns,
+      destinations,
+      daily,
+      dailyTruncated: data.seriesTruncated,
+      notes: [
+        'Posts are counted on the day they were due, in UTC.',
+        'Delivered means Telegram accepted the post and returned a message ID. Failed means every retry was used up or Telegram refused it for good.',
+        'Delivery rate is delivered divided by delivered plus failed; it is empty until something has been resolved.',
+        'Clicks are real visits to tracked links created in AgencyOS, with link-preview bots excluded. Impressions, views and reach are not reported because there is no verified source for them.',
+      ],
+    };
+  }
+
   async getPublishingEvents(actor: AgencyActor, campaignId?: string) {
     this.access.assert(actor, 'campaign:read');
     return this.agencyRepo.getPublishingEvents(actor.orgId, campaignId);

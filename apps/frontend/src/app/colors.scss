@@ -239,6 +239,37 @@
   }
 }
 
+@mixin ag-light-tokens {
+  --ag-accent: #5b2fd1;
+  --ag-accent-hover: #4a23b3;
+  --ag-accent-fg: #ffffff;
+  --ag-accent-text: #5b2fd1;
+  --ag-accent-soft: rgba(91, 47, 209, 0.09);
+  --ag-good-fg: #11693a;
+  --ag-good-bg: #e3f6ea;
+  --ag-good-line: #b4e3c6;
+  --ag-info-fg: #1650b5;
+  --ag-info-bg: #e5eefc;
+  --ag-info-line: #bcd2f5;
+  --ag-warn-fg: #8a4b06;
+  --ag-warn-bg: #fdf0d5;
+  --ag-warn-line: #f2d596;
+  --ag-bad-fg: #b0173a;
+  --ag-bad-bg: #fde7eb;
+  --ag-bad-line: #f5bcc7;
+  --ag-neutral-fg: #55555e;
+  --ag-neutral-bg: #efeff2;
+  --ag-neutral-line: #dcdce2;
+  --ag-surface: var(--new-bgColorInner);
+  --ag-surface-raised: #ffffff;
+  --ag-hairline: rgba(0, 0, 0, 0.07);
+  --ag-shadow: 0 1px 2px rgba(20, 20, 40, 0.04),
+    0 8px 24px rgba(20, 20, 40, 0.04);
+  --ag-shadow-pop: 0 24px 64px rgba(30, 20, 70, 0.22),
+    0 0 0 1px rgba(0, 0, 0, 0.06);
+  --ag-scrim: rgba(24, 16, 48, 0.4);
+}
+
 // AgencyOS design tokens. Status colours are chosen per theme so text keeps a readable
 // contrast on both the light and dark surfaces; there is a single accent.
 :root {
@@ -267,35 +298,25 @@
     --ag-surface-raised: #222121;
     --ag-hairline: rgba(255, 255, 255, 0.08);
     --ag-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
-    --ag-shadow-pop: 0 24px 64px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    --ag-shadow-pop: 0 24px 64px rgba(0, 0, 0, 0.55),
+      0 0 0 1px rgba(255, 255, 255, 0.08);
     --ag-scrim: rgba(0, 0, 0, 0.55);
   }
   .light {
-    --ag-accent: #5b2fd1;
-    --ag-accent-hover: #4a23b3;
-    --ag-accent-fg: #ffffff;
-    --ag-accent-text: #5b2fd1;
-    --ag-accent-soft: rgba(91, 47, 209, 0.09);
-    --ag-good-fg: #11693a;
-    --ag-good-bg: #e3f6ea;
-    --ag-good-line: #b4e3c6;
-    --ag-info-fg: #1650b5;
-    --ag-info-bg: #e5eefc;
-    --ag-info-line: #bcd2f5;
-    --ag-warn-fg: #8a4b06;
-    --ag-warn-bg: #fdf0d5;
-    --ag-warn-line: #f2d596;
-    --ag-bad-fg: #b0173a;
-    --ag-bad-bg: #fde7eb;
-    --ag-bad-line: #f5bcc7;
-    --ag-neutral-fg: #55555e;
-    --ag-neutral-bg: #efeff2;
-    --ag-neutral-line: #dcdce2;
-    --ag-surface: var(--new-bgColorInner);
-    --ag-surface-raised: #ffffff;
-    --ag-hairline: rgba(0, 0, 0, 0.07);
-    --ag-shadow: 0 1px 2px rgba(20, 20, 40, 0.04), 0 8px 24px rgba(20, 20, 40, 0.04);
-    --ag-shadow-pop: 0 24px 64px rgba(30, 20, 70, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.06);
-    --ag-scrim: rgba(24, 16, 48, 0.4);
+    @include ag-light-tokens;
+  }
+}
+
+// A printed or saved-as-PDF report is always light, whatever theme is on screen.
+@media print {
+  :root .ag-print-area {
+    @include ag-light-tokens;
+    --new-bgColor: #ffffff;
+    --new-bgColorInner: #ffffff;
+    --new-textColor: 14 14 14;
+    --new-textItemBlur: #555555;
+    --new-bgLineColor: #e2e2e6;
+    color: #0e0e0e;
+    background: #ffffff;
   }
 }

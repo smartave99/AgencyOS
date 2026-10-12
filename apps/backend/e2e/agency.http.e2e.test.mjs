@@ -239,6 +239,7 @@ describe(
           '/agency/me',
           '/agency/telegram/destinations',
           '/agency/portal/me',
+          '/agency/reports/publishing',
         ]) {
           assert.equal((await call('GET', path)).status, 403, path);
         }
@@ -638,6 +639,43 @@ describe(
           ).status,
           403
         );
+      });
+    });
+
+    describe('publishing report over HTTP', () => {
+      it('is staff-only, validates the period, and reports stored results without invented metrics', async () => {
+        assert.equal(
+          (await call('GET', '/agency/reports/publishing', { as: 'client' }))
+            .status,
+          403
+        );
+        const bad = await call(
+          'GET',
+          '/agency/reports/publishing?from=yesterday',
+          { as: 'manager' }
+        );
+        assert.equal(bad.status, 400);
+
+        const ok = await call('GET', '/agency/reports/publishing', {
+          as: 'manager',
+        });
+        assert.equal(ok.status, 200);
+        assert.equal(ok.json.range.timezone, 'UTC');
+        assert.equal(ok.json.daily.length, 30);
+        assert.ok('deliveryRate' in ok.json.totals);
+        assert.ok(Array.isArray(ok.json.notes) && ok.json.notes.length > 0);
+        assert.doesNotMatch(
+          Object.keys(ok.json.totals).join(' '),
+          /impression|reach|views|engagement/i
+        );
+
+        // Another agency's client id is not reachable through this one.
+        const foreign = await call(
+          'GET',
+          `/agency/reports/publishing?customerId=${ctx.users.otherOwner.userId}`,
+          { as: 'manager' }
+        );
+        assert.equal(foreign.status, 404);
       });
     });
 

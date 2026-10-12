@@ -876,10 +876,12 @@ html[dir='rtl'] [dir='ltr'] {
 // ---------------------------------------------------------------------------
 // The app resets every outline above, so keyboard focus is drawn with a ring instead.
 .ag-scope {
+  // An input marked data-bare lives inside a frame (search fields, the command palette), so a
+  // ring around the input itself would draw a second box inside the first.
   :where(
       a,
       button,
-      input,
+      input:not([data-bare]),
       select,
       textarea,
       summary,

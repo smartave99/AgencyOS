@@ -146,13 +146,14 @@ const Palette: FC<{ onClose: () => void }> = ({ onClose }) => {
         role="dialog"
         aria-modal="true"
         aria-label="Jump to"
-        className="ag-pop w-full max-w-lg overflow-hidden rounded-2xl bg-newBgColorInner text-newTextColor shadow-[var(--ag-shadow-pop)]"
+        className="ag-pop w-full max-w-xl overflow-hidden rounded-2xl bg-newBgColorInner text-newTextColor border border-[color:var(--ag-hairline)] shadow-[var(--ag-shadow-pop)]"
         onKeyDown={onKey}
       >
-        <div className="flex items-center gap-3 px-4 border-b border-[color:var(--ag-hairline)]">
-          <Icon name="search" size={16} className="text-textItemBlur" />
+        <div className="flex items-center gap-3 px-5 border-b border-[color:var(--ag-hairline)]">
+          <Icon name="search" size={18} className="text-textItemBlur shrink-0" />
           <input
             autoFocus
+            data-bare
             role="combobox"
             aria-expanded="true"
             aria-controls="agency-palette-list"
@@ -162,9 +163,9 @@ const Palette: FC<{ onClose: () => void }> = ({ onClose }) => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Jump to a page or campaign"
-            className="h-12 w-full bg-transparent text-[15px] text-newTextColor placeholder:text-textItemBlur focus:outline-none"
+            className="h-14 w-full bg-transparent text-[16px] text-newTextColor placeholder:text-textItemBlur outline-none ring-0 shadow-none"
           />
-          <kbd className="hidden sm:block text-[11px] text-textItemBlur border border-[color:var(--ag-hairline)] rounded px-1.5 py-0.5">
+          <kbd className="hidden sm:block text-[11px] leading-none text-textItemBlur bg-[var(--ag-accent-soft)] rounded-md px-1.5 py-1">
             Esc
           </kbd>
         </div>
@@ -172,7 +173,7 @@ const Palette: FC<{ onClose: () => void }> = ({ onClose }) => {
           id="agency-palette-list"
           ref={list}
           role="listbox"
-          className="max-h-[50vh] overflow-y-auto p-2"
+          className="max-h-[50vh] overflow-y-auto p-2 scrollbar-thin"
         >
           {results.length === 0 && (
             <li className="px-3 py-8 text-center text-[13px] text-textItemBlur">
@@ -226,6 +227,17 @@ const Palette: FC<{ onClose: () => void }> = ({ onClose }) => {
             );
           })}
         </ul>
+        <div className="hidden sm:flex items-center gap-4 px-5 py-2.5 border-t border-[color:var(--ag-hairline)] text-[11px] text-textItemBlur">
+          <span className="flex items-center gap-1.5">
+            <kbd className="rounded bg-[var(--ag-accent-soft)] px-1.5 py-0.5">↑</kbd>
+            <kbd className="rounded bg-[var(--ag-accent-soft)] px-1.5 py-0.5">↓</kbd>
+            to move
+          </span>
+          <span className="flex items-center gap-1.5">
+            <kbd className="rounded bg-[var(--ag-accent-soft)] px-1.5 py-0.5">Enter</kbd>
+            to open
+          </span>
+        </div>
       </div>
     </div>
   );

@@ -12,10 +12,11 @@ import {
   Icon,
   IconName,
 } from '@gitroom/frontend/components/agency/agency.icons';
+import { useNavigation } from '@gitroom/frontend/components/new-layout/nav.config';
 
 type Entry = {
   id: string;
-  group: 'Go to' | 'Create' | 'Campaigns';
+  group: 'Go to' | 'Create' | 'Settings' | 'Learn' | 'Campaigns';
   label: string;
   hint?: string;
   icon: IconName;
@@ -24,7 +25,7 @@ type Entry = {
 
 const OPEN_EVENT = 'agency:palette';
 
-/** Opens the palette from anywhere (the header button uses this). */
+/** Opens the palette from anywhere (the top bar's search uses this). */
 export const openCommandPalette = () =>
   window.dispatchEvent(new CustomEvent(OPEN_EVENT));
 
@@ -40,26 +41,13 @@ const matches = (entry: Entry, query: string) => {
 const Palette: FC<{ onClose: () => void }> = ({ onClose }) => {
   const router = useRouter();
   const { can } = useCan();
+  const { groups, footer } = useNavigation();
   const campaigns = useCampaigns('ALL', '', can('campaign:read'));
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const list = useRef<HTMLUListElement>(null);
 
   const entries = useMemo<Entry[]>(() => {
-    const go: Array<[string, string, IconName, string | null, string?]> = [
-      ['Dashboard', '/agency/dashboard', 'chart', 'dashboard:read'],
-      ['Clients', '/agency/clients', 'users', 'client:read'],
-      ['Campaigns', '/agency/campaigns', 'megaphone', 'campaign:read'],
-      ['Approvals', '/agency/approvals', 'check', 'campaign:read'],
-      ['Telegram destinations', '/agency/telegram', 'send', 'destination:read'],
-      ['Reports', '/agency/reports', 'doc', 'analytics:read'],
-      ['Sales pipeline', '/agency/crm', 'chart', 'crm:read'],
-      ['Invoices', '/agency/billing', 'card', 'billing:read'],
-      ['Knowledge base', '/agency/intelligence', 'book', 'intelligence:read'],
-      ['Connected accounts', '/agency/accounts', 'link', 'accounts:read'],
-      ['Team and roles', '/agency/team', 'shield', 'team:read'],
-      ['Client portal', '/agency/portal', 'doc', 'portal:view'],
-    ];
     const create: Array<[string, string, IconName, string]> = [
       ['New campaign', '/agency/campaigns/new', 'plus', 'campaign:write'],
       [
@@ -69,15 +57,35 @@ const Palette: FC<{ onClose: () => void }> = ({ onClose }) => {
         'destination:manage',
       ],
     ];
+    const settingsPages: Array<[string, string, IconName, string]> = [
+      ['Appearance and theme', '/settings?tab=appearance', 'sun', 'Theme, light, dark'],
+      ['AI and Copilot', '/settings?tab=ai', 'sparkles', 'Model, thinking level, local model, Claude Code, Codex, Antigravity, API key'],
+      ['Storage and data folder', '/settings?tab=storage', 'folder', 'Move data, backups'],
+    ];
+    const learn: Array<[string, string, IconName, string]> = [
+      ['Get started guide', '/guide', 'help', 'How to use AgencyOS, local model setup'],
+      ['Features and how to use them', '/guide/features', 'book', 'Explainer, walkthrough'],
+      ['What’s new', '/guide/changelog', 'flag', 'Changelog, versions, release notes'],
+    ];
     return [
-      ...go
-        .filter(([, , , perm]) => !perm || can(perm))
-        .map(([label, href, icon]) => ({
-          id: href,
+      ...groups.flatMap((group) =>
+        group.items.map((item) => ({
+          id: item.href,
           group: 'Go to' as const,
-          label,
-          icon,
-          href,
+          label: item.label,
+          hint: group.label,
+          icon: item.icon,
+          href: item.href,
+        }))
+      ),
+      ...footer
+        .filter((item) => item.id === 'settings')
+        .map((item) => ({
+          id: item.href,
+          group: 'Go to' as const,
+          label: item.label,
+          icon: item.icon,
+          href: item.href,
         })),
       ...create
         .filter(([, , , perm]) => can(perm))
@@ -88,6 +96,22 @@ const Palette: FC<{ onClose: () => void }> = ({ onClose }) => {
           icon,
           href,
         })),
+      ...settingsPages.map(([label, href, icon, hint]) => ({
+        id: href,
+        group: 'Settings' as const,
+        label,
+        hint,
+        icon,
+        href,
+      })),
+      ...learn.map(([label, href, icon, hint]) => ({
+        id: href,
+        group: 'Learn' as const,
+        label,
+        hint,
+        icon,
+        href,
+      })),
       ...(campaigns.data ?? []).slice(0, 50).map((c) => ({
         id: c.id,
         group: 'Campaigns' as const,
@@ -97,7 +121,7 @@ const Palette: FC<{ onClose: () => void }> = ({ onClose }) => {
         href: `/agency/campaigns/${c.id}`,
       })),
     ];
-  }, [can, campaigns.data]);
+  }, [can, groups, footer, campaigns.data]);
 
   const results = useMemo(
     () =>
@@ -268,27 +292,5 @@ export const CommandPalette: FC = () => {
   return createPortal(
     <Palette onClose={() => setOpen(false)} />,
     document.body
-  );
-};
-
-/** The visible entry point; Cmd/Ctrl+K works too. */
-export const PaletteHint: FC = () => {
-  const [mac, setMac] = useState(true);
-  useEffect(() => {
-    setMac(/Mac|iPhone|iPad/i.test(navigator.platform));
-  }, []);
-  return (
-    <button
-      type="button"
-      onClick={openCommandPalette}
-      className="hidden sm:inline-flex items-center gap-2 h-8 pl-2.5 pr-2 rounded-[10px] text-[13px] text-textItemBlur border border-[color:var(--ag-hairline)] hover:text-newTextColor hover:bg-[var(--ag-neutral-bg)]"
-      aria-label="Jump to a page or campaign"
-    >
-      <Icon name="search" size={14} />
-      Jump to
-      <kbd className="text-[11px] border border-[color:var(--ag-hairline)] rounded px-1.5 py-px">
-        {mac ? '⌘K' : 'Ctrl K'}
-      </kbd>
-    </button>
   );
 };

@@ -12,10 +12,6 @@ import React, {
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import clsx from 'clsx';
-import {
-  CommandPalette,
-  PaletteHint,
-} from '@gitroom/frontend/components/agency/command-palette.component';
 
 // ===========================================================================
 // AgencyOS design system
@@ -843,7 +839,6 @@ export const Stepper: FC<{
 export const PageShell: FC<{ children: ReactNode }> = ({ children }) => (
   <div className="ag-scope ag-fade flex flex-col gap-8 px-4 sm:px-6 lg:px-8 py-6 sm:py-8 max-w-[1240px] mx-auto w-full">
     {children}
-    <CommandPalette />
   </div>
 );
 
@@ -881,7 +876,6 @@ export const PageHeader: FC<{
     </div>
     <div className="flex flex-wrap items-center gap-2">
       {actions}
-      <PaletteHint />
     </div>
   </header>
 );

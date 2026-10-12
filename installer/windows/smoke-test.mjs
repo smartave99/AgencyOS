@@ -84,7 +84,9 @@ function ps(command) {
 let ui = null;
 function launchApp() {
   const log = fs.openSync(path.join(artifacts, 'electron.log'), 'a');
-  ui = spawn(exe, [`--remote-debugging-port=${cdpPort}`], { detached: true, stdio: ['ignore', log, log], env: { ...process.env, ELECTRON_ENABLE_LOGGING: '1' } });
+  // A hosted runner has no GPU, so skip the GPU probe that can stall there.
+  const flags = [`--remote-debugging-port=${cdpPort}`, '--disable-gpu'];
+  ui = spawn(exe, flags, { detached: true, stdio: ['ignore', log, log], env: { ...process.env, ELECTRON_ENABLE_LOGGING: '1' } });
   ui.unref();
   return ui;
 }

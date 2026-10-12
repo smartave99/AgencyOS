@@ -83,7 +83,7 @@ async function attempt(url, part, { onProgress, fetchImpl }) {
  * Downloads `url` to `dest`, resuming a previous `.part` file, retrying with backoff.
  * Throws if the SHA-256 does not match `sha256` (the bad file is deleted).
  */
-export async function download(url, dest, { onProgress, sha256, retries = 6, fetchImpl = fetch } = {}) {
+export async function download(url, dest, { onProgress, sha256, retries = 6, fetchImpl = fetch, backoffMs = (i) => Math.min(2000 * 2 ** i, 30_000) } = {}) {
   await fsp.mkdir(path.dirname(dest), { recursive: true });
   const part = `${dest}.part`;
   let lastError;
@@ -94,7 +94,7 @@ export async function download(url, dest, { onProgress, sha256, retries = 6, fet
       break;
     } catch (error) {
       lastError = error;
-      await sleep(Math.min(2000 * 2 ** i, 30_000));
+      await sleep(backoffMs(i));
     }
   }
   if (lastError) throw lastError;

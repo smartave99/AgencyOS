@@ -134,7 +134,7 @@ export class AiManager extends EventEmitter {
     const cached = this.state.plan;
     if (cached && this.state.fingerprint === fp && this.state.envKey === JSON.stringify(env)) {
       this.plan = cached;
-      this.#set({ ...this.#summary(cached), hardware: summarizeHardware(hw), external });
+      this.#set({ ...this.#summary(cached), phase: 'planned', message: this.#plannedMessage(cached), hardware: summarizeHardware(hw), external });
       return cached;
     }
 
@@ -143,9 +143,15 @@ export class AiManager extends EventEmitter {
     this.state = { ...this.state, fingerprint: fp, envKey: JSON.stringify(env), hardware: summarizeHardware(hw), plan: resolved };
     this.#save();
     this.plan = resolved;
-    this.#set({ ...this.#summary(resolved), hardware: this.state.hardware, external });
+    this.#set({ ...this.#summary(resolved), phase: 'planned', message: this.#plannedMessage(resolved), hardware: this.state.hardware, external });
     this.log(`AI plan: tier=${resolved.tier} text=${resolved.textModel || '-'} embedding=${resolved.embeddingModel || '-'}`);
     return resolved;
+  }
+
+  #plannedMessage(plan) {
+    if (plan.tier === 'none') return plan.reasons.at(-1) || 'Local AI is off';
+    const parts = [plan.embeddingModel, plan.textModel].filter(Boolean);
+    return `Chosen for this computer: ${parts.join(' + ')}. Downloads start once AgencyOS is running.`;
   }
 
   #summary(plan) {
@@ -166,8 +172,10 @@ export class AiManager extends EventEmitter {
       }
       return null;
     };
-    const embedding = selected.embedding ? await firstAvailable(selected.embedding) : null;
-    const text = selected.text ? await firstAvailable(selected.text.candidates) : null;
+    const [embedding, text] = await Promise.all([
+      selected.embedding ? firstAvailable(selected.embedding) : null,
+      selected.text ? firstAvailable(selected.text.candidates) : null,
+    ]);
     const reasons = [...selected.reasons];
     if (selected.text && !text) reasons.push('None of the preferred text models are available from the model registry right now.');
     return {

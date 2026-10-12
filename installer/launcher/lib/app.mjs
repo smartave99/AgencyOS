@@ -82,7 +82,7 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
   const ports = await resolvePorts(paths);
   const appUrl = `http://localhost:${ports.frontend}`;
 
-  let supervisor;
+  let supervisor = null;
   const ai = new AiManager({
     paths,
     hostEnv: env,
@@ -94,43 +94,21 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
       await supervisor.start('ollama');
     },
   });
-  await ai.planModels().catch((error) => log(`AI planning failed: ${error.message}`));
 
-  const ctx = {
-    paths,
-    ports,
-    secrets,
-    log,
-    ramGB: ai.hw?.ramGB,
-    userEnv,
-    aiEnv: () => ai.appEnv(),
-    ollama: { runtime: ai.runtime, client: ai.client, hw: () => ai.hw },
-  };
-  supervisor = new Supervisor({
-    services: buildServices(ctx),
+  const getStatus = () => ({
+    app: 'AgencyOS',
+    version,
+    ready: !!supervisor && supervisor.isReady(),
+    attention: !!supervisor && supervisor.hasFailed(),
+    url: appUrl,
+    services: supervisor ? supervisor.snapshot().filter((s) => s.state !== 'idle') : [],
+    ai: ai.snapshot(),
+    telegram: { configured: !!userEnv().AGENCY_TELEGRAM_BOT_TOKEN },
+    dataDir: paths.data.root,
     logsDir: paths.data.logs,
-    runDir: paths.data.run,
-    log,
-    expectedImages: EXPECTED_IMAGES,
+    ports,
+    pid: process.pid,
   });
-
-  const getStatus = () => {
-    const services = supervisor.snapshot().filter((s) => s.state !== 'idle');
-    return {
-      app: 'AgencyOS',
-      version,
-      ready: supervisor.isReady(),
-      attention: supervisor.hasFailed(),
-      url: appUrl,
-      services,
-      ai: ai.snapshot(),
-      telegram: { configured: !!userEnv().AGENCY_TELEGRAM_BOT_TOKEN },
-      dataDir: paths.data.root,
-      logsDir: paths.data.logs,
-      ports,
-      pid: process.pid,
-    };
-  };
 
   let shuttingDown = false;
   let statusServer;
@@ -139,7 +117,7 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
     shuttingDown = true;
     log('Shutting down');
     ai.stop();
-    await supervisor.stopAll().catch((e) => log(`stopAll: ${e.message}`));
+    await supervisor?.stopAll().catch((e) => log(`stopAll: ${e.message}`));
     await statusServer?.close().catch(() => {});
     await fsp.rm(paths.data.supervisorInfo, { force: true });
     log('Stopped');
@@ -164,7 +142,7 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
   };
   ai.on('models-changed', () => {
     log('AI models changed; restarting the server so it uses them');
-    supervisor.restart('backend').catch(() => {});
+    supervisor?.restart('backend').catch(() => {});
   });
 
   const statusPort = await findFreePort(ports.status);
@@ -174,15 +152,17 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
     version,
     getStatus,
     tail: (name) => {
+      if (name === 'supervisor') return fs.readFileSync(path.join(paths.data.logs, 'supervisor.log'), 'utf8').split('\n').slice(-400).join('\n');
       try {
         supervisor.get(name);
       } catch {
-        return name === 'supervisor' ? fs.readFileSync(path.join(paths.data.logs, 'supervisor.log'), 'utf8').split('\n').slice(-400).join('\n') : null;
+        return null;
       }
       return supervisor.tail(name, 400);
     },
     actions: {
       restart: async (service) => {
+        if (!supervisor) return;
         if (service) await supervisor.restart(service);
         else await restartAll();
       },
@@ -191,7 +171,7 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
       setTelegramToken: async (token) => {
         setEnvKey(paths.data.userEnv, 'AGENCY_TELEGRAM_BOT_TOKEN', token);
         log(token ? 'Telegram bot token saved' : 'Telegram bot token removed');
-        await supervisor.restart('backend');
+        await supervisor?.restart('backend');
       },
     },
   });
@@ -202,15 +182,40 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
   );
   log(`Status page: http://127.0.0.1:${statusPort}/`);
 
+  // Choosing the AI models reads the hardware and asks the model registry, which can take a few
+  // seconds; the status page is already up while that happens.
+  await ai.planModels().catch((error) => log(`AI planning failed: ${error.message}`));
+
+  const ctx = {
+    paths,
+    ports,
+    secrets,
+    log,
+    ramGB: ai.hw?.ramGB,
+    userEnv,
+    aiEnv: () => ai.appEnv(),
+    ollama: { runtime: ai.runtime, client: ai.client, hw: () => ai.hw },
+  };
+  supervisor = new Supervisor({
+    services: buildServices(ctx),
+    logsDir: paths.data.logs,
+    runDir: paths.data.run,
+    log,
+    expectedImages: EXPECTED_IMAGES,
+  });
+
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGBREAK']) process.on(sig, () => shutdown(0));
   process.on('uncaughtException', (error) => log(`uncaughtException: ${error.stack || error.message}`));
   process.on('unhandledRejection', (error) => log(`unhandledRejection: ${error?.stack || error}`));
 
-  await supervisor.startAll();
-  log(supervisor.isReady() ? `AgencyOS is ready at ${appUrl}` : 'AgencyOS started with problems; see the status page');
-
+  const starting = supervisor.startAll();
+  // The AI engine and models are downloaded after the app is up so the first start is not slowed
+  // down, but never later than two minutes in even if one service is struggling.
+  await Promise.race([starting, new Promise((resolve) => setTimeout(resolve, 120000))]);
   if (ai.runtime.installed) supervisor.start('ollama').catch((e) => log(`ollama: ${e.message}`));
   runAi();
+  await starting;
+  log(supervisor.isReady() ? `AgencyOS is ready at ${appUrl}` : 'AgencyOS started with problems; see the status page');
 
   return { paths, ports, statusPort, supervisor, ai, shutdown, getStatus };
 }

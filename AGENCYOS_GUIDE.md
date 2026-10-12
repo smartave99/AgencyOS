@@ -8,6 +8,13 @@ portal and publishing reports.
 This guide says what works, what does not, and how to run it. For the module-by-module
 record with evidence, read [`docs/AGENCYOS_IMPLEMENTATION_STATUS.md`](docs/AGENCYOS_IMPLEMENTATION_STATUS.md).
 
+## Run it on a Windows laptop
+
+The simplest way to use AgencyOS is the Windows desktop app: one installer, no prerequisites,
+its own window (not a browser tab), and local AI models picked automatically for the computer.
+See [`docs/AGENCYOS_WINDOWS_INSTALL.md`](docs/AGENCYOS_WINDOWS_INSTALL.md). Servers and
+developers can keep using Docker Compose or `pnpm` as described below.
+
 ## What it will and will not do
 
 AgencyOS only sends ads to Telegram chats whose **administrators have authorized it**,

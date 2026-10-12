@@ -1,0 +1,186 @@
+name: windows-installer
+
+# Builds the AgencyOS Windows installer, installs it on a clean Windows machine, starts the
+# desktop app, and checks that the product and its local AI really work. A release is only
+# published from a run that passed that test, and only when asked for (workflow_dispatch with
+# publish = true).
+
+on:
+  push:
+    branches: [claude/nice-wright-f7jdom]
+    paths:
+      - 'installer/**'
+      - 'apps/**'
+      - 'libraries/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/windows-installer.yml'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish a GitHub Release if the smoke test passes'
+        type: boolean
+        default: false
+      skip_ai:
+        description: 'Skip the local AI part of the smoke test (faster; do not publish from such a run)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: windows-installer-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 170
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Get-Content installer/VERSION).Trim()
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "VERSION=$v" >> $env:GITHUB_ENV
+          "Building AgencyOS $v from $env:GITHUB_SHA"
+
+      - name: Unit tests (launcher, model selection, desktop shell policy)
+        shell: pwsh
+        run: |
+          node --test installer/launcher/test/*.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test installer/desktop/test/policy.test.js
+
+      - name: Install pnpm
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.6.1 --activate
+          pnpm --version
+
+      - name: Install dependencies
+        shell: pwsh
+        run: pnpm install --frozen-lockfile
+
+      - name: Build backend, orchestrator and the standalone frontend
+        shell: pwsh
+        env:
+          AGENCYOS_STANDALONE: 'true'
+          STORAGE_PROVIDER: local
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm run build
+
+      - name: Stage the application (and prove every compiled file loads)
+        shell: pwsh
+        run: node installer/build/stage-app.mjs --out installer/dist/stage --platform win32 --verify
+
+      - name: Stage Node, PostgreSQL, Redis, Temporal (and prove each starts)
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node installer/build/stage-runtime.mjs --out installer/dist/stage --version $env:VERSION
+
+      - name: Build the desktop shell (Electron)
+        shell: pwsh
+        run: |
+          node installer/build/make-icons.mjs --out installer/desktop/assets
+          npx --yes '@electron/packager@20.3.0' installer/desktop AgencyOS --platform=win32 --arch=x64 --electron-version=44.7.0 --out=installer/dist/desktop --overwrite --asar --icon=installer/desktop/assets/icon.ico "--app-version=$env:VERSION" "--build-version=$env:VERSION" --win32metadata.CompanyName=AgencyOS --win32metadata.FileDescription=AgencyOS --win32metadata.ProductName=AgencyOS --win32metadata.OriginalFilename=AgencyOS.exe '--ignore=^/test'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item "installer/dist/desktop/AgencyOS-win32-x64/*" installer/dist/stage -Recurse -Force
+          Get-ChildItem installer/dist/stage | Select-Object -First 40 | ForEach-Object { $_.Name }
+
+      - name: Size of what will be installed
+        shell: pwsh
+        run: |
+          $s = Get-ChildItem installer/dist/stage -Recurse -File | Measure-Object Length -Sum
+          '{0:N0} files, {1:N0} MB' -f $s.Count, ($s.Sum / 1MB)
+
+      - name: Compile the installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc /Qp "/DAppVersion=$env:VERSION" "/DNumericVersion=$env:VERSION.0" "/DStageDir=$PWD\installer\dist\stage" "/DOutDir=$PWD\installer\dist\out" "/DIconFile=$PWD\installer\desktop\assets\icon.ico" installer\windows\agencyos.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem installer/dist/out | ForEach-Object { '{0}  {1:N0} MB' -f $_.Name, ($_.Length / 1MB) }
+          $exe = Get-ChildItem installer/dist/out/*.exe | Select-Object -First 1
+          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()
+          "$hash  $($exe.Name)" | Set-Content -Encoding ascii "installer/dist/out/$($exe.Name).sha256"
+          "sha256 $hash"
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgencyOS-Setup
+          path: |
+            installer/dist/out/*.exe
+            installer/dist/out/*.sha256
+          retention-days: 14
+          compression-level: 0
+
+      - name: Smoke test (install, start the desktop app, use the product, local AI, restart, uninstall)
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem installer/dist/out/*.exe | Select-Object -First 1).FullName
+          $flags = @()
+          if ('${{ inputs.skip_ai }}' -eq 'true') { $flags += '--skip-ai' }
+          node installer/windows/smoke-test.mjs --installer $exe --artifacts smoke-artifacts @flags
+
+      - name: Upload smoke test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-artifacts
+          path: smoke-artifacts
+          retention-days: 14
+          if-no-files-found: warn
+
+  release:
+    needs: build-and-test
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.skip_ai
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: AgencyOS-Setup
+          path: release
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: smoke-artifacts
+          path: evidence
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build-and-test.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="windows-v${VERSION}"
+          exe=$(ls release/*.exe | head -n 1)
+          sha=$(cut -d' ' -f1 "$exe.sha256")
+          node installer/build/release-notes.mjs --version "$VERSION" --sha256 "$sha" --commit "$GITHUB_SHA" --report evidence/smoke-report.json --template installer/RELEASE_NOTES.md > notes.md
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$exe" "$exe.sha256" --clobber
+            gh release edit "$tag" --title "AgencyOS ${VERSION} for Windows" --notes-file notes.md
+          else
+            gh release create "$tag" "$exe" "$exe.sha256" --title "AgencyOS ${VERSION} for Windows" --notes-file notes.md --target "$GITHUB_SHA"
+          fi
+          gh release view "$tag" --json url,assets --jq '.url, (.assets[] | "\(.name)  \(.size) bytes")'

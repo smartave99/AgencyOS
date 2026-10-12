@@ -1,0 +1,84 @@
+name: windows-probe
+
+# Temporary diagnostic for the Windows installer work: reports what a clean
+# GitHub-hosted Windows machine can reach and which tools it has. Safe to delete.
+
+on:
+  push:
+    branches: [claude/nice-wright-f7jdom]
+    paths: ['.github/workflows/windows-probe.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Machine
+        shell: pwsh
+        run: |
+          Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,OSArchitecture,TotalVisibleMemorySize | Format-List
+          Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors | Format-List
+          Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM,DriverVersion | Format-List
+          Get-PSDrive C | Select-Object Used,Free | Format-List
+          'node: ' + (node -v)
+          'git: ' + (git --version)
+          'nvidia-smi: ' + [bool](Get-Command nvidia-smi -ErrorAction SilentlyContinue)
+
+      - name: Tooling
+        shell: pwsh
+        run: |
+          foreach ($t in 'iscc','makensis','choco','7z','tar','curl.exe','pnpm','corepack') {
+            $c = Get-Command $t -ErrorAction SilentlyContinue
+            '{0,-10} {1}' -f $t, ($(if ($c) { $c.Source } else { 'MISSING' }))
+          }
+          foreach ($p in 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe','C:\Program Files\Inno Setup 6\ISCC.exe','C:\Program Files (x86)\NSIS\makensis.exe') {
+            '{0} exists={1}' -f $p, (Test-Path $p)
+          }
+          Get-ChildItem C:\Windows\System32 -Filter 'vcruntime140*.dll' | ForEach-Object { $_.Name + ' ' + $_.VersionInfo.FileVersion }
+          Get-ChildItem C:\Windows\System32 -Filter 'msvcp140*.dll' | ForEach-Object { $_.Name + ' ' + $_.VersionInfo.FileVersion }
+          Get-ChildItem C:\Windows\System32 -Filter 'concrt140.dll' | ForEach-Object { $_.Name }
+
+      - name: Reachability
+        shell: pwsh
+        run: |
+          $urls = @(
+            'https://nodejs.org/dist/v22.20.0/node-v22.20.0-win-x64.zip',
+            'https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-windows-amd64/maven-metadata.xml',
+            'https://get.enterprisedb.com/postgresql/postgresql-16.9-1-windows-x64-binaries.zip',
+            'https://temporal.download/cli/archive/latest?platform=windows&arch=amd64',
+            'https://ollama.com/download/OllamaSetup.exe',
+            'https://registry.ollama.ai/v2/library/embeddinggemma/manifests/latest',
+            'https://registry.ollama.ai/v2/library/gemma3/manifests/4b',
+            'https://aka.ms/vs/17/release/vc_redist.x64.exe',
+            'https://files.jrsoftware.org/is/6/innosetup-6.4.3.exe',
+            'https://community.chocolatey.org/api/v2/package/innosetup'
+          )
+          foreach ($u in $urls) {
+            $out = & curl.exe -sS -L -I -m 30 -o NUL -w '%{http_code} %{size_download} %{url_effective}' $u 2>&1
+            '{0}  ->  {1}' -f $u, $out
+          }
+
+      - name: Release assets via API
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $h = @{ Authorization = "Bearer $env:GH_TOKEN"; 'User-Agent' = 'agencyos-probe' }
+          foreach ($r in 'redis-windows/redis-windows','tporadowski/redis','temporalio/cli','ollama/ollama') {
+            try {
+              $rel = Invoke-RestMethod -Headers $h -Uri "https://api.github.com/repos/$r/releases/latest"
+              "== $r  $($rel.tag_name)"
+              $rel.assets | Where-Object { $_.name -match 'windows|win|Windows' } | ForEach-Object { '   {0}  {1:N0} bytes' -f $_.name, $_.size }
+            } catch { "== $r  FAILED: $($_.Exception.Message)" }
+          }
+
+      - name: Postgres versions on Maven Central
+        shell: pwsh
+        run: |
+          $x = Invoke-RestMethod -Uri 'https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-windows-amd64/maven-metadata.xml'
+          $v = $x.metadata.versioning.versions.version | Where-Object { $_ -match '^1[6-8]\.' }
+          'versions: ' + ($v -join ' ')

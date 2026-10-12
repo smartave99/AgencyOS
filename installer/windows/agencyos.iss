@@ -115,7 +115,10 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDir: String;
   Purge: Boolean;
+  Attempt: Integer;
 begin
+  // Make sure nothing is still running (and holding files open) before anything is removed.
+  if CurUninstallStep = usUninstall then StopRunningAgencyOS();
   if CurUninstallStep <> usPostUninstall then Exit;
   DataDir := ExpandConstant('{localappdata}\AgencyOS');
   if not DirExists(DataDir) then Exit;
@@ -124,5 +127,12 @@ begin
   else
     Purge := MsgBox('Also delete your AgencyOS data (database, uploads, downloaded AI models and logs)?' + #13#10#13#10 +
                     'Choose No to keep it for a future install.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
-  if Purge then DelTree(DataDir, True, True, True);
+  if not Purge then Exit;
+  // A database or model file can stay locked for a moment after its process exits.
+  for Attempt := 1 to 15 do
+  begin
+    DelTree(DataDir, True, True, True);
+    if not DirExists(DataDir) then Exit;
+    Sleep(1000);
+  end;
 end;

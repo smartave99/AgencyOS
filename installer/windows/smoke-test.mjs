@@ -335,6 +335,11 @@ async function main() {
     const r = spawnSync(path.join(installDir, 'unins000.exe'), ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/PURGEDATA=1', `/LOG=${path.join(artifacts, 'uninstall.log')}`], { encoding: 'utf8', timeout: 10 * 60000 });
     assert(r.status === 0, `uninstaller exited ${r.status}`);
     await waitFor('the install folder to be removed', () => !fs.existsSync(path.join(installDir, 'AgencyOS.exe')), { timeoutMs: 120000 });
+    if (fs.existsSync(dataDir)) {
+      const left = spawnSync('cmd', ['/c', 'dir', '/s', '/b', dataDir], { encoding: 'utf8' }).stdout || '';
+      const procs = spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf8' }).stdout || '';
+      console.log(`left in the data folder (first 40):\n${left.split(/\r?\n/).slice(0, 40).join('\n')}\nprocesses:\n${procs.split(/\r?\n/).filter((l) => /postgres|redis|temporal|ollama|llama|node|agencyos/i.test(l)).join('\n')}`);
+    }
     assert(!fs.existsSync(dataDir), 'the data folder is still there after a purge');
     assert(spawnSync('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', '/v', 'AgencyOS'], { encoding: 'utf8' }).status !== 0, 'the start-at-sign-in entry was not removed');
   });

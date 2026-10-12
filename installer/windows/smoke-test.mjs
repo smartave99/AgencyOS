@@ -208,6 +208,17 @@ async function main() {
     fs.rmSync(installDir, { recursive: true, force: true });
     const t0 = Date.now();
     const r = spawnSync(installer, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', `/DIR=${installDir}`, `/LOG=${path.join(artifacts, 'installer.log')}`], { encoding: 'utf8', timeout: 25 * 60000 });
+    if (r.status !== 0) {
+      // Setup's own log says why (a script error, a folder it refused, a file it could not replace).
+      let why = '';
+      try {
+        const lines = fs.readFileSync(path.join(artifacts, 'installer.log'), 'utf8').split(/\r?\n/);
+        why = `\n----- installer.log (last 60 of ${lines.length} lines) -----\n${lines.slice(-60).join('\n')}`;
+      } catch (error) {
+        why = `\n(no installer.log: ${error.message}; stdout: ${r.stdout || ''} stderr: ${r.stderr || ''})`;
+      }
+      console.log(why);
+    }
     assert(r.status === 0, `installer exited with ${r.status} ${r.error?.message || ''}`);
     report.facts.installSeconds = Math.round((Date.now() - t0) / 1000);
     for (const f of ['AgencyOS.exe', 'runtime/node/node.exe', 'runtime/postgres/bin/postgres.exe', 'runtime/postgres/bin/pg_ctl.exe', 'runtime/redis/redis-server.exe', 'runtime/temporal/temporal.exe', 'runtime/vc/vcruntime140.dll', 'launcher/agencyos.mjs', 'app/backend/dist/apps/backend/src/main.js', 'app/frontend/apps/frontend/server.js', 'app/prisma/schema.prisma', 'runtime-manifest.json', 'THIRD_PARTY_NOTICES.txt', 'unins000.exe']) {

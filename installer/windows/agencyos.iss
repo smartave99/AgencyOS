@@ -270,7 +270,9 @@ end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  Result := Upgrading and (PageID = LocationsPage.ID);
+  Result := False;
+  if LocationsPage <> nil then
+    Result := Upgrading and (PageID = LocationsPage.ID);
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -278,6 +280,9 @@ var
   Problem: String;
 begin
   Result := True;
+  // Silent installs never show the page; their folders are checked in PrepareToInstall.
+  if WizardSilent then Exit;
+  if LocationsPage = nil then Exit;
   if CurPageID <> LocationsPage.ID then Exit;
   Problem := FolderProblem(Trim(LocationsPage.Values[0]), 'data');
   if Problem = '' then Problem := AiFolderProblem(Trim(LocationsPage.Values[0]), Trim(LocationsPage.Values[1]));

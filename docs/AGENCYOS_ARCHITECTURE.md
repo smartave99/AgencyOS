@@ -1,249 +1,145 @@
-# AgencyOS — System Architecture & Technical Specifications
+# AgencyOS — Architecture
 
-**Document Version:** 1.0.0  
-**Target Platform:** AgencyOS (Built upon Postiz Monorepo Core)  
-**Primary Tech Stack:** NestJS, Next.js (App Router), Prisma ORM, PostgreSQL (pgvector), Redis, Temporal.io, Node-Telegram-Bot-API, Tailwind CSS, SWR  
+How the agency layer is built on the Postiz monorepo. Everything below describes code that
+exists; the places where the original plan was not followed are called out.
 
----
+## Stack
 
-## 1. System Overview & Monorepo Topology
+NestJS backend (`apps/backend`), Next.js 16 App Router frontend (`apps/frontend`), Prisma 6.5
+on PostgreSQL, Redis, and Temporal (required by Postiz to start, not used for agency
+publishing). Managed with pnpm workspaces. No vector database: PostgreSQL stores embeddings
+as JSON and similarity is computed in the service.
 
-AgencyOS is engineered as a high-throughput, enterprise-grade multi-tenant platform managed with `pnpm workspaces`. The architecture reuses and extends Postiz's battle-tested scheduling and connector framework while introducing dedicated agency operating layers.
+## Layers
 
 ```
-postiz-app-main/
-├── apps/
-│   ├── backend/                # NestJS 11 REST API Application
-│   │   ├── src/api/routes/     # Clean HTTP Controllers (DTO validation & routing only)
-│   │   ├── src/services/auth/  # JWT Authentication, Session guards & CASL Abilities
-│   │   └── src/public-api/     # Public webhook & tracking endpoints
-│   ├── frontend/               # Next.js 14+ (App Router) Frontend Control Panel
-│   │   ├── src/app/(app)/      # Main authenticated dashboard routes & layouts
-│   │   ├── src/components/     # Modular UI blocks, dialogs, calendar & previewers
-│   │   └── src/components/ui/  # Reusable design primitives
-│   └── orchestrator/           # Temporal.io Distributed Workflow Engine
-│       ├── src/workflows/      # Deterministic state-machine workflows
-│       └── src/activities/     # Non-deterministic activities (API calls, DB mutations)
-├── libraries/
-│   ├── nestjs-libraries/       # Core Business Domain & Shared Services
-│   │   ├── src/database/prisma/# Prisma Repositories & Data Models
-│   │   ├── src/integrations/   # Social connectors (Telegram, LinkedIn, X, FB, etc.)
-│   │   ├── src/services/       # Business logic (Campaigns, Approvals, CRM, Pricing)
-│   │   └── src/dtos/           # Class-validator typed DTO definitions
-│   ├── react-shared-libraries/ # Shared React Components & Form Controls
-│   │   ├── src/form/           # Button, Input, Select, CustomSelect, MultiSelect, Textarea
-│   │   └── src/toaster/        # Enterprise Toast notification system
-│   └── helpers/                # Cross-tier utilities (custom.fetch, formatting)
-└── docs/                       # Architectural and technical documentation
+HTTP → AgencyActorGuard → whitelisting validation pipe (DTO) → controller
+     → service (permission check, workflow rules) → repository (org-scoped Prisma) → PostgreSQL
+                                   ↘ TelegramGateway (the only code that talks to Telegram)
 ```
 
----
+* **Controllers** (`apps/backend/src/api/routes/agency.*.controller.ts`) hold routing only.
+* **Services** (`libraries/nestjs-libraries/src/database/prisma/agency/`) hold all rules.
+  `AgencyAccessService.assert(actor, permission)` is called first in every public method.
+* **Repositories** never trust the caller: writes use `updateMany`/`deleteMany` with `orgId`
+  in the `where`, so a missed service check still cannot cross tenants.
+* **DTOs** (`libraries/nestjs-libraries/src/dtos/agency/`) are validated with a whitelist pipe
+  that strips unknown fields (a client cannot smuggle `status` or `orgId`).
+* **`TelegramGateway`** (`libraries/nestjs-libraries/src/integrations/telegram/`) renders the
+  ad HTML, validates against Telegram's limits, sends, checks bot permissions, reads updates
+  and classifies errors (`RATE_LIMITED`, `FORBIDDEN`, `CHAT_NOT_FOUND`, `BAD_REQUEST`, `NETWORK`, …). Nothing else calls
+  Telegram. Tests replace it with a fake that can reproduce failures.
 
-## 2. Layered Architecture & Request Pipeline
+| Service | Responsibility |
+| --- | --- |
+| `AgencyService` | Clients, campaign workflow, approvals, tracking links, CSV, invoices, dashboard, reports |
+| `AgencyPublishingService` | Job creation, claim and send, retry/backoff, reconcile, system status, preview |
+| `AgencyTelegramService` | Destination consent state machine, `/authorize` `/revoke`, polling/webhook, expiry |
+| `AgencyAccessService` | Roles, permission matrix, actor resolution, team, audit |
+| `AgencyPortalService` | The client's view; client sign-off |
+| `AgencyCrmService` | Deals and stages |
+| `AgencyIntelligenceService` | Knowledge base, embeddings, search, retention |
+| `AgencyAiService` | Copy suggestions with output validation |
+| `AgencyPlatformsService` | Capability registry and stored account status |
+| `AgencySchedulerService` | The opt-in dispatch loop and update transport |
 
-To maintain strict maintainability and survive upstream changes, all backend interactions follow the non-negotiable layered convention:
+## Data model (agency tables)
 
-$$\text{HTTP Request} \longrightarrow \text{DTO (Validation)} \longrightarrow \text{Controller} \longrightarrow \text{Service (Business Logic)} \longrightarrow \text{Repository} \longrightarrow \text{Prisma DB}$$
+`Customer` (extended) · `Campaign` · `CampaignDestination` · `TelegramDestination` ·
+`ApprovalRequest` · `PostingJob` · `PublishingEvent` · `TrackingLink` · `LinkClickEvent` ·
+`AgencyMember` · `AuditEvent` · `LeaderLease` · `Deal` · `AgencyInvoice` ·
+`AgencyKnowledgeDocument` · `LeadCapture` (no capture path yet).
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as Sales Exec / Client
-    participant Frontend as Next.js (SWR / useFetch)
-    participant Controller as NestJS Controller
-    participant Service as Agency Domain Service
-    participant Repo as Prisma Repository
-    participant DB as PostgreSQL
-    participant Temporal as Temporal Orchestrator
-    participant Telegram as Telegram Bot API
+* `PostingJob` is the mutable state machine: one row per campaign revision × destination,
+  unique `idempotencyKey`, `status`, `attempts`, `lockedUntil`, `lastErrorCode`, receipt.
+* `PublishingEvent` is the append-only history of attempts.
+* `Campaign` carries `revision`, `approvedContentHash`, `approvedAt`, `requiresAttention`,
+  and the client sign-off fields.
+* Schema changes go through migrations (`libraries/nestjs-libraries/src/database/prisma/migrations`).
 
-    User->>Frontend: Creates / Submits Campaign
-    Frontend->>Controller: POST /api/agency/campaigns (DTO validated)
-    Controller->>Service: createCampaign(orgId, userId, dto)
-    Service->>Repo: persistCampaignWithDestinations(data)
-    Repo->>DB: INSERT Campaign & CampaignDestinations
-    DB-->>Repo: Saved Entities
-    Repo-->>Service: Return Campaign
-    Service-->>Controller: HTTP 201 Created
-    Controller-->>Frontend: Response (Sanitized, no secrets)
+## Campaign workflow
 
-    Note over User, Frontend: Manager reviews and approves campaign
-    User->>Frontend: Approve Campaign
-    Frontend->>Controller: POST /api/agency/campaigns/:id/approve
-    Controller->>Service: transitionState(APPROVED -> SCHEDULED)
-    Service->>Temporal: startPostWorkflow(campaignScheduleParams)
-    Temporal-->>Service: Workflow Execution Started
-    Service-->>Controller: Status Updated
-
-    Note over Temporal, Telegram: When Scheduled Publish Time arrives
-    Temporal->>Telegram: Send Message / Media / Album to ChatId
-    Telegram-->>Temporal: OK (message_id: 98124)
-    Temporal->>Repo: Record PublishingEvent (receipt, link, status)
-    Repo->>DB: UPDATE PublishingEvent & Post state=PUBLISHED
+```
+DRAFT → SUBMITTED → APPROVED → SCHEDULED → PUBLISHING → COMPLETED
+  ↑         │            │         │  ↘ PAUSED ↔ resume      ↘ PARTIALLY_FAILED / FAILED → retry
+  └─ CHANGES_REQUESTED ←─┘ (reopen voids approval)           CANCELLED, ARCHIVED
 ```
 
----
+* Status is changed only by workflow methods using guarded updates (`WHERE status = …`), so
+  two people acting at once produce one winner and one clear error.
+* Editing is possible only in `DRAFT` / `CHANGES_REQUESTED`. Approval stores a hash of the
+  ad; the send path recomputes it and blocks on mismatch.
+* Review rules: a reviewer needs `campaign:approve`; authors cannot approve their own
+  submission unless they are owner/admin, which is recorded (`selfApproved`); an optional
+  client sign-off must exist first; rejecting requires an explanation.
 
-## 3. Multi-Tenant Organizational Domain Model
+## Publishing
 
-Data isolation is guaranteed at the database layer. All core entities are linked directly or transitively to an `Organization` (representing the Agency Tenant) and enforced through tenant context extractors (`@GetOrgFromRequest()`).
+1. **Schedule / publish now** creates one `PostingJob` per destination for the current
+   revision (`createMany … skipDuplicates` on the idempotency key).
+2. The **dispatcher** (`dispatchDue`) finds due `PENDING` jobs and claims each with a single
+   guarded `UPDATE` (`PENDING → SENDING`, lease set). Only the winner sends.
+3. Before sending it re-checks: campaign state, end date, content hash, destination consent
+   and expiry, posting window and frequency, and (live) the bot's permission in the chat.
+4. The result is recorded: success with Telegram's message id; a retryable error backs off
+   (`60 s × 2^(attempt−1)`, or Telegram's `retry_after`); a permanent error dead-letters or
+   disconnects the destination; a send that may have partly happened becomes `UNCERTAIN`.
+5. `reconcileCampaign` derives the campaign status from its jobs, so a failed destination can
+   never leave a campaign looking `COMPLETED`.
+6. Expired leases are found at the next pass and surfaced for a person to resolve; a job that
+   might have been sent is never re-sent automatically.
 
-```mermaid
-erDiagram
-    Organization ||--o{ UserOrganization : has_members
-    User ||--o{ UserOrganization : belongs_to
-    Organization ||--o{ Customer : manages_clients
-    Customer ||--o{ Campaign : runs_campaigns
-    Campaign ||--o{ CampaignVersion : has_versions
-    Campaign ||--o{ CampaignDestination : targets
-    Campaign ||--o{ CampaignSchedule : scheduled_at
-    CampaignDestination }o--|| TelegramDestination : references
-    CampaignSchedule ||--o{ PublishingEvent : produces
-    PublishingEvent }o--|| TelegramDestination : delivers_to
-    Organization ||--o{ TelegramDestination : authorizes
-    Organization ||--o{ LeadCapture : collects
-    Customer ||--o{ LeadCapture : attributed_to
-    Campaign ||--o{ LeadCapture : generated_by
-    Campaign ||--o{ TrackingLink : tracks
-    TrackingLink ||--o{ LinkClickEvent : logs
-    Campaign ||--o{ ApprovalRequest : governed_by
-    User ||--o{ ApprovalRequest : reviewed_by
+The dispatcher is opt-in (`AGENCY_SCHEDULER_ENABLED`). It records a heartbeat each pass; the
+dashboard shows "no dispatcher" if the heartbeat is stale.
 
-    Organization {
-        string id PK
-        string name
-        string timezone
-        datetime createdAt
-    }
+## Telegram consent
 
-    Customer {
-        string id PK
-        string orgId FK
-        string name
-        string email
-        string companyName
-        string industry
-        string assignedSalesUserId FK
-        string status
-    }
+`PENDING_VERIFICATION → ACTIVE` only through a chat administrator sending
+`/authorize AOS-XXXXXXXX` in the chat. The bot verifies the sender is an administrator (a
+channel post, or an anonymous group admin, counts; a bot account or non-admin does not) and
+that it can itself post. Codes are stored as hashes, are single-use, valid 72 hours, and only
+work in the chat they were issued for. `/revoke` by an admin, expiry, removal of the bot or
+loss of posting rights move the destination to `REVOKED`, `EXPIRED` or `DISCONNECTED` and
+block its queued jobs. Re-authorizing needs a fresh admin command; nothing resumes by itself.
+Updates arrive by webhook (secret header, constant-time compare, always 200) or by long
+polling guarded by a `LeaderLease` so one process polls.
 
-    Campaign {
-        string id PK
-        string orgId FK
-        string customerId FK
-        string name
-        string objective
-        string status
-        decimal budget
-        datetime startDate
-        datetime endDate
-    }
+## Access control
 
-    TelegramDestination {
-        string id PK
-        string orgId FK
-        string chatId
-        string title
-        string type
-        string botUsername
-        boolean isAuthorized
-        datetime lastVerifiedAt
-        string lastError
-    }
+* `AGENCY_PERMISSIONS` maps each permission to the roles that hold it (single source of truth,
+  with tests that every permission is granted to someone and clients hold only portal rights).
+* `resolveActor` takes the explicit `AgencyMember` row if there is one; otherwise it derives
+  the least-privileged staff role from the workspace role, never an approver.
+* A CLIENT is bound to one `customerId` and sees a purpose-built portal view that selects only
+  client-safe fields. The auth middleware also refuses a client's calls to workspace APIs.
+* Credential-bearing models are never returned raw (`select` only what is needed).
 
-    CampaignDestination {
-        string id PK
-        string campaignId FK
-        string destinationType
-        string telegramDestinationId FK
-        string integrationId FK
-        string customSettings
-    }
+## Frontend
 
-    ApprovalRequest {
-        string id PK
-        string campaignId FK
-        string submittedByUserId FK
-        string reviewedByUserId FK
-        string status
-        string reviewNotes
-        datetime reviewedAt
-    }
+Routes under `apps/frontend/src/app/(app)/(site)/agency/*`; components in
+`apps/frontend/src/components/agency/`. Data comes from named SWR hooks (`agency.hooks.ts`,
+one hook per resource) through `useFetch`. All screens compose `agency.ui.tsx` (see
+[`AGENCYOS_UI_DESIGN_SYSTEM.md`](AGENCYOS_UI_DESIGN_SYSTEM.md)). Buttons and menu items are
+shown only when the signed-in role holds the permission, but the server enforces everything.
 
-    PublishingEvent {
-        string id PK
-        string campaignId FK
-        string destinationId FK
-        string status
-        string externalMessageId
-        string releaseUrl
-        string failureReason
-        datetime executedAt
-    }
-```
+## Testing approach
 
----
+* `agency.test.support.ts` builds the real services over a real PostgreSQL database with a fake
+  Telegram gateway, a seeded agency with one user per role, and helpers to create approved or
+  scheduled campaigns.
+* Integration suites: publishing, security/workflow, Telegram consent, CRM, reports; unit
+  suites for the gateway, AI, intelligence and platforms.
+* `apps/backend/e2e/` boots the compiled `ApiModule` (Temporal stubbed) and drives it over
+  HTTP: authentication boundaries, validation, role and tenant isolation, tracking, webhook,
+  reports, client scope.
+* Mutation checks were used on critical rules (a test must fail when the rule is removed).
 
-## 4. Telegram Advertising Engine Architecture
+## Deviations from the original plan
 
-The Telegram module strictly respects official Telegram Bot API boundaries while delivering scalable, multi-destination publishing.
-
-### 4.1 Authorization & Verification Pipeline
-1. **Bot Registration:** The agency links its dedicated or shared Telegram Bot (`TELEGRAM_TOKEN`).
-2. **Channel/Group Onboarding:** The administrator invites the bot to the destination channel or group as an Administrator.
-3. **Instant Verification:** The system calls `telegramBot.getChat(chatId)` and `telegramBot.getChatMember(chatId, botId)`.
-4. **Capability Checklist:**
-   - Channel: Must possess `can_post_messages` and `can_edit_messages`.
-   - Supergroup: Must possess `can_send_messages` (or bot not restricted) and optionally `can_delete_messages` for moderation.
-5. **Idempotency Keying:** All outgoing messages include a cryptographic hash `SHA256(campaignId + destinationId + scheduleTimestamp + contentHash)` stored in Redis and the `PublishingEvent` table. If a worker retries, it verifies if a message ID already exists before resending.
-
-### 4.2 Throttling & Rate-Limit Management
-- Telegram allows up to **30 messages per second** across all chats, and **1 message per second per individual chat**.
-- A Redis token-bucket / Bottleneck queue is placed in front of `TelegramProvider` to enforce:
-  - Max 20 calls/sec global rate.
-  - Max 1 post per chat per 3 seconds.
-  - Automatic exponential backoff when encountering HTTP 429 (`parameters.retry_after`).
-
----
-
-## 5. Temporal Workflow & Publishing Orchestration
-
-Background tasks are decoupled from the web tier via Temporal.io:
-1. **`CampaignWorkflow`**: Schedules execution timers for each planned posting window.
-2. **`PublishActivity`**:
-   - Fetches fresh destination authorization status.
-   - Verifies the campaign has not been paused or cancelled (`isCancelled` check).
-   - Calls `SocialProvider.post(...)`.
-   - Records `PublishingEvent` with `externalMessageId` and canonical `releaseURL`.
-   - On unrecoverable error (e.g. Bot removed as admin): marks destination status as `SUSPENDED_UNAUTHORIZED`, pauses affected remaining posts for that destination, and raises an alert to the Campaign Manager.
-
----
-
-## 6. AI Marketing Copilot Architecture
-
-The AI module is architected with a decoupled provider interface (`IAiProvider`):
-
-```mermaid
-graph LR
-    UI[Frontend Copilot UI] -->|Prompt + Context| Backend[Agency AI Controller]
-    Backend --> Manager[Agency AI Service]
-    Manager --> Router{Provider Selector}
-    Router -->|Local/Offline| Ollama[Ollama Provider (Qwen 2.5 / Gemma 3)]
-    Router -->|Cloud API| OpenAI[OpenAI Compatible Provider]
-    Router -->|Agent Framework| Mastra[Mastra AI Framework]
-    
-    Ollama --> Result[Structured JSON / Copy Suggestions]
-    OpenAI --> Result
-    Mastra --> Result
-    Result --> Buffer[Editable Content Composer Buffer]
-```
-
-- **Resilience Policy:** If the AI provider is offline, unreachable, or times out, the core application and scheduler remain 100% operational.
-- **Privacy Standard:** Client PII and secret credentials are never included in prompts sent to third-party model providers.
-
----
-
-## 7. Storage, Embeddings & Semantic Search Architecture
-
-- **PostgreSQL with pgvector:** Used for storing document embeddings for approved campaign decks, creative guidelines, and authorized discussion intelligence.
-- **Media Asset Storage:** Modular storage handler with local filesystem fallback for development (`/var/uploads`) and S3/Cloudflare R2 for production.
+| Plan | Built |
+| --- | --- |
+| Campaign publishing as Temporal workflows | A database-backed queue (see the gap analysis) |
+| `pgvector` | JSON embeddings, keyword hashing by default, optional Ollama embeddings |
+| `CampaignVersion`, `Quote`, lead funnel | Not built |
+| Discussion scraping | Replaced by an attested knowledge base (see the RULES.md note) |
+| Separate `agency.*.service.ts` files under `src/services/` | Services live next to their repositories in `database/prisma/agency/`, matching how this repository is organised |

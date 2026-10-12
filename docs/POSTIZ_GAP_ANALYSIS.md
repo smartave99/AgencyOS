@@ -1,99 +1,80 @@
-# Postiz to AgencyOS — Repository Gap Analysis & Migration Strategy
+# Postiz → AgencyOS: Gap Analysis
 
-**Document Version:** 1.0.0  
-**Inspection Date:** 2026-10-11  
-**Target Codebase:** `postiz-app-main` (Postiz core)  
+This compares what Postiz provides with what an advertising-agency platform needs, based
+on the code in this repository, and records what AgencyOS now adds. The first version of
+this document was a plan written before the work; it has been replaced with what was
+found and what was built. The module-by-module result is in
+[`AGENCYOS_IMPLEMENTATION_STATUS.md`](AGENCYOS_IMPLEMENTATION_STATUS.md).
 
----
+## What Postiz provides (verified by reading the code)
 
-## 1. Executive Summary
+| Capability | Where | Use for AgencyOS |
+| --- | --- | --- |
+| NestJS backend, Next.js (App Router) frontend, Prisma on PostgreSQL, Redis | `apps/*`, `libraries/*` | The base stack. |
+| Organizations with `SUPERADMIN` / `ADMIN` / `USER` and invitations | `Organization`, `UserOrganization` | Tenant boundary. The agency role model is layered on top; the Postiz role is only a fallback. |
+| Scheduling and publishing of social posts to many networks | `Post`, `Integration`, providers, Temporal workflows (`apps/orchestrator`) | Left as is. Campaign publishing does **not** reuse it (see below). |
+| A Telegram provider that posts text/media with a bot token | `telegram.provider.ts` | Not reused for campaigns: it has no consent model, receipts or retry semantics. |
+| `Customer` (a name tag on integrations and posts) | `schema.prisma` | Extended into the agency client. |
+| Calendar, media library, AI helpers, analytics, billing for Postiz plans | various | Unchanged. The media library is reused by the composer. |
 
-This gap analysis is based on a direct audit of the `postiz-app-main` codebase. Postiz provides a modern social media scheduling core (Prisma, NestJS, Next.js App Router, Temporal, Redis, PostgreSQL, and multi-platform social connectors including basic Telegram channel publishing).
+Postiz does **not** provide: an approval workflow, a destination consent model, delivery
+receipts per destination, a CRM, invoices, a client-facing portal, an audit trail,
+fine-grained roles, or tests for any of these.
 
-However, transforming Postiz into **AgencyOS** requires bridging key architectural gaps:
-1. Transitioning from generic single-organization social posting to a multi-tenant Agency-Client-Campaign operational model.
-2. Elevating Telegram from a simple single-channel destination to an authorized destination registry supporting channels, supergroups, bot verification, throttling, and posting receipts.
-3. Adding multi-stage approval workflows (`Draft` → `Submitted` → `Under Review` → `Approved` → `Scheduled`).
-4. Creating the lightweight Agency CRM (Clients, Leads, Deals, Quotes) and Campaign Invoicing.
-5. Providing an AI Marketing Copilot with local Ollama / OpenAI-compatible backends and discussion intelligence.
+## What the agency domain needed, and what was done
 
----
+| Need | Postiz | AgencyOS |
+| --- | --- | --- |
+| Multi-tenant agencies | Organizations exist | Every agency query and write is scoped by `orgId`; tests prove one agency cannot read or change another's data. |
+| Roles beyond admin/user | Three roles | `AgencyMember` with 8 roles and a permission matrix; a client role restricted to a portal. |
+| Campaign with a lifecycle | Standalone posts | `Campaign`, `CampaignDestination`, workflow-only status changes, content frozen after approval. |
+| Approvals | None | Submit / review / send back, four-eyes, optional client sign-off, audit. |
+| Authorized Telegram destinations | One bot token, no consent | Registry with admin-proven consent (`/authorize CODE`), `/revoke`, expiry, health, pause on loss of access. |
+| Reliable publishing | Temporal workflows for social posts | A database-backed queue (`PostingJob`): idempotent, restart-safe, retried with backoff, dead-lettered, never auto-resent when uncertain. |
+| Reporting | Social analytics | Publishing reports from stored send results and tracked clicks. |
+| Sales pipeline and invoices | None | Deals and invoices (records). |
+| Client experience | None | Portal with the exact ad preview and approvals. |
+| Honest operations | n/a | A banner when no bot or no dispatcher is running. |
 
-## 2. Requirement-by-Requirement Gap Classification
+### Why the queue is not Temporal
 
-| Requirement / Module | Classification | Current State in Postiz | Required AgencyOS Transformation |
-| :--- | :--- | :--- | :--- |
-| **Multi-Tenant Organizations** | *Supported with configuration* | `Organization`, `UserOrganization`, `User` models exist with basic roles (`SUPERADMIN`, `ADMIN`, `USER`). | Extend role hierarchy to support `SALES_MANAGER`, `SALES_EXECUTIVE`, `CAMPAIGN_MANAGER`, `CLIENT`. |
-| **Client Management** | *Partially supported* | `Customer` model exists in Prisma (`orgId`, `name`), but is primarily a tag on `Integration` and `Post`. | Elevate `Customer` to full Agency Client entity (contact info, assigned sales rep, notes, contract status, billing tier). |
-| **Ad Campaign Builder** | *Requires a new module* | Postiz only has standalone `Post` models (content, schedule, single integration). | Create `Campaign`, `CampaignDestination`, `CampaignVersion` with multi-destination targeting, objectives, and budget tracking. |
-| **Telegram Publishing Core** | *Partially supported* | `telegram.provider.ts` uses `node-telegram-bot-api` to post text/photos/videos/docs/albums via Bot token. | Extend into an authorized Destination Registry (`TelegramDestination`) with bot admin permission checks, rate throttles, and receipts. |
-| **Telegram Group Onboarding** | *Partially supported* | Basic `/connect <code_word>` polling in `getBotId`. | Build interactive Onboarding Wizard verifying admin permissions (`can_post_messages`, `can_delete_messages`). |
-| **Discussion Scraping / Harvesting** | *Unsupported by external APIs* | Telegram Bot API does not permit unauthorized user harvesting or mass member dumping without explicit admin consent. | Implement privacy-compliant **Authorized Discussion Analytics** for groups where bot is admin; reject unauthorized scraping. |
-| **Multi-Stage Approval Engine** | *Requires a new module* | Posts go straight into `QUEUE` or `DRAFT`. | Implement `ApprovalRequest` state machine (`Draft` → `Submitted` → `Under Review` → `Changes Requested` → `Approved` → `Scheduled`). |
-| **Executive Agency Dashboard** | *Requires extension* | Dashboard currently shows social calendar (`/launches`) and basic platform analytics. | Build Agency Executive Dashboard with active campaigns, client revenue, pending approvals, job health, and destination statuses. |
-| **AI Marketing Copilot** | *Partially supported* | Mastra AI and basic `@copilotkit` are wired, but tightly coupled. | Build modular `AgencyAiService` supporting local Ollama (`Qwen 2.5` / `Gemma 3`) and OpenAI APIs for copy, headlines, and CTAs. |
-| **Community Growth & Funnel** | *Requires a new module* | Basic shortlink service exists (`ShortLinkService`). | Build `LeadCapture` forms, campaign-attributed invite links, QR code generator, and conversion tracking. |
-| **CRM & Sales Pipeline** | *Requires a new module* | No CRM entities exist in current Postiz. | Build lightweight CRM (`Lead`, `Deal`, `Quote`) connected to Clients and Campaigns. |
-| **Billing & Invoicing** | *Partially supported* | Basic Stripe subscription tiers for Postiz SaaS plans. | Add custom Agency Pricing rules (campaign fee + destination fee) and Client Invoice tracking. |
-| **Job Scheduling Engine** | *Already supported* | Temporal.io background workflows (`post.workflow.*`, `post.activity.*`) are robust and scalable. | Wrap campaign jobs into Temporal activities with idempotency keys and error-handling policies. |
+Temporal is already required for Postiz to start and was considered for campaign
+publishing. A database queue was chosen because the properties that matter here
+(unique key per destination, claim guarded by a single `UPDATE`, lease, a distinct
+"uncertain" state, and cancellation by status) are simple to state and test directly
+against PostgreSQL, and because the Temporal server could not be run in the build
+environment. The trade-off is that the dispatcher is a polling loop that must be enabled
+(`AGENCY_SCHEDULER_ENABLED=true`).
 
----
+## Requests that cannot be built as originally written
 
-## 3. Detailed Component Impact Assessment
+Some requirements in the project's own `RULES.md` ask for scraping group members,
+joining groups automatically, adding scraped users to groups, and rotating accounts when
+one is blocked. These are not implemented. The Telegram Bot API has no sanctioned way to do
+the first three at scale, and the last exists to avoid a platform's enforcement. What was
+built instead is **authorized** discussion analysis (a knowledge base the team loads
+itself, with an attestation that the source authorized it) and the consent registry. See
+[`AGENCYOS_RULES_CONFLICT.md`](AGENCYOS_RULES_CONFLICT.md).
 
-### 3.1 Database Schema (`libraries/nestjs-libraries/src/database/prisma/schema.prisma`)
-- **Modify Existing Models:**
-  - `Customer`: Add `email`, `phone`, `companyName`, `industry`, `status`, `assignedUserId`, `notes`, `website`, `billingDetails`.
-  - `Role` enum: Add `AGENCY_OWNER`, `SALES_MANAGER`, `SALES_EXEC`, `CAMPAIGN_MANAGER`, `CONTENT_EDITOR`, `ANALYST`, `CLIENT`.
-- **New Models to Add:**
-  - `Campaign`: Core container for ad campaigns (`name`, `objective`, `status`, `budget`, `startDate`, `endDate`, `customerId`, `orgId`).
-  - `CampaignDestination`: Mapping campaign to target Telegram destinations and social accounts.
-  - `TelegramDestination`: Registered, authorized groups/channels (`chatId`, `title`, `type`, `isAuthorized`, `botPermissions`, `lastVerifiedAt`).
-  - `ApprovalRequest`: Audit trail of submissions, reviews, approvals, rejections, notes.
-  - `PublishingEvent`: Execution receipt table for post delivery (`externalMessageId`, `releaseUrl`, `status`, `errorReason`).
-  - `LeadCapture`: Funnel records for opt-in community leads (`campaignId`, `name`, `email`, `phone`, `source`, `convertedAt`).
-  - `AgencyInvoice`: Client invoice tracking (`invoiceNumber`, `amount`, `status`, `dueDate`, `paidAt`).
+## Remaining gaps against the original brief
 
-### 3.2 Backend Services & Controllers (`apps/backend` & `libraries/nestjs-libraries`)
-- **New Services in `libraries/nestjs-libraries/src/services/`:**
-  - `agency.campaign.service.ts`: Campaign creation, multi-destination fan-out, lifecycle transitions.
-  - `agency.approval.service.ts`: Approval requests, state validations, notifications.
-  - `agency.telegram.service.ts`: Bot permissions verification, destination registry management, throttling.
-  - `agency.crm.service.ts`: Leads, deals, quotes, and client management.
-  - `agency.ai.service.ts`: Pluggable AI generation for copy, variations, and summaries.
-  - `agency.analytics.service.ts`: Aggregated campaign metrics, click-through calculations, conversion funnels.
-- **New Controllers in `apps/backend/src/api/routes/`:**
-  - `agency.campaigns.controller.ts`: `/agency/campaigns` endpoints.
-  - `agency.approvals.controller.ts`: `/agency/approvals` endpoints.
-  - `agency.telegram.controller.ts`: `/agency/telegram` endpoints (onboarding, verification, registry).
-  - `agency.clients.controller.ts`: `/agency/clients` endpoints.
-  - `agency.crm.controller.ts`: `/agency/crm` endpoints.
-  - `agency.ai.controller.ts`: `/agency/ai` endpoints.
-  - `agency.dashboard.controller.ts`: `/agency/dashboard` executive aggregation endpoints.
+* Social networks as campaign destinations (only Telegram dispatches).
+* Lead-capture funnel, invite links with QR codes, conversion tracking.
+* Recurring schedules; campaign content version history.
+* Per-agency bot tokens and encrypted storage of per-tenant secrets.
+* Server-generated PDF reports and PDF invoices.
+* Vector search with a vector database; meaning-based search currently needs Ollama.
+* A separate identity for clients that is not a workspace login.
+* Billing integrations; invoice sending.
 
-### 3.3 Frontend Application (`apps/frontend`)
-- **Navigation & Layout Updates:**
-  - Update `apps/frontend/src/components/layout/top.menu.tsx`:
-    - Add **Agency Dashboard** (`/agency/dashboard`).
-    - Add **Clients** (`/agency/clients`).
-    - Add **Campaigns** (`/agency/campaigns`).
-    - Add **Approvals** (`/agency/approvals`).
-    - Add **Telegram Manager** (`/agency/telegram`).
-    - Add **Sales CRM** (`/agency/crm`).
-- **New View Components in `apps/frontend/src/components/agency/`:**
-  - `dashboard/`: Executive KPI cards, real-time activity stream, status distribution charts.
-  - `clients/`: Client directory table, modal for onboarding, client profile drawer.
-  - `campaigns/`: Campaign wizard, multi-destination selector, preview tabs, content variations editor.
-  - `approvals/`: Manager review queue, diff visualizer, approve/reject with notes modal.
-  - `telegram/`: Destination management, bot verification tester, invite link generator.
-  - `crm/`: Sales pipeline board, lead capture logs, proposal builder.
-  - `ai/`: AI Copilot generator drawer and inline prompt enhancer.
+## Compatibility with upstream Postiz
 
----
-
-## 4. Upstream Compatibility & Safe Migration Plan
-
-To ensure that changes do not break Postiz upstream capabilities:
-1. **Additive Schema Strategy:** All new database tables are strictly additive. Existing `Post`, `Integration`, and `User` models remain backward-compatible.
-2. **Reusing Existing Sockets:** Temporal workers, Redis connections, and NestJS dependency injection mechanisms are reused directly without modifying core Postiz internals.
-3. **Graceful Fallback:** If new features (e.g., local AI or pgvector) are disabled or not installed, the platform operates without downtime.
+* Schema changes are additive, except that existing columns on `TelegramDestination` and
+  `CampaignDestination` introduced for this project were tightened by migration.
+* Edits to Postiz-owned code are limited to: the navigation (`top.menu.tsx`), the auth
+  middleware (portal-only clients), global styles (design tokens, print and motion rules in
+  `colors.scss` / `global.scss`), `pm2-run` and the new migration script, module
+  registrations (`api.module.ts`, `database.module.ts`), the Prisma schema, and the GitHub
+  workflow files, which an earlier commit in this repository moved to `.github/ci-workflows`.
+* Merging upstream changes that touch the schema requires adding a migration for them,
+  because the project now uses migrations.

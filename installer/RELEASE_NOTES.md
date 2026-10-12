@@ -8,6 +8,8 @@ A desktop app: install it, open it from the Start menu, and everything runs on y
 **SHA-256:** `{{SHA256}}`
 **Built from commit:** `{{COMMIT}}`
 
+{{CHANGES}}
+
 ### What the installer sets up
 
 - The AgencyOS desktop app (own window, taskbar and tray icon; closing the window keeps scheduled campaigns running; quit from the tray icon).
@@ -19,6 +21,7 @@ A desktop app: install it, open it from the Start menu, and everything runs on y
   The AI engine and models are downloaded in the background (a one-time download of roughly 2–6 GB depending on your computer). AgencyOS works fully meanwhile, using keyword search and template copy, and works offline afterwards.
 - **You choose where your files are stored.** Setup asks for a data folder (database, uploads, logs) and, optionally, a separate folder for the AI models. The default is `%LOCALAPPDATA%\AgencyOS`. Later, **Settings → Storage** moves them safely: files are copied and checked first, and the old copy is deleted only when you say so. Your data is kept when you upgrade or uninstall (the uninstaller asks and lists the folders).
 - **No sign-in.** AgencyOS runs for one person on this computer and opens straight into your workspace.
+- **One place for AI.** Settings → AI and Copilot lets you use the local model, Claude Code, Codex CLI, Antigravity CLI or an API key (Anthropic, OpenAI, Gemini, or any OpenAI-compatible service), choose the model and the thinking level, and test that it works. The **Guide** inside the app explains the main workflow and how to set up a local model.
 
 ### Requirements
 

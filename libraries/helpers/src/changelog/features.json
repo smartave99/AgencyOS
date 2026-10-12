@@ -1,0 +1,298 @@
+{
+  "$comment": "The in-app feature explainer: what each part of AgencyOS is for and how to use it. Every item in the sidebar must have an entry here (checked by installer/launcher/test/changelog.test.mjs). Keep it honest: say what a feature needs and what it does not do.",
+  "groups": [
+    { "id": "create", "title": "Create and approve", "blurb": "From a client's brief to an ad that is approved and ready to send." },
+    { "id": "deliver", "title": "Deliver", "blurb": "Send approved ads to Telegram chats that have authorized you, and see what happened." },
+    { "id": "grow", "title": "Grow", "blurb": "Keep leads, knowledge and invoices next to the campaigns." },
+    { "id": "scheduler", "title": "Social scheduler", "blurb": "Plan posts for social networks you connect. Separate from Telegram campaigns." },
+    { "id": "assist", "title": "AI and personal", "blurb": "Your assistant, search, look and where your files live." },
+    { "id": "team", "title": "Team", "blurb": "For agencies where more than one person works in AgencyOS." }
+  ],
+  "features": [
+    {
+      "id": "dashboard",
+      "group": "create",
+      "title": "Dashboard",
+      "href": "/agency/dashboard",
+      "icon": "grid",
+      "status": "ready",
+      "summary": "Your starting point. It shows what needs you first, then how the work is going.",
+      "steps": [
+        "Open Dashboard from the sidebar.",
+        "Read “What needs you”: approvals waiting, deliveries that failed, destinations that disconnected. Click a row to go straight to it.",
+        "Check the cards for active clients, campaigns in flight and authorized destinations.",
+        "If a red or amber banner appears, it names what is not set up yet (for example no Telegram bot token) and how to fix it."
+      ],
+      "tips": ["“All clear” means nothing is waiting on you."]
+    },
+    {
+      "id": "clients",
+      "group": "create",
+      "title": "Clients",
+      "href": "/agency/clients",
+      "icon": "users",
+      "status": "ready",
+      "summary": "The companies you run ads for. Every campaign belongs to a client.",
+      "steps": [
+        "Open Clients and choose Add client.",
+        "Enter the company and a contact. Only the name is required.",
+        "Open a client to see its campaigns and edit its details.",
+        "A client with live campaigns cannot be deleted: pause or finish the campaigns first."
+      ]
+    },
+    {
+      "id": "campaigns",
+      "group": "create",
+      "title": "Campaigns",
+      "href": "/agency/campaigns",
+      "icon": "megaphone",
+      "status": "ready",
+      "summary": "Write an ad, see exactly how it will look in Telegram, choose where it goes and when.",
+      "steps": [
+        "Open Campaigns and choose New campaign, then pick the client.",
+        "Write the title and body. The preview on the side is the real message that will be sent, and it names any limit you are over.",
+        "Optional: press Suggest copy to get three headlines, bodies and calls to action from your AI provider. Edit freely; you decide what is used.",
+        "Add a link and button text if you want tracked clicks.",
+        "Choose the authorized Telegram destinations and a start time.",
+        "Submit for review. Nothing is sent until it is approved."
+      ],
+      "needs": ["At least one authorized destination before you can schedule (see Telegram)."],
+      "tips": ["Press Ctrl+K and type a campaign name to jump to it."]
+    },
+    {
+      "id": "approvals",
+      "group": "create",
+      "title": "Approvals",
+      "href": "/agency/approvals",
+      "icon": "check",
+      "status": "ready",
+      "summary": "The inbox for ads waiting for a second pair of eyes.",
+      "steps": [
+        "Open Approvals to see campaigns submitted for review.",
+        "Open one, read the preview, then Approve or Send back with a note.",
+        "After approval the content is frozen. To change it, reopen the campaign, which voids the approval.",
+        "Owners and admins can approve their own work; that is recorded in the audit trail."
+      ]
+    },
+    {
+      "id": "telegram",
+      "group": "deliver",
+      "title": "Telegram destinations",
+      "href": "/agency/telegram",
+      "icon": "send",
+      "status": "needs-setup",
+      "summary": "The chats and channels AgencyOS may post to. A chat only counts once its administrator has authorized it.",
+      "steps": [
+        "Under the tray icon choose Status and settings and paste your Telegram bot token (from @BotFather).",
+        "Open Telegram in AgencyOS and choose Connect a group or channel. You get a one-time code.",
+        "Add the bot to that chat, then a chat administrator sends /authorize and the code in the chat.",
+        "The destination turns active. Anyone can revoke it with /revoke, and it expires after a year unless renewed.",
+        "If the bot is removed or loses permission, the destination is paused and its queued posts wait."
+      ],
+      "needs": ["A Telegram bot token.", "A chat administrator who agrees to authorize."],
+      "tips": ["AgencyOS does not join groups, collect members or add people. It only posts where it was invited and authorized."]
+    },
+    {
+      "id": "accounts",
+      "group": "deliver",
+      "title": "Connected accounts",
+      "href": "/agency/accounts",
+      "icon": "link",
+      "status": "partial",
+      "summary": "Which platforms are connected and what each can do.",
+      "steps": [
+        "Open Connected accounts to see the platforms and their capabilities.",
+        "Telegram campaigns are delivered from Telegram destinations. Other networks are for the social scheduler.",
+        "A campaign that only has social destinations is refused at submit, and the composer tells you so."
+      ]
+    },
+    {
+      "id": "reports",
+      "group": "deliver",
+      "title": "Reports",
+      "href": "/agency/reports",
+      "icon": "doc",
+      "status": "ready",
+      "summary": "What was delivered, what failed and why, by day, campaign and destination.",
+      "steps": [
+        "Open Reports and choose the period.",
+        "Read delivered, failed, paused, queued and needs-check counts and the delivery rate.",
+        "Use Export CSV, or Print or save as PDF, for a copy to share.",
+        "A job marked Needs check was interrupted mid-send. AgencyOS never resends it on its own, so check the chat first."
+      ],
+      "tips": ["Numbers come from stored send results and tracked-link clicks. Impressions and reach are not shown because there is no verified source for them."]
+    },
+    {
+      "id": "crm",
+      "group": "grow",
+      "title": "Sales pipeline",
+      "href": "/agency/crm",
+      "icon": "chart",
+      "status": "ready",
+      "summary": "Deals from first contact to won or lost.",
+      "steps": [
+        "Open Sales pipeline and add a deal with a contact and, optionally, a value.",
+        "Move it through Prospect, Contacted, Proposal sent, then Won or Lost (a lost deal needs a reason).",
+        "Convert a won deal into a client once."
+      ]
+    },
+    {
+      "id": "knowledge",
+      "group": "grow",
+      "title": "Knowledge base",
+      "href": "/agency/intelligence",
+      "icon": "book",
+      "status": "ready",
+      "summary": "Notes and documents you add yourself, searchable by keywords and, once the local AI is ready, by meaning.",
+      "steps": [
+        "Open Knowledge base and add a document.",
+        "Confirm the source allowed you to collect it and that the people in it were told. This is required.",
+        "Search by keyword. When the local search model has finished downloading, results are also ranked by meaning."
+      ],
+      "tips": ["It holds what you add. AgencyOS does not scrape groups or harvest usernames."]
+    },
+    {
+      "id": "invoices",
+      "group": "grow",
+      "title": "Invoices",
+      "href": "/agency/billing",
+      "icon": "card",
+      "status": "partial",
+      "summary": "Numbered invoices per client with payments recorded by hand.",
+      "steps": [
+        "Open Invoices and create one for a client. Numbers run INV-year-number.",
+        "Record a payment when money arrives.",
+        "AgencyOS does not email invoices or take payments yet."
+      ]
+    },
+    {
+      "id": "calendar",
+      "group": "scheduler",
+      "title": "Calendar",
+      "href": "/launches",
+      "icon": "calendar",
+      "status": "needs-setup",
+      "summary": "A week or month view for posts on social networks you connect.",
+      "steps": [
+        "Open Calendar and choose Add channel to connect a network. Sign-in opens in your browser, as the network requires.",
+        "Click a time slot to write a post and schedule it.",
+        "Use Day, Week or Month to change the view."
+      ],
+      "needs": ["A connected social account."],
+      "tips": ["This is the original social scheduler. Telegram ads are made in Campaigns."]
+    },
+    {
+      "id": "media",
+      "group": "scheduler",
+      "title": "Media library",
+      "href": "/media",
+      "icon": "image",
+      "status": "ready",
+      "summary": "Images and videos you upload once and reuse.",
+      "steps": ["Open Media library and upload files.", "Pick them when you write a post."]
+    },
+    {
+      "id": "analytics",
+      "group": "scheduler",
+      "title": "Channel analytics",
+      "href": "/analytics",
+      "icon": "bars",
+      "status": "needs-setup",
+      "summary": "How connected social channels are doing.",
+      "steps": ["Connect a channel in Calendar first.", "Open Channel analytics and pick the channel and period."],
+      "needs": ["A connected social account."]
+    },
+    {
+      "id": "team",
+      "group": "team",
+      "title": "Team and roles",
+      "href": "/agency/team",
+      "icon": "shield",
+      "status": "ready",
+      "hideWhenLocal": true,
+      "summary": "Who can do what: owner, admin, sales, campaign manager, editor, analyst and client.",
+      "steps": ["Open Team and roles and pick a person's role.", "Role changes apply immediately and are recorded in the audit trail."],
+      "tips": ["Hidden in the desktop app, where one person uses AgencyOS."]
+    },
+    {
+      "id": "portal",
+      "group": "team",
+      "title": "Client portal",
+      "href": "/agency/portal",
+      "icon": "flag",
+      "status": "ready",
+      "hideWhenLocal": true,
+      "summary": "What a client sees: only their own campaigns, to review and sign off.",
+      "steps": ["Give a person the Client role for one customer.", "They sign in and see only that customer's campaigns, with Approve and Send back."],
+      "tips": ["Hidden in the desktop app, where one person uses AgencyOS."]
+    },
+    {
+      "id": "copilot",
+      "group": "assist",
+      "title": "Copilot",
+      "href": "/guide/features#copilot",
+      "icon": "sparkles",
+      "status": "needs-setup",
+      "summary": "An assistant in a side panel. Ask how to do something, or ask for a draft.",
+      "steps": [
+        "Press Ctrl+J (⌘J on a Mac) or the sparkles button in the top bar.",
+        "Ask in plain words, for example “How do I get an ad approved?”.",
+        "Answers come from the provider and model you chose in Settings → AI and Copilot.",
+        "It explains and drafts. It never clicks or changes anything for you."
+      ],
+      "needs": ["A working AI provider (the local model works out of the box once downloaded)."]
+    },
+    {
+      "id": "search",
+      "group": "assist",
+      "title": "Search",
+      "href": "/guide/features#search",
+      "icon": "search",
+      "status": "ready",
+      "summary": "Jump to any page, setting or campaign from the keyboard.",
+      "steps": ["Press Ctrl+K (⌘K on a Mac) anywhere.", "Type a few letters, use ↑ ↓ and press Enter."]
+    },
+    {
+      "id": "ai",
+      "group": "assist",
+      "title": "AI and Copilot settings",
+      "href": "/settings?tab=ai",
+      "icon": "cpu",
+      "status": "ready",
+      "summary": "Choose which AI answers, which model, and how hard it thinks.",
+      "steps": [
+        "Open Settings → AI and Copilot.",
+        "Pick a provider. Local model needs nothing. Claude Code, Codex CLI and Antigravity CLI use the programs on this computer that you have already signed in to. APIs need your key.",
+        "Pick a model from the list, which is read live from the provider, or type one.",
+        "Pick a thinking level. Higher is slower and more careful; Auto leaves it to the provider.",
+        "Press Test. It says exactly what is wrong if something is missing."
+      ],
+      "tips": ["Only owners and admins can change these settings."]
+    },
+    {
+      "id": "appearance",
+      "group": "assist",
+      "title": "Appearance",
+      "href": "/settings?tab=appearance",
+      "icon": "sun",
+      "status": "ready",
+      "summary": "Light, dark or follow your computer.",
+      "steps": ["Use the sun or moon button in the top bar for a quick switch.", "Choose Light, Dark or System in the account menu or in Settings → Appearance."]
+    },
+    {
+      "id": "storage",
+      "group": "assist",
+      "title": "Storage",
+      "href": "/settings?tab=storage",
+      "icon": "folder",
+      "status": "ready",
+      "summary": "Where your database, uploads and AI models live, and how to move them.",
+      "steps": [
+        "Open Settings → Storage to see both folders.",
+        "Choose Move and pick a new folder. AgencyOS stops, copies, checks the copy, switches and restarts.",
+        "The old copy is deleted only when you say so."
+      ],
+      "tips": ["Only available in the desktop app."]
+    }
+  ]
+}

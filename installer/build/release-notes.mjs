@@ -5,6 +5,7 @@
 //   node installer/build/release-notes.mjs --version 1.0.0 --sha256 <hash> --commit <sha> --report smoke-report.json --template RELEASE_NOTES.md
 
 import fs from 'node:fs';
+import { loadReleases, renderBody } from './changelog.mjs';
 
 const args = process.argv.slice(2);
 const opt = (n, d = '') => {
@@ -43,9 +44,17 @@ function verification() {
   return lines.join('\n');
 }
 
+// What changed in this version, from the same file as CHANGELOG.md and the in-app What's new.
+function changes() {
+  const release = loadReleases().find((r) => r.version === opt('--version'));
+  if (!release) throw new Error(`No changelog entry for version ${opt('--version')}: add it to libraries/helpers/src/changelog/releases.json`);
+  return [`### What's new in ${release.version}: ${release.title}`, '', renderBody(release), '', 'Every earlier version is listed in `CHANGELOG.md` and under **What\'s new** inside the app.'].join('\n');
+}
+
 const out = template
   .replaceAll('{{VERSION}}', opt('--version'))
   .replaceAll('{{SHA256}}', opt('--sha256'))
   .replaceAll('{{COMMIT}}', opt('--commit').slice(0, 12))
+  .replace('{{CHANGES}}', changes())
   .replace('{{VERIFICATION}}', verification());
 process.stdout.write(out);

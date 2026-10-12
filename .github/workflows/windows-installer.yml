@@ -57,6 +57,15 @@ jobs:
           "VERSION=$v" >> $env:GITHUB_ENV
           "Building AgencyOS $v from $env:GITHUB_SHA"
 
+      - name: Changelog covers this version
+        shell: pwsh
+        run: |
+          # A release without notes is refused; CHANGELOG.md must match releases.json.
+          node installer/build/changelog.mjs --notes $env:VERSION | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          node installer/build/changelog.mjs --check
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
       - name: Unit tests (launcher, model selection, desktop shell policy)
         shell: pwsh
         run: |

@@ -274,6 +274,26 @@ describe('AiManager', () => {
       assert.equal(old.auto, true);
     });
 
+    it('an engine that setup put in place does not switch automatic setup on, but an engine on an unprepared install still does', async () => {
+      const client = fakeOllama();
+      const rt = fakeRuntime(client);
+      rt.installed = true; // the engine is on disk either way
+      const open = () =>
+        new AiManager({
+          paths, ollamaHost: 'http://127.0.0.1:11434', hostEnv: {}, detect: async () => hardware(),
+          registry: async () => ({ exists: true }), makeClient: () => client, makeRuntime: () => rt,
+        });
+      // An older install: the engine was put there by automatic setup.
+      assert.equal(open().auto, true);
+      // A new install: setup downloaded the engine and left its record, and nothing else was asked for.
+      fs.mkdirSync(paths.data.config, { recursive: true });
+      fs.writeFileSync(path.join(paths.data.config, 'prepare.json'), '{}');
+      const fresh = open();
+      assert.equal(fresh.auto, false);
+      assert.equal(fresh.engineWanted, false);
+      assert.equal(fresh.snapshot().auto, false);
+    });
+
     it('turning automatic setup on sets everything up, and off stops doing so without deleting anything', async () => {
       const { mgr, client } = make({ auto: false });
       await mgr.planModels();

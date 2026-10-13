@@ -64,7 +64,12 @@ export class AiManager extends EventEmitter {
     this.state = this.#load();
     // Decided once. An install that already set local AI up keeps it automatic; a new install starts
     // with nothing downloaded, because the Antigravity CLI answers until someone wants a local model.
-    if (typeof this.state.auto !== 'boolean') this.state.auto = !!(this.state.plan || this.runtime.installed);
+    // An engine that setup itself put in place (it leaves prepare.json) is not a sign anyone wanted
+    // local AI: only a plan, or an engine on an install setup never prepared, counts as earlier use.
+    const preparedBySetup = fs.existsSync(path.join(paths.data.config, 'prepare.json'));
+    if (typeof this.state.auto !== 'boolean') {
+      this.state.auto = !!(this.state.plan || (this.runtime.installed && !preparedBySetup));
+    }
     this.manual = null; // the download the person asked for: { model, controller }
     this.status = {
       phase: 'idle',

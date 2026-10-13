@@ -6,6 +6,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
+import { windowsPowerShellEnv } from './net.mjs';
 
 const GB = 1024 ** 3;
 const MIB = 1024 ** 2;
@@ -123,12 +124,12 @@ foreach ($k in Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4
 [pscustomobject]@{ os = [pscustomobject]@{ caption = $os.Caption; version = $os.Version }; cpu = $cpu; gpu = $gpu; registry = $reg } | ConvertTo-Json -Depth 5 -Compress
 `;
 
-function defaultExec(file, args, { timeoutMs = 20000 } = {}) {
+function defaultExec(file, args, { timeoutMs = 20000, env } = {}) {
   return new Promise((resolve) => {
     execFile(
       file,
       args,
-      { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * MIB },
+      { timeout: timeoutMs, env, windowsHide: true, maxBuffer: 4 * MIB },
       (error, stdout) => resolve(error ? null : String(stdout))
     );
   });
@@ -199,7 +200,8 @@ export async function detectHardware({
   if (platform === 'win32') {
     const out = await exec(
       path.win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', WINDOWS_PROBE_SCRIPT]
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', WINDOWS_PROBE_SCRIPT],
+      { env: windowsPowerShellEnv(env) }
     );
     try {
       const parsed = parseWindowsProbe(JSON.parse(String(out).trim().split(/\r?\n/).pop()));

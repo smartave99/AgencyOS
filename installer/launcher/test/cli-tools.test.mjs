@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
 import { CliTools, CliToolError, TOOL_IDS } from '../lib/cli-tools.mjs';
+import { windowsPowerShellEnv } from '../lib/net.mjs';
 
 /** Stand-in programs written as shell scripts, so the manager runs real processes without the real tools. */
 let dir;
@@ -204,5 +206,34 @@ esac`
     assert.equal((await t.snapshot()).tools.find((x) => x.id === 'claude').signedIn, false);
     await assert.rejects(t.signOut('antigravity'), (e) => e.status === 400 && /cannot be signed out from here/.test(e.message));
     await assert.rejects(t.signOut('codex'), (e) => e.status === 404);
+  });
+});
+
+describe('Windows PowerShell for the vendors\' installers', () => {
+  it('starts without the module path of a PowerShell 7 parent, which Windows PowerShell 5.1 cannot load', async () => {
+    const starts = [];
+    const spawnImpl = (command, args, options) => {
+      starts.push({ command, args, env: options.env });
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = () => {};
+      setImmediate(() => child.emit('close', 1));
+      return child;
+    };
+    const parent = { SystemRoot: 'C:\\Windows', USERPROFILE: os.tmpdir(), PATH: '', PSModulePath: 'C:\\Program Files\\PowerShell\\7\\Modules' };
+    const t = new CliTools({ env: parent, platform: 'win32', spawnImpl, pollMs: 40, extraDirs: [] });
+    t.startInstall('claude');
+    await until(async () => (await t.snapshot()).task.state === 'failed');
+    const installer = starts.find((x) => /powershell\.exe$/i.test(x.command));
+    assert.ok(installer, 'Windows PowerShell was started');
+    assert.equal('PSModulePath' in installer.env, false);
+    assert.equal(installer.env.SystemRoot, 'C:\\Windows');
+    assert.equal(parent.PSModulePath.length > 0, true, 'the launcher\'s own environment is left alone');
+  });
+
+  it('removes only the module path', () => {
+    const clean = windowsPowerShellEnv({ PSModulePath: 'x', Path: 'p', TEMP: 't' });
+    assert.deepEqual(clean, { Path: 'p', TEMP: 't' });
   });
 });

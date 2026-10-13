@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
+import { windowsPowerShellEnv } from './net.mjs';
 
 export const TOOL_IDS = ['antigravity', 'claude', 'codex'];
 
@@ -272,6 +273,7 @@ export class CliTools {
       const script = `$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm '${tool.installUrl}' | iex`;
       const res = await run(psExe(this.env), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
         timeoutMs: INSTALL_TIMEOUT_MS,
+        env: windowsPowerShellEnv(this.env),
         spawnImpl: this.spawnImpl,
         onLine,
       });
@@ -374,7 +376,7 @@ export class CliTools {
     const started = await run(
       psExe(this.env),
       ['-NoProfile', '-NonInteractive', '-Command', `(Start-Process -FilePath '${file.replace(/'/g, "''")}' -WindowStyle Hidden -PassThru).Id`],
-      { timeoutMs: 20000, spawnImpl: this.spawnImpl }
+      { timeoutMs: 20000, env: windowsPowerShellEnv(this.env), spawnImpl: this.spawnImpl }
     );
     const pid = Number.parseInt(String(started.stdout).trim(), 10);
     if (!Number.isInteger(pid)) throw new Error(`${tool.label} could not be started to sign in. ${lastLines(started.stderr)}`);

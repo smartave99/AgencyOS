@@ -4,6 +4,17 @@ import net from 'node:net';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * The environment for starting Windows PowerShell 5.1. When the launcher was itself started from PowerShell 7
+ * (a terminal, a script, a build machine), the inherited module path points at modules 5.1 cannot load, and
+ * commands such as Get-FileHash then do not exist. Without the variable it uses its own.
+ */
+export function windowsPowerShellEnv(env = process.env) {
+  const clean = { ...env };
+  delete clean.PSModulePath;
+  return clean;
+}
+
 /** True when something accepts TCP connections on host:port. */
 export function tcpOpen(host, port, timeoutMs = 1500) {
   return new Promise((resolve) => {

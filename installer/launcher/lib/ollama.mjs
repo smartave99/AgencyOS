@@ -7,7 +7,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { download } from './download.mjs';
-import { sleep } from './net.mjs';
+import { sleep, windowsPowerShellEnv } from './net.mjs';
 
 const REGISTRY = 'https://registry.ollama.ai';
 
@@ -217,9 +217,9 @@ export function folderPrunePlan(hw) {
   return hasNvidia ? [] : ['cuda_v12', 'cuda_v13'];
 }
 
-function run(file, args, { cwd } = {}) {
+function run(file, args, { cwd, env } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(file, args, { cwd, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    const child = spawn(file, args, { cwd, env, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
     let err = '';
     child.stderr.on('data', (d) => {
       err += d;
@@ -244,7 +244,7 @@ export async function extractZip(zip, destination, platform = process.platform) 
         '-NonInteractive',
         '-Command',
         `Expand-Archive -LiteralPath '${zip.replace(/'/g, "''")}' -DestinationPath '${destination.replace(/'/g, "''")}' -Force`,
-      ]).catch(() => {
+      ], { env: windowsPowerShellEnv() }).catch(() => {
         throw error;
       });
       return;

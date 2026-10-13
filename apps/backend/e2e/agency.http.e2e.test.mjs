@@ -164,6 +164,7 @@ describe(
       await app.listen(0, '127.0.0.1');
       base = (await app.getUrl()).replace('[::1]', '127.0.0.1');
       prisma = moduleRef.get(PrismaService);
+      ctx.moduleRef = moduleRef;
 
       const mkOrg = async (label) => {
         const org = await prisma.organization.create({
@@ -889,6 +890,192 @@ describe(
           (await call('GET', '/agency/templates', { as: 'manager' })).json,
           []
         );
+      });
+    });
+
+    describe('lead links over HTTP', () => {
+      it('collects only people who tap Start, exports them, and lets them leave', async () => {
+        const { TelegramGateway } = require(resolve(
+          root,
+          'dist/libraries/nestjs-libraries/src/integrations/telegram/telegram.gateway.js'
+        ));
+        const { AgencyTelegramService } = require(resolve(
+          root,
+          'dist/libraries/nestjs-libraries/src/database/prisma/agency/agency.telegram.service.js'
+        ));
+        const { AgencyTelegramBotsService } = require(resolve(
+          root,
+          'dist/libraries/nestjs-libraries/src/database/prisma/agency/agency.telegram.bots.service.js'
+        ));
+        const saved = {
+          getBotInfo: TelegramGateway.prototype.getBotInfo,
+          sendNotice: TelegramGateway.prototype.sendNotice,
+        };
+        const notices = [];
+        TelegramGateway.prototype.getBotInfo = async function () {
+          return { id: 515151, username: 'lead_bot' };
+        };
+        TelegramGateway.prototype.sendNotice = async function (chatId, text) {
+          notices.push({ chatId, text });
+        };
+        let botId;
+        try {
+          // Staff who work leads, and nobody else.
+          assert.equal(
+            (await call('GET', '/agency/leads', { as: 'client' })).status,
+            403
+          );
+          assert.equal(
+            (await call('GET', '/agency/leads/links', { as: 'manager' }))
+              .status,
+            403
+          );
+          assert.equal(
+            (
+              await call('POST', '/agency/leads/links', {
+                as: 'manager',
+                body: { label: 'x' },
+              })
+            ).status,
+            403
+          );
+          assert.deepEqual(
+            (await call('GET', '/agency/leads/links', { as: 'owner' })).json,
+            []
+          );
+
+          const added = await call('POST', '/agency/telegram/bots', {
+            as: 'owner',
+            body: { label: 'Lead bot', token: '515151:' + 'C'.repeat(35) },
+          });
+          assert.equal(added.status, 201, added.text);
+          botId = added.json.id;
+
+          assert.equal(
+            (
+              await call('POST', '/agency/leads/links', {
+                as: 'owner',
+                body: {},
+              })
+            ).status,
+            400
+          );
+          const link = await call('POST', '/agency/leads/links', {
+            as: 'owner',
+            body: { label: 'Spring offer', botId, welcomeMessage: 'Hello!' },
+          });
+          assert.equal(link.status, 201, link.text);
+          assert.equal(
+            link.json.url,
+            `https://t.me/lead_bot?start=${link.json.code}`
+          );
+
+          // Telegram tells the bot that someone tapped Start.
+          const telegram = ctx.moduleRef.get(AgencyTelegramService, {
+            strict: false,
+          });
+          const bots = ctx.moduleRef.get(AgencyTelegramBotsService, {
+            strict: false,
+          });
+          const handle = await bots.handleFor(ctx.users.owner.orgId, botId);
+          const hear = (text, user = 9001) =>
+            telegram.handleUpdate(
+              {
+                update_id: Math.floor(Math.random() * 1e9),
+                message: {
+                  message_id: 1,
+                  date: 0,
+                  chat: { id: user, type: 'private' },
+                  from: {
+                    id: user,
+                    is_bot: false,
+                    first_name: 'Sam',
+                    username: 'sam_k',
+                  },
+                  text,
+                },
+              },
+              handle
+            );
+          await hear(`/start ${link.json.code}`);
+          assert.match(notices.at(-1).text, /Hello!/);
+          assert.match(notices.at(-1).text, /\/stop/);
+
+          const list = await call('GET', '/agency/leads', { as: 'owner' });
+          assert.equal(list.status, 200, list.text);
+          matches(list.json[0], {
+            name: 'Sam',
+            telegramHandle: '@sam_k',
+            status: 'NEW',
+          });
+          assert.equal(list.json.length, 1);
+          assert.deepEqual(
+            (await call('GET', '/agency/leads', { as: 'otherOwner' })).json,
+            []
+          );
+
+          const csv = await call('GET', '/agency/leads/export?format=csv', {
+            as: 'owner',
+          });
+          assert.equal(csv.status, 200);
+          assert.match(csv.headers.get('content-type'), /text\/csv/);
+          assert.match(csv.text, /"Sam","sam_k","Spring offer"/);
+          const json = await call('GET', '/agency/leads/export?format=json', {
+            as: 'owner',
+          });
+          assert.match(json.headers.get('content-type'), /application\/json/);
+          assert.equal(json.json[0]['Telegram username'], 'sam_k');
+          assert.equal(
+            (await call('GET', '/agency/leads/export', { as: 'client' }))
+              .status,
+            403
+          );
+
+          const updated = await call(
+            'PUT',
+            `/agency/leads/${list.json[0].id}`,
+            {
+              as: 'owner',
+              body: { status: 'QUALIFIED', notes: 'call Monday' },
+            }
+          );
+          assert.equal(updated.status, 200, updated.text);
+          matches(updated.json, { status: 'QUALIFIED', notes: 'call Monday' });
+          assert.equal(
+            (
+              await call('PUT', `/agency/leads/${list.json[0].id}`, {
+                as: 'owner',
+                body: { status: 'OPTED_OUT' },
+              })
+            ).status,
+            400
+          );
+
+          await hear('/stop');
+          assert.deepEqual(
+            (await call('GET', '/agency/leads', { as: 'owner' })).json,
+            []
+          );
+          assert.match(notices.at(-1).text, /deleted your details/);
+          const links = await call('GET', '/agency/leads/links', {
+            as: 'owner',
+          });
+          matches(links.json[0], { people: 0, stopped: 1 });
+          assert.equal(
+            (
+              await call('DELETE', `/agency/leads/links/${link.json.id}`, {
+                as: 'owner',
+              })
+            ).status,
+            200
+          );
+        } finally {
+          if (botId)
+            await call('DELETE', `/agency/telegram/bots/${botId}`, {
+              as: 'owner',
+            });
+          Object.assign(TelegramGateway.prototype, saved);
+        }
       });
     });
 

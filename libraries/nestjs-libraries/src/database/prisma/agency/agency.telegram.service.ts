@@ -12,6 +12,7 @@ import { AgencyRepository } from './agency.repository';
 import { AgencyPublishingRepository } from './agency.publishing.repository';
 import { AgencyPublishingService } from './agency.publishing.service';
 import { AgencyAccessService, AgencyActor } from './agency.access.service';
+import { AgencyLeadsService } from './agency.leads.service';
 import {
   AgencyTelegramBotsService,
   BotHandle,
@@ -31,6 +32,9 @@ import {
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const AUTHORIZE_RE = /^\/authorize(?:@\w+)?\s+(AOS-[A-Z0-9]{8})\s*$/i;
 const REVOKE_RE = /^\/revoke(?:@\w+)?\s*$/i;
+// A person tapping Start on a lead link, and a person asking to be left alone, in a private chat.
+const START_RE = /^\/start(?:@\w+)?\s+([A-Za-z0-9_-]{6,64})\s*$/i;
+const STOP_RE = /^\/stop(?:@\w+)?\s*$/i;
 const GROUP_ANONYMOUS_BOT_ID = 1087968824;
 
 type DestinationRow = NonNullable<
@@ -51,7 +55,8 @@ export class AgencyTelegramService {
     private readonly jobs: AgencyPublishingRepository,
     private readonly publishing: AgencyPublishingService,
     private readonly access: AgencyAccessService,
-    private readonly bots: AgencyTelegramBotsService
+    private readonly bots: AgencyTelegramBotsService,
+    private readonly leads: AgencyLeadsService
   ) {}
 
   private get consentValidDays() {
@@ -551,6 +556,10 @@ export class AgencyTelegramService {
         await this.onAuthorizeCommand(msg, authorize[1].toUpperCase(), bot);
       } else if (REVOKE_RE.test(text)) {
         await this.onRevokeCommand(msg, bot);
+      } else if (msg.chat.type === 'private') {
+        const start = START_RE.exec(text);
+        if (start) await this.leads.onStart(msg, start[1], bot);
+        else if (STOP_RE.test(text)) await this.leads.onStop(msg, bot);
       }
     } catch (err: any) {
       this.logger.error(

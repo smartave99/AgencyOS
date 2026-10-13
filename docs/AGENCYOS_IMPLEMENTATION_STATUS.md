@@ -78,7 +78,8 @@ limit. **Missing** = not built. **Unverified** = built, but could not be exercis
 | No impressions, reach or engagement | By design | No verified source exists. |
 | Server-generated PDF files | Missing | The browser's print dialog produces the PDF. |
 | Tracking links `/l/:code` (public, bot clicks excluded, UTM, salted IP hash, safe redirect) | Done | Tracking tests. |
-| Lead capture funnel (forms, invite links, QR, conversion) | Missing | A `LeadCapture` table exists; there is no way to capture a lead. |
+| Lead capture from bot links: a person who taps Start on a link is recorded (name and username Telegram sends), told what is kept and how to stop, and can send `/stop` to have their details deleted; status and notes, search, CSV/JSON export, erase on request; a link works only through its own bot; sales executives see only their links | Done (against a simulated Telegram) | 10 tests in `agency.leads.int.spec.ts`, 1 HTTP end-to-end test |
+| Lead forms, QR codes, conversion tracking | Missing | Links are shared as plain addresses; make a QR code from one with any QR tool. |
 
 ### Client portal, knowledge, AI
 | Item | Status | Evidence |

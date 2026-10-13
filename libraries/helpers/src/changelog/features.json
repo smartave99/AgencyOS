@@ -377,6 +377,29 @@
       "tips": [
         "Only available in the desktop app."
       ]
+    },
+    {
+      "id": "leads",
+      "group": "grow",
+      "title": "Leads",
+      "href": "/agency/leads",
+      "icon": "users",
+      "status": "ready",
+      "summary": "Collect people who ask to hear from you: they tap Start on your bot's link, and they can send /stop to be deleted.",
+      "steps": [
+        "Open Leads and choose New link. Name it, pick the bot it opens and, if you like, the campaign it belongs to.",
+        "Copy the link and share it where people already are: your website, a poster, a QR code, an ad.",
+        "When someone taps Start, the bot tells them what is kept and how to stop, and they appear under People.",
+        "Mark each person as contacted, qualified, converted or lost, and add a note.",
+        "Download the list as CSV or JSON, or copy it as text."
+      ],
+      "needs": [
+        "At least one Telegram bot connected under Settings → Telegram bots."
+      ],
+      "tips": [
+        "Someone who sends /stop is deleted and never listed or exported again, unless they tap Start again.",
+        "Sales executives see only the links they made."
+      ]
     }
   ]
 }

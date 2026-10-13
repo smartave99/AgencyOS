@@ -59,6 +59,8 @@ import { AgencyAccessRepository } from '@gitroom/nestjs-libraries/database/prism
 import { AgencyAccessService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.access.service';
 import { AgencyCrmRepository } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.crm.repository';
 import { AgencyCrmService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.crm.service';
+import { AgencyLeadsRepository } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.leads.repository';
+import { AgencyLeadsService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.leads.service';
 import { AgencyPublishingRepository } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.publishing.repository';
 import { AgencyPublishingService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.publishing.service';
 import { AgencyTelegramService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.telegram.service';
@@ -139,6 +141,8 @@ import { AgencyPortalService } from '@gitroom/nestjs-libraries/database/prisma/a
     AgencyAccessService,
     AgencyCrmRepository,
     AgencyCrmService,
+    AgencyLeadsRepository,
+    AgencyLeadsService,
     AgencyPublishingRepository,
     AgencyPublishingService,
     AgencyTelegramService,

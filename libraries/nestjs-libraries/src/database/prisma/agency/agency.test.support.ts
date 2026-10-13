@@ -17,6 +17,8 @@ import { AgencyService, CampaignInput } from './agency.service';
 import { AgencyPortalService } from './agency.portal.service';
 import { AgencyCrmRepository } from './agency.crm.repository';
 import { AgencyCrmService } from './agency.crm.service';
+import { AgencyLeadsRepository } from './agency.leads.repository';
+import { AgencyLeadsService } from './agency.leads.service';
 import { AgencyPlatformsService } from './agency.platforms.service';
 import { AgencyAiRepository } from './agency.ai.repository';
 import { AgencyAiGatewayService } from './agency.ai.gateway.service';
@@ -155,6 +157,7 @@ export interface Harness {
   agency: AgencyService;
   portal: AgencyPortalService;
   crm: AgencyCrmService;
+  leads: AgencyLeadsService;
   platforms: AgencyPlatformsService;
   aiGateway: AgencyAiGatewayService;
   ai: AgencyAiService;
@@ -196,12 +199,19 @@ export async function buildHarness(): Promise<Harness> {
     notifications as any,
     bots
   );
+  const leads = new AgencyLeadsService(
+    new AgencyLeadsRepository(prisma),
+    agencyRepo,
+    access,
+    bots
+  );
   const telegram = new AgencyTelegramService(
     agencyRepo,
     jobsRepo,
     publishing,
     access,
-    bots
+    bots,
+    leads
   );
   const agency = new AgencyService(agencyRepo, jobsRepo, publishing, access);
   const portal = new AgencyPortalService(agencyRepo, access, publishing);
@@ -245,6 +255,7 @@ export async function buildHarness(): Promise<Harness> {
     portal,
     platforms,
     crm,
+    leads,
     aiGateway,
     ai,
     aiTools,

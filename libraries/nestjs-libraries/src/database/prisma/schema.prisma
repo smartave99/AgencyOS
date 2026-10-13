@@ -49,6 +49,7 @@ model Organization {
   telegramDestinations TelegramDestination[]
   telegramBots         TelegramBot[]
   adTemplates          AdTemplate[]
+  leadLinks            LeadLink[]
   leads               LeadCapture[]
   agencyInvoices      AgencyInvoice[]
   agencyKnowledge     AgencyKnowledgeDocument[]
@@ -1939,6 +1940,7 @@ model Campaign {
   approvals           ApprovalRequest[]
   publishingEvents    PublishingEvent[]
   leads               LeadCapture[]
+  leadLinks           LeadLink[]
   trackingLinks       TrackingLink[]
   postingJobs         PostingJob[]
 
@@ -2164,15 +2166,48 @@ model LeadCapture {
   source          String?
   notes           String?
   status          String        @default("NEW")
+  // Set when the person started a conversation with the bot through a lead link: they asked to hear
+  // from the agency, and can stop it (and erase these details) by sending /stop.
+  leadLinkId      String?
+  telegramUserId  String?
+  consentedAt     DateTime?
+  optedOutAt      DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
   organization    Organization  @relation(fields: [orgId], references: [id])
   campaign        Campaign?     @relation(fields: [campaignId], references: [id])
+  leadLink        LeadLink?     @relation(fields: [leadLinkId], references: [id])
 
+  @@unique([leadLinkId, telegramUserId])
   @@index([orgId])
   @@index([campaignId])
   @@index([email])
+  @@index([telegramUserId])
+}
+
+// A link that opens a chat with one of the agency's bots (t.me/<bot>?start=<code>). Whoever taps
+// Start has asked to hear from the agency; nothing is collected from anyone who did not.
+model LeadLink {
+  id             String        @id @default(cuid())
+  orgId          String
+  campaignId     String?
+  label          String
+  code           String        @unique
+  // The bot the link opens; null is the bot named in the server settings.
+  botId          String?
+  welcomeMessage String?
+  createdById    String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+
+  organization   Organization  @relation(fields: [orgId], references: [id])
+  campaign       Campaign?     @relation(fields: [campaignId], references: [id])
+  leads          LeadCapture[]
+
+  @@index([orgId])
+  @@index([campaignId])
 }
 
 model TrackingLink {

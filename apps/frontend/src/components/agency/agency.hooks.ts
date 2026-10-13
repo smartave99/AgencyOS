@@ -198,6 +198,31 @@ export interface AdTemplate {
   updatedAt: string;
 }
 
+/** A link that opens one of the agency's bots; whoever taps Start on it asked to hear from the agency. */
+export interface LeadLinkView {
+  id: string;
+  label: string;
+  code: string;
+  url: string | null;
+  welcomeMessage: string | null;
+  createdAt: string;
+  campaign: { id: string; name: string } | null;
+  people: number;
+  stopped: number;
+}
+
+export interface LeadView {
+  id: string;
+  name: string | null;
+  telegramHandle: string | null;
+  status: string;
+  notes: string | null;
+  consentedAt: string | null;
+  createdAt: string;
+  leadLink: { id: string; label: string } | null;
+  campaign: { id: string; name: string } | null;
+}
+
 export interface DestinationView {
   id: string;
   /** Which connected bot serves this chat; null is the server's bot. */
@@ -668,6 +693,25 @@ export const useAdTemplates = (enabled = true) =>
     enabled ? ['agency-templates'] : null,
     '/agency/templates'
   );
+
+export const useLeadLinks = () =>
+  useResource<LeadLinkView[]>(
+    ['agency-lead-links'],
+    '/agency/leads/links',
+    20000
+  );
+
+export const useLeads = (linkId: string, status: string, search: string) => {
+  const params = new URLSearchParams();
+  if (linkId) params.set('linkId', linkId);
+  if (status) params.set('status', status);
+  if (search.trim()) params.set('search', search.trim());
+  return useResource<LeadView[]>(
+    ['agency-leads', linkId, status, search],
+    `/agency/leads?${params.toString()}`,
+    20000
+  );
+};
 
 export const useTelegramBots = (enabled = true) =>
   useResource<TelegramBots>(

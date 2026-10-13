@@ -104,6 +104,13 @@ export const NAV_GROUPS: NavGroup[] = [
         permission: 'crm:read',
       },
       {
+        id: 'leads',
+        label: 'Leads',
+        href: '/agency/leads',
+        icon: 'users',
+        permission: 'crm:read',
+      },
+      {
         id: 'knowledge',
         label: 'Knowledge base',
         href: '/agency/intelligence',

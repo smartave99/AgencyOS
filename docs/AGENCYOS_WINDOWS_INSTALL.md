@@ -11,9 +11,9 @@ Download `AgencyOS-Setup-<version>.exe` from the repository's **Releases** page 
 | | |
 | --- | --- |
 | Windows | 10 (1809 or newer) or 11, 64-bit. Windows on ARM works through Windows' x64 emulation. |
-| Disk | About 4 GB for the program, plus space for the AI models (see below). |
+| Disk | About 4 GB for the program, about 2 GB more for the local AI engine that setup downloads, plus space for any AI models you choose (see below). |
 | Memory | 8 GB or more is recommended. Below 8 GB the AI is limited to small models; below 4 GB it is off. |
-| Internet | Needed once, for the AI engine and models. AgencyOS works without it, and offline afterwards. |
+| Internet | Needed during setup, to download the local AI engine (about 1.4 GB) and install Antigravity, and later for any model or tool you choose to download. AgencyOS works without it, and offline afterwards. |
 | Rights | None. It installs for your user only; there is no administrator prompt. |
 
 ## Install
@@ -25,11 +25,37 @@ Download `AgencyOS-Setup-<version>.exe` from the repository's **Releases** page 
    logs) and, optionally, a separate folder for the local AI models, which can take several GB. The
    default is `%LOCALAPPDATA%\AgencyOS`. Pick a drive with plenty of free space; setup checks the folder
    and the space. See *Where your files are stored* below.
-3. Keep the other defaults. Two optional choices: start AgencyOS when you sign in to Windows (on by
-   default, so scheduled campaigns keep being sent), and a desktop shortcut.
+3. Keep the other defaults. Choices: **Get ready to work** (on by default; see *What setup downloads*
+   below), start AgencyOS when you sign in to Windows (on by default, so scheduled campaigns keep
+   being sent), and a desktop shortcut.
 4. Finish. AgencyOS opens and shows what it is starting; the first start takes a minute or two
    because it creates your private database. Then it opens straight into your workspace: there is no
    account to create and nothing to sign in to, because it runs for one person on this computer.
+
+## What setup downloads, so a brand-new computer needs nothing else
+
+Everything AgencyOS itself needs is inside the setup file: the database, the job engine, Redis,
+Node.js and the Windows runtime files, so a computer with nothing installed runs it. With **Get ready
+to work** ticked (the default) setup also downloads, once, with the progress shown in the setup window:
+
+* **The local AI engine** (Ollama, about 1.4 GB, from its GitHub release). The download is checked
+  against a fixed SHA-256 before it is used, and the graphics-card files this computer cannot use are
+  left out. No model is downloaded and nothing is started: models are your choice later (Settings,
+  System, Local AI).
+* **Antigravity CLI**, the default AI, installed by Google's own installer for it, for your user only.
+
+If you are offline or untick it, setup still finishes; AgencyOS says what is missing and offers the same
+downloads in Settings. The result is in `config\prepare.json` and `logs\prepare.log` in your data folder.
+
+**Claude Code and Codex are never downloaded by setup.** They are downloaded only when you press
+**Download** next to them in Settings, AI and Copilot, under *Tools on this computer*, which also says
+where each comes from. Each tool's own Windows installer is used, for your user only.
+
+**Every sign-in happens in your browser, never in a terminal.** Press **Sign in with your browser**: the
+tool opens its own sign-in page (Anthropic, OpenAI or Google), you finish there, and AgencyOS notices by
+itself. If the browser does not open, a link to the sign-in page is shown. AgencyOS never sees your
+password: the tools keep their own sign-in, and AgencyOS only asks them whether they are signed in.
+Those programs belong to their makers and their terms apply when you sign in.
 
 ## Daily use
 
@@ -49,13 +75,14 @@ Download `AgencyOS-Setup-<version>.exe` from the repository's **Releases** page 
 
 ## AI: Antigravity by default, a local model if you want one
 
-AgencyOS uses **Antigravity CLI** for ad copy and the Copilot by default. Nothing is downloaded for
-it: install and sign in to Antigravity on this computer, and choose another tool or an API key in
-**Settings → AI and Copilot** whenever you like. Until Antigravity is installed, AgencyOS says so
-plainly in place of the AI answer; everything else works.
+AgencyOS uses **Antigravity CLI** for ad copy and the Copilot by default. Setup installs it; press
+**Sign in with your browser** under *Tools on this computer* in **Settings → AI and Copilot** and finish
+in the browser, then press Test. Choose another tool or an API key there whenever you like. Until
+Antigravity is signed in, AgencyOS says so plainly in place of the AI answer; everything else works.
 
 A **local model** is optional and entirely your choice: it keeps text on this computer and works
-offline, but it is a download of several GB. Go to **Settings → System → Local AI**:
+offline, but it is a download of several GB (the engine itself is already there after setup). Go to
+**Settings → System → Local AI**:
 
 * **Set up automatically** (a switch, off on a new install): AgencyOS looks at your memory,
   processor and graphics card, installs the AI engine (Ollama) and picks models that fit. Turn it

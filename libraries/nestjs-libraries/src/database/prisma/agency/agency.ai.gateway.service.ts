@@ -268,7 +268,7 @@ export class AgencyAiGatewayService {
         summary:
           'Uses the Claude Code program on this computer, with your own Claude sign-in.',
         setup:
-          'Install Claude Code, open a terminal, run “claude” once and sign in. AgencyOS then uses that sign-in.',
+          'Press Download under “Tools on this computer” on this page, then Sign in: your browser opens to finish. No terminal is needed. AgencyOS then uses that sign-in.',
         binary: 'claude',
         needsKey: false,
         thinking: ['auto', 'off', 'low', 'medium', 'high', 'xhigh', 'max'],
@@ -281,7 +281,7 @@ export class AgencyAiGatewayService {
         summary:
           'Uses the OpenAI Codex program on this computer, with your own ChatGPT or API sign-in.',
         setup:
-          'Install the Codex CLI, run “codex” once in a terminal and sign in. Leave the model empty to use Codex’s own default.',
+          'Press Download under “Tools on this computer” on this page, then Sign in: your browser opens to finish. No terminal is needed. Leave the model empty to use Codex’s own default.',
         binary: 'codex',
         needsKey: false,
         thinking: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
@@ -294,7 +294,7 @@ export class AgencyAiGatewayService {
         summary:
           'The default on the desktop app. Uses the Google Antigravity program (agy) on this computer, with your own Google sign-in.',
         setup:
-          'Install Antigravity, run “agy” once in a terminal and sign in, then press Test. Support is experimental: it depends on the version you have installed.',
+          'Installed with AgencyOS. Under “Tools on this computer” on this page press Sign in and finish in your browser, then press Test. Support is experimental: it depends on the version you have installed.',
         binary: 'agy',
         needsKey: false,
         thinking: ['auto', 'low', 'medium', 'high'],
@@ -1164,11 +1164,64 @@ export class AgencyAiGatewayService {
     }
   }
 
+  // On Windows the programs' own installers add their folder to the person's PATH in the registry, which
+  // a program that was already running (this server) never sees; it is read here, a few seconds at a time.
+  private userPath: { dirs: string[]; at: number } | null = null;
+
+  private async userPathDirs(): Promise<string[]> {
+    if (process.platform !== 'win32') return [];
+    if (this.userPath && Date.now() - this.userPath.at < 10_000) {
+      return this.userPath.dirs;
+    }
+    const output = await new Promise<string>((resolve) => {
+      let text = '';
+      try {
+        const child = spawn(
+          path.join(
+            process.env.SystemRoot || 'C:\\Windows',
+            'System32',
+            'reg.exe'
+          ),
+          ['query', 'HKCU\\Environment', '/v', 'Path'],
+          { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }
+        );
+        const timer = setTimeout(() => child.kill(), 5000);
+        child.stdout.on('data', (chunk) => (text += chunk));
+        child.on('error', () => resolve(''));
+        child.on('close', () => {
+          clearTimeout(timer);
+          resolve(text);
+        });
+      } catch {
+        resolve('');
+      }
+    });
+    const match = /Path\s+REG_(?:EXPAND_)?SZ\s+(.+)/i.exec(output);
+    const dirs = match
+      ? match[1]
+          .trim()
+          .split(';')
+          .map((d) =>
+            d
+              .trim()
+              .replace(
+                /%([^%]+)%/g,
+                (all, v) =>
+                  process.env[v] ?? process.env[v.toUpperCase()] ?? all
+              )
+          )
+          .filter(Boolean)
+      : [];
+    this.userPath = { dirs, at: Date.now() };
+    return dirs;
+  }
+
   async findBinary(name: string): Promise<string | null> {
     const win = process.platform === 'win32';
     const home = os.homedir();
     const dirs = [
       ...(process.env.PATH || '').split(path.delimiter),
+      ...(await this.userPathDirs()),
       path.join(home, '.local', 'bin'),
       path.join(home, '.claude', 'local'),
       path.join(home, '.npm-global', 'bin'),
@@ -1176,6 +1229,9 @@ export class AgencyAiGatewayService {
       '/opt/homebrew/bin',
       ...(win && process.env.APPDATA
         ? [path.join(process.env.APPDATA, 'npm')]
+        : []),
+      ...(win && process.env.LOCALAPPDATA
+        ? [path.join(process.env.LOCALAPPDATA, 'agy', 'bin')]
         : []),
     ].filter(Boolean);
     const names = win ? [`${name}.exe`, `${name}.cmd`, `${name}.bat`] : [name];
@@ -1372,7 +1428,7 @@ export class AgencyAiGatewayService {
             signedOut
               ? new AiProviderError(
                   'not_signed_in',
-                  `${spec.label} is not signed in. Open a terminal, run “${spec.binary}” once and sign in.`
+                  `${spec.label} is not signed in. Under “Tools on this computer” in Settings, AI and Copilot, press Sign in and finish in your browser.`
                 )
               : new AiProviderError(
                   'bad_reply',

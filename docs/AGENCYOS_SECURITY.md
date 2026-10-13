@@ -153,3 +153,18 @@ Nothing here has had an external penetration test or audit.
 ## Reporting a vulnerability
 
 Follow `SECURITY.md` at the repository root.
+
+## Downloads of other vendors' programs
+
+* **Setup** downloads the local AI engine (fixed GitHub release URL, SHA-256 checked, never run
+  before the check) and runs Google's own Antigravity installer for the current user.
+* **Claude Code and Codex** are downloaded only when an administrator presses Download. Each runs
+  the maker's documented Windows installer script for the current user, from a fixed address on the
+  maker's own domain (claude.ai, chatgpt.com, antigravity.google). Those scripts are the makers'
+  code, not AgencyOS's: this is the same step the makers tell people to run in a terminal. Nothing
+  else is downloaded for them, and the tool name is checked against a fixed list before anything runs.
+* **Sign-in** passes through no secret of ours: the tool runs its own sign-in in the browser and keeps
+  its own credentials. AgencyOS only asks the tool whether it is signed in. A sign-in link is shown
+  only when it points at the maker's own sites, as a fallback when the browser did not open.
+* The controls are in the same token-protected launcher API as the other settings (only an
+  administrator on this computer, through the app's own server), one operation at a time, with a cancel.

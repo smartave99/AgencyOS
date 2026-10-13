@@ -21,6 +21,7 @@ import {
   useAiTools,
   useCan,
 } from '@gitroom/frontend/components/agency/agency.hooks';
+import { CliToolsCard } from '@gitroom/frontend/components/settings/cli.tools.component';
 import {
   Btn,
   Card,
@@ -974,6 +975,9 @@ export const AiSettingsComponent: FC = () => {
           canEdit={can('ai:configure')}
           onSaved={(saved) => settings.mutate(saved, { revalidate: false })}
         />
+      )}
+      {settings.data?.localMode && (
+        <CliToolsCard canEdit={can('ai:configure')} />
       )}
       {settings.data?.localMode && <ToolsCard canEdit={can('ai:configure')} />}
     </div>

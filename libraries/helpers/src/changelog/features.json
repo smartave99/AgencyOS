@@ -337,7 +337,7 @@
       "summary": "Choose which AI answers, which model, and how hard it thinks.",
       "steps": [
         "Open Settings → AI and Copilot.",
-        "Pick a provider. On the desktop app it starts as the Antigravity CLI: install Antigravity and sign in once, and nothing else is downloaded. Claude Code and Codex CLI work the same way. A model on this computer is optional (Settings → System → Local AI). APIs need your key.",
+        "Pick a provider. On the desktop app it starts as the Antigravity CLI, which is installed with AgencyOS: press Sign in with your browser under “Tools on this computer” and finish in the browser. Claude Code and Codex CLI are downloaded only when you press Download there, and sign in the same way; no terminal is needed. A model on this computer is optional (Settings → System → Local AI). APIs need your key.",
         "Pick a model from the list. The list comes from the provider itself (the tool, your installed models, or your API account) and has a Refresh button; you can also type a model name.",
         "Pick a thinking level. Only the levels that model supports are offered. Higher is slower and more careful; Auto leaves it to the provider.",
         "Under “A different model for each job” you can choose another provider, model and thinking level for ad copy, text improvement, Copilot chat and the agent, for example a fast local model for copy and a stronger one for the agent. Each job has its own Test button.",

@@ -393,15 +393,15 @@ export const GuideComponent: FC = () => {
           {[
             [
               'Claude Code',
-              'Install it, open a terminal, run claude once and sign in. Then pick it in Settings and press Test. AgencyOS uses your sign-in; it never sees your password.',
+              'In Settings, AI and Copilot, press Download under “Tools on this computer”, then Sign in with your browser. No terminal is needed. Then pick it and press Test. AgencyOS uses your sign-in; it never sees your password.',
             ],
             [
               'Codex CLI',
-              'Install it, run codex once and sign in. Leave the model empty to use Codex’s own default.',
+              'Press Download, then Sign in with your browser, in the same place. Leave the model empty to use Codex’s own default.',
             ],
             [
               'Antigravity CLI (the default, experimental)',
-              'Install it, run agy once and sign in, then press Test. Until it is installed and signed in, ad copy uses templates and the Copilot says what is missing. Support follows the program’s documented options and some versions hang when started by another program.',
+              'Installed with AgencyOS. Press Sign in with your browser under “Tools on this computer”, then Test. Until it is signed in, ad copy uses templates and the Copilot says what is missing. Support follows the program’s documented options and some versions hang when started by another program.',
             ],
             [
               'APIs',

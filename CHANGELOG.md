@@ -8,6 +8,8 @@ Antigravity CLI is now the default AI, so a new install downloads nothing; a loc
 
 ### Added
 
+- **Installer:** A brand-new computer needs nothing else. Everything AgencyOS runs on is in the setup file, and with Get ready to work ticked (the default) setup also downloads the local AI engine (about 1.4 GB, checked before it is used, no model) and installs Antigravity, so nothing is downloaded later. If you are offline or untick it, setup still finishes and Settings offers the same downloads.
+- **AI:** Settings → AI and Copilot → Tools on this computer: Claude Code and Codex are downloaded only when you press Download, each with its own Windows installer, and the page says where from. Nothing is downloaded for them otherwise.
 - **Campaigns:** Ad templates: in the campaign composer, press Templates to save the ad you wrote (text, media and link) or start a new campaign from a saved one. A template never sends anything by itself; the campaign made from it is reviewed like any other.
 - **Dashboard:** Live queue and bot health: the dashboard lists the posts that are sending, waiting or need someone (most urgent first), shows each connected bot with its state and chat count, and counts chats that are ready, lost or slowed down by Telegram. There is no shadow-ban indicator because Telegram does not report one.
 - **Leads:** Leads: create a link that opens one of your bots; whoever taps Start is added to your leads with the name and username Telegram gives, is told what is kept, and can send /stop to be deleted. Set status and notes, search, export CSV or JSON, or copy as text. Only people who asked are collected; nothing can message or add people in bulk.
@@ -23,7 +25,8 @@ Antigravity CLI is now the default AI, so a new install downloads nothing; a loc
 
 ### Changed
 
-- **AI:** Antigravity CLI is the default AI on the desktop app. A new install no longer downloads a local model by itself; install and sign in to Antigravity, or pick another tool or an API key in Settings → AI and Copilot.
+- **AI:** Every command-line tool signs in through your browser from a button (Sign in with your browser), never in a terminal. The tool opens its own sign-in page, AgencyOS notices when you finish, and you can cancel. Sign out is there for Claude Code and Codex.
+- **AI:** Antigravity CLI is the default AI on the desktop app, and setup installs it. A new install no longer downloads a local model by itself; press Sign in with your browser in Settings → AI and Copilot, or pick another tool or an API key.
 - **Desktop:** Closing the window now shuts AgencyOS down, after asking: no scheduled campaign is sent and no administrator's /authorize or /revoke is heard until you open it again. Minimizing the window keeps AgencyOS working in the background.
 - **Telegram:** A chat whose main bot is removed from it, or loses the right to post, is disconnected whatever backups it has, and a post that Telegram asks to slow down waits for its own bot. AgencyOS never switches bots to get around a chat's or Telegram's decision.
 
@@ -34,6 +37,7 @@ Antigravity CLI is now the default AI, so a new install downloads nothing; a loc
 ### Good to know
 
 - Telegram has still not been reached from the test machine: bots, backups and taking turns are tested against a simulated Telegram.
+- The setup downloads, the Download buttons and the browser sign-in use each vendor's own installer and sign-in page. They are tested here with stand-in programs; the Windows test run downloads Claude Code and Codex and starts a sign-in for real, but nobody can finish a browser sign-in in that run, so a complete sign-in has not been seen end to end. Antigravity's browser sign-in is the least certain: its documentation describes the first start opening the Google page, and AgencyOS starts it in a window nobody sees.
 - The local model manager and the new close-window behaviour have been run against a stand-in launcher and simulated engine; the Windows test run exercises them on a real machine. Antigravity, Codex and Claude Code themselves are not available to the test machine, so their sign-in and model lists have not been run for real.
 - The installer is still not code-signed in this release: signing needs a certificate that only the owner can obtain (docs/AGENCYOS_SIGNING.md). Even after that, Windows SmartScreen can warn for a while about a new publisher.
 - Auto-join, scraping members and bulk-adding people are still not built, and are not planned: see docs/AGENCYOS_RULES_CONFLICT.md.

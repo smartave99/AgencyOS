@@ -103,7 +103,7 @@ esac`
       const codex = await tool('codex-cli');
       expect(codex.status).toBe('failed');
       expect(codex.message).toMatch(/code 2/);
-      expect(codex.message).toMatch(/codex update/);
+      expect(codex.message).toMatch(/Press Download again/);
     });
 
     it('updates Antigravity with its documented `agy update`', async () => {

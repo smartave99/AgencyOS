@@ -73,6 +73,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "autostart"; Description: "Start {#AppName} in the background when I &sign in to Windows, so scheduled campaigns keep going"; GroupDescription: "Background operation:"
+Name: "prepare"; Description: "Download the local AI engine and install &Antigravity now, so they work right away (needs the internet, about 1.5 GB)"; GroupDescription: "Get ready to work:"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
 
 [Files]
@@ -332,6 +333,30 @@ begin
   StopRunningAgencyOS();
 end;
 
+// Downloads what a brand-new computer needs before AgencyOS can use its AI (the local AI engine, which is
+// the same checked download AgencyOS would make on its first start, and Antigravity, which Google's own
+// installer sets up). It never fails the installation: anything it could not get is offered again in
+// AgencyOS under Settings, and the result is in the setup log and in the AgencyOS logs folder.
+procedure PrepareThisComputer();
+var
+  Code: Integer;
+  Node, Script: String;
+begin
+  Node := ExpandConstant('{app}\runtime\node\node.exe');
+  Script := ExpandConstant('{app}\launcher\agencyos.mjs');
+  if not (FileExists(Node) and FileExists(Script)) then
+  begin
+    Log('Preparing this computer was skipped: the AgencyOS launcher is not in place.');
+    Exit;
+  end;
+  WizardForm.StatusLabel.Caption := 'Downloading the local AI engine and installing Antigravity. This can take several minutes...';
+  WizardForm.FilenameLabel.Caption := 'Needs the internet. If it cannot finish, AgencyOS offers it again in Settings.';
+  if Exec(Node, '"' + Script + '" prepare', '', SW_HIDE, ewWaitUntilTerminated, Code) then
+    Log('Preparing this computer finished with code ' + IntToStr(Code))
+  else
+    Log('Preparing this computer could not be started: ' + SysErrorMessage(Code));
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if (CurStep = ssPostInstall) and (not Upgrading) then
@@ -340,6 +365,8 @@ begin
     if ChosenAiDir() <> '' then ForceDirectories(ChosenAiDir());
     WritePointer(ChosenDataDir(), ChosenAiDir());
   end;
+  if (CurStep = ssPostInstall) and WizardIsTaskSelected('prepare') then
+    PrepareThisComputer();
 end;
 
 procedure PurgeFolder(const Dir: String);

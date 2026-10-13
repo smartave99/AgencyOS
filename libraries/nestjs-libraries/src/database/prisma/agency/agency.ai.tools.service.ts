@@ -48,11 +48,12 @@ const UPDATERS: Partial<Record<AiProviderId, string[]>> = {
 };
 
 const MANUAL_HINT: Partial<Record<AiProviderId, string>> = {
-  'claude-cli': 'Run “claude update” in a terminal.',
+  'claude-cli':
+    'Press Download again under “Tools on this computer” in Settings, AI and Copilot.',
   'codex-cli':
-    'Run “codex update” in a terminal, or update it the way you installed it (npm, Homebrew or winget).',
+    'Press Download again under “Tools on this computer” in Settings, AI and Copilot.',
   'antigravity-cli':
-    'Run “agy update” in a terminal, or run the Antigravity installer again.',
+    'Press Download again under “Tools on this computer” in Settings, AI and Copilot.',
 };
 
 const UPDATE_TIMEOUT_MS = 5 * 60_000;

@@ -14,14 +14,14 @@ A desktop app: install it, open it from the Start menu, and everything runs on y
 
 - The AgencyOS desktop app (own window, taskbar and tray icon; **closing the window shuts AgencyOS down** (it asks first, and nothing is sent while it is closed) and **minimizing keeps it working** in the background).
 - PostgreSQL 16, Redis, the Temporal workflow engine and Node.js, bundled and started for you. They listen only on this computer, so Windows Firewall never asks about them.
-- **AI with nothing to download.** AgencyOS uses Antigravity CLI by default (install and sign in to it on this computer; other tools and API keys are one choice away). A **local model is optional**: under **Settings → System → Local AI** you can let AgencyOS pick models for your computer, or download, try, start, stop and delete models yourself. Local models are a one-time download of roughly 2–6 GB, then work offline.
+- **Ready on a brand-new computer.** Everything AgencyOS needs is in the setup file. With **Get ready to work** ticked (the default), setup also downloads the local AI engine (about 1.4 GB, checked before use, no model) and installs **Antigravity CLI**, the default AI, so nothing more is downloaded later. **Claude Code and Codex are downloaded only when you press Download** in Settings → AI and Copilot, and **every sign-in opens your browser**: no terminal is ever needed. A local model is optional: under **Settings → System → Local AI** you can let AgencyOS pick models for your computer, or download, try, start, stop and delete models yourself.
 - **You choose where your files are stored.** Setup asks for a data folder (database, uploads, logs) and, optionally, a separate folder for the AI models. The default is `%LOCALAPPDATA%\AgencyOS`. Later, **Settings → Storage** moves them safely: files are copied and checked first, and the old copy is deleted only when you say so. Your data is kept when you upgrade or uninstall (the uninstaller asks and lists the folders).
 - **No sign-in.** AgencyOS runs for one person on this computer and opens straight into your workspace.
 - **One place for AI.** Settings → AI and Copilot lets you use Antigravity CLI (the default), a local model, Claude Code, Codex CLI, Antigravity CLI or an API key (Anthropic, OpenAI, Gemini, or any OpenAI-compatible service), choose the model and the thinking level, and test that it works. The **Guide** inside the app explains the main workflow and how to set up a local model if you want one.
 
 ### Requirements
 
-Windows 10 (version 1809) or Windows 11, 64-bit (Windows on ARM runs it through Windows' x64 emulation). About 4 GB of free disk space for the program, plus space for any local AI models you choose to download. 8 GB of memory or more recommended for local models; below 8 GB they are limited to small ones, below 4 GB they are not offered.
+Windows 10 (version 1809) or Windows 11, 64-bit (Windows on ARM runs it through Windows' x64 emulation). About 6 GB of free disk space for the program and the local AI engine, plus space for any local AI models you choose to download. 8 GB of memory or more recommended for local models; below 8 GB they are limited to small ones, below 4 GB they are not offered.
 
 ### First start
 

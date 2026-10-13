@@ -142,6 +142,36 @@ export interface LocalAiModels {
   modelsDir: string;
 }
 
+/** The command-line AI tools on this computer, as the launcher reports them. */
+export type CliToolId = 'antigravity' | 'claude' | 'codex';
+
+export interface CliToolView {
+  id: CliToolId;
+  label: string;
+  installed: boolean;
+  path: string | null;
+  version: string | null;
+  /** null when the program could not say, so nothing is guessed. */
+  signedIn: boolean | null;
+  canSignOut: boolean;
+}
+
+export interface CliToolTask {
+  tool: CliToolId;
+  action: 'install' | 'login';
+  state: 'working' | 'waiting' | 'done' | 'failed' | 'cancelled';
+  message: string;
+  /** The vendor's sign-in page, shown only as a fallback when the browser did not open by itself. */
+  url?: string | null;
+  error?: string | null;
+}
+
+export interface CliTools {
+  platform: string;
+  tools: CliToolView[];
+  task: CliToolTask | null;
+}
+
 /** The same rule the launcher applies before a model name reaches the engine. */
 export const MODEL_NAME =
   /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,80}){0,2}(:[A-Za-z0-9._-]{1,60})?$/;
@@ -173,6 +203,19 @@ export const useLocalModels = () =>
     'agency-local-models',
     () => systemRequest<LocalAiModels>('GET', 'ai/models'),
     { refreshInterval: 2000, revalidateOnFocus: true }
+  );
+
+const cliBusy = (data?: CliTools) =>
+  !!data?.task && ['working', 'waiting'].includes(data.task.state);
+
+export const useCliTools = () =>
+  useSWR<CliTools>(
+    'agency-cli-tools',
+    () => systemRequest<CliTools>('GET', 'cli/tools'),
+    {
+      refreshInterval: (data) => (cliBusy(data) ? 1500 : 15000),
+      revalidateOnFocus: true,
+    }
   );
 
 export const useSystemStatus = () =>

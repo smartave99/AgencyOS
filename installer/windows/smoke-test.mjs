@@ -107,12 +107,15 @@ function sessionFrom(res) {
   }
   return null;
 }
-function ps(command) {
-  // This script runs under PowerShell 7 on the build machine; Windows PowerShell 5.1 started from it must not
-  // inherit its module path, or it cannot load its own modules (Get-AuthenticodeSignature among them).
+/** This script runs under PowerShell 7 on the build machine; Windows PowerShell 5.1 started from it must not
+ *  inherit its module path, or it cannot load its own modules (Get-AuthenticodeSignature among them). */
+function windowsPowerShellEnv() {
   const env = { ...process.env };
   delete env.PSModulePath;
-  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', timeout: 60000, env });
+  return env;
+}
+function ps(command) {
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', timeout: 60000, env: windowsPowerShellEnv() });
   return `${r.stdout || ''}`.trim();
 }
 
@@ -225,7 +228,9 @@ async function main() {
     assert(fs.existsSync(installer), `installer not found: ${installer}`);
     fs.rmSync(installDir, { recursive: true, force: true });
     const t0 = Date.now();
-    const r = spawnSync(installer, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', `/DIR=${installDir}`, `/LOG=${path.join(artifacts, 'installer.log')}`], { encoding: 'utf8', timeout: 25 * 60000 });
+    // Setup downloads the local AI engine and installs Antigravity unless told not to (a quick run without the AI part says so).
+    const tasks = skipAi ? ['/MERGETASKS=!prepare'] : [];
+    const r = spawnSync(installer, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', `/DIR=${installDir}`, ...tasks, `/LOG=${path.join(artifacts, 'installer.log')}`], { encoding: 'utf8', timeout: 40 * 60000 });
     if (r.status !== 0) {
       // Setup's own log says why (a script error, a folder it refused, a file it could not replace).
       let why = '';
@@ -255,7 +260,7 @@ async function main() {
   await step('the installer and the app carry a signature Windows accepts, or this build says plainly that it is unsigned', async () => {
     const signatureOf = (file) => {
       const quoted = file.replace(/'/g, "''");
-      const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', `$s = Get-AuthenticodeSignature -LiteralPath '${quoted}'; @{ status = $s.Status.ToString(); subject = if ($s.SignerCertificate) { $s.SignerCertificate.Subject } else { '' }; timestamped = [bool]$s.TimeStamperCertificate } | ConvertTo-Json -Compress`], { encoding: 'utf8' });
+      const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', `$s = Get-AuthenticodeSignature -LiteralPath '${quoted}'; @{ status = $s.Status.ToString(); subject = if ($s.SignerCertificate) { $s.SignerCertificate.Subject } else { '' }; timestamped = [bool]$s.TimeStamperCertificate } | ConvertTo-Json -Compress`], { encoding: 'utf8', env: windowsPowerShellEnv() });
       assert(r.status === 0, `could not read the signature of ${file}: ${r.stderr}`);
       return JSON.parse(r.stdout.trim());
     };
@@ -275,6 +280,22 @@ async function main() {
     }
     console.log(`   signed (${signingMode}) by ${installerSignature.subject}`);
   });
+
+  if (!skipAi) {
+    await step('setup prepared this computer: the local AI engine and Antigravity are installed, nothing more to download', async () => {
+      const prepared = readJson(path.join(dataDirNow(), 'config', 'prepare.json'));
+      report.facts.prepare = prepared;
+      assert(prepared.ollama?.ok === true, `the local AI engine was not prepared: ${JSON.stringify(prepared.ollama)}`);
+      assert(fs.existsSync(path.join(dataDirNow(), 'ollama', 'app', 'ollama.exe')), 'ollama.exe is not where the app looks for it');
+      assert(prepared.antigravity?.ok === true, `Antigravity was not installed by setup: ${JSON.stringify(prepared.antigravity)}`);
+      const agy = prepared.antigravity.path;
+      assert(agy && fs.existsSync(agy), `agy.exe is not at ${agy}`);
+      const version = spawnSync(agy, ['--version'], { encoding: 'utf8', timeout: 30000, env: windowsPowerShellEnv() });
+      assert(version.status === 0, `agy --version exited ${version.status}: ${version.stderr}`);
+      report.facts.agyVersion = String(version.stdout).trim().split(/\r?\n/)[0];
+      console.log(`   engine ${prepared.ollama.version}; Antigravity ${report.facts.agyVersion}`);
+    });
+  }
 
   await step('start the desktop app: services come up on a machine that has nothing installed', async () => {
     launchApp();
@@ -382,9 +403,9 @@ async function main() {
       const res = await fetch(`${app}/api/system/${closed}`, { method: 'POST', headers: { cookie: `auth=${auth}`, 'content-type': 'application/json' }, body: '{}' });
       assert(res.status === 404, `${closed} must not be reachable through the app -> ${res.status}`);
     }
-    // Antigravity is the default, so a new install downloads nothing: local AI is something the person switches on.
+    // Setup puts the local AI engine in place (unless a quick run skipped it), but no model is downloaded and nothing starts: local AI is something the person switches on.
     const localAi = await viaApp(auth, 'GET', 'ai/models');
-    assert(localAi.status === 200 && localAi.json?.auto === false && localAi.json.engine?.installed === false && localAi.json.installed?.length === 0, `local AI on a new install -> ${localAi.status} ${JSON.stringify(localAi.json)?.slice(0, 300)}`);
+    assert(localAi.status === 200 && localAi.json?.auto === false && localAi.json.engine?.installed === !skipAi && localAi.json.installed?.length === 0, `local AI on a new install -> ${localAi.status} ${JSON.stringify(localAi.json)?.slice(0, 300)}`);
     assert(localAi.json.suggestions?.some((x) => x.kind === 'text') && localAi.json.suggestions.some((x) => x.kind === 'embedding'), 'no models are suggested for download');
     const standby = await waitFor('local AI to wait until it is switched on', async () => {
       const ai = (await getJson(`http://127.0.0.1:${await statusPort()}/api/status`)).json?.ai;
@@ -488,6 +509,51 @@ async function main() {
         return m.engine.running && m.engineTask?.state !== 'working' ? m : null;
       }, { timeoutMs: 180000 });
       for (const name of kept) assert(again.installed.some((x) => x.name === name), `${name} was lost while managing models by hand`);
+    });
+
+    await step('Claude Code and Codex download only on request, sign-in opens the browser, and the server finds what was downloaded', async () => {
+      const tools = async () => (await viaApp(user.auth, 'GET', 'cli/tools')).json;
+      const before = await tools();
+      for (const id of ['claude', 'codex']) assert(before.tools.find((t) => t.id === id)?.installed === false, `${id} was installed before anyone asked for it`);
+      assert(before.tools.find((t) => t.id === 'antigravity')?.installed === true, 'Antigravity should come with the install');
+
+      const bad = await viaApp(user.auth, 'POST', 'cli/install', { tool: 'claude; calc' });
+      assert(bad.status === 400, `a bad tool name was not refused -> ${bad.status}`);
+
+      for (const id of ['claude', 'codex']) {
+        const started = await viaApp(user.auth, 'POST', 'cli/install', { tool: id });
+        assert(started.status === 202, `download ${id} -> ${started.status} ${JSON.stringify(started.json)}`);
+        const done = await waitFor(`${id} to download`, async () => {
+          const t = await tools();
+          if (t.task?.tool === id && t.task.state === 'failed') throw new Error(`the ${id} download failed: ${t.task.error}`);
+          return t.task?.tool === id && t.task.state === 'done' && t.tools.find((x) => x.id === id)?.installed ? t : null;
+        }, { timeoutMs: 12 * 60000, intervalMs: 3000 });
+        const entry = done.tools.find((x) => x.id === id);
+        assert(entry.version, `${id} installed but reports no version`);
+        report.facts[`${id}Version`] = entry.version;
+        console.log(`   ${id}: ${entry.version} at ${entry.path}`);
+      }
+
+      // The server (started before any of this) finds what the vendors' installers put in the user's PATH.
+      const status = await getJson('http://127.0.0.1:3000/agency/ai/status', { auth: user.auth });
+      for (const id of ['claude-cli', 'codex-cli', 'antigravity-cli']) {
+        assert(status.json?.find((p) => p.id === id)?.ready === true, `the server does not see ${id}: ${JSON.stringify(status.json?.find((p) => p.id === id))}`);
+      }
+
+      // Sign-in is started from the app and runs without a terminal; there is no one to finish it here, so it is cancelled.
+      const login = await viaApp(user.auth, 'POST', 'cli/login', { tool: 'claude' });
+      assert(login.status === 202, `sign-in -> ${login.status} ${JSON.stringify(login.json)}`);
+      const started = await waitFor('the sign-in to start', async () => {
+        const t = await tools();
+        return t.task?.action === 'login' && ['waiting', 'failed'].includes(t.task.state) ? t : null;
+      }, { timeoutMs: 90000, intervalMs: 1500 });
+      report.facts.signIn = { state: started.task.state, message: started.task.message || started.task.error, hasLink: !!started.task.url };
+      console.log(`   sign-in: ${started.task.state} ${started.task.message || started.task.error || ''} ${started.task.url ? '(link shown)' : ''}`);
+      if (started.task.state === 'waiting') {
+        const cancelled = await viaApp(user.auth, 'POST', 'cli/cancel', {});
+        assert(cancelled.status === 200 && cancelled.json?.cancelled === true, `cancel -> ${cancelled.status} ${JSON.stringify(cancelled.json)}`);
+      }
+      assert((await tools()).tools.find((t) => t.id === 'claude').signedIn !== true, 'Claude Code cannot be signed in on a clean build machine');
     });
   }
 

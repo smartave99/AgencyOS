@@ -13,7 +13,10 @@ import { AgencyPublishingRepository } from './agency.publishing.repository';
 import { AgencyPublishingService } from './agency.publishing.service';
 import { AgencyAccessService, AgencyActor } from './agency.access.service';
 import {
-  TelegramGateway,
+  AgencyTelegramBotsService,
+  BotHandle,
+} from './agency.telegram.bots.service';
+import {
   TelegramGatewayError,
   TelegramInboundUpdate,
 } from '@gitroom/nestjs-libraries/integrations/telegram/telegram.gateway';
@@ -27,7 +30,6 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const AUTHORIZE_RE = /^\/authorize(?:@\w+)?\s+(AOS-[A-Z0-9]{8})\s*$/i;
 const REVOKE_RE = /^\/revoke(?:@\w+)?\s*$/i;
 const GROUP_ANONYMOUS_BOT_ID = 1087968824;
-const POLL_LEASE_NAME = 'agency-telegram-updates';
 
 type DestinationRow = NonNullable<
   Awaited<ReturnType<AgencyRepository['getTelegramDestinationById']>>
@@ -39,14 +41,15 @@ export class AgencyTelegramService {
   private readonly holderId = `${hostname()}:${process.pid}:${randomBytes(
     3
   ).toString('hex')}`;
-  private updateOffset: number | undefined;
+  // Telegram numbers each bot's updates separately, so each bot keeps its own place.
+  private readonly updateOffsets = new Map<string, number>();
 
   constructor(
     private readonly repo: AgencyRepository,
     private readonly jobs: AgencyPublishingRepository,
     private readonly publishing: AgencyPublishingService,
     private readonly access: AgencyAccessService,
-    private readonly gateway: TelegramGateway
+    private readonly bots: AgencyTelegramBotsService
   ) {}
 
   private get consentValidDays() {
@@ -64,14 +67,19 @@ export class AgencyTelegramService {
   }
 
   /** Live look at a chat without registering anything: what the bot can see and do there. */
-  async previewChat(actor: AgencyActor, chatRef: string) {
+  async previewChat(actor: AgencyActor, chatRef: string, botId?: string) {
     this.access.assert(actor, 'destination:manage');
-    if (!this.gateway.isConfigured()) {
-      return this.unavailable('Telegram bot is not configured on this server');
+    let bot: BotHandle;
+    try {
+      bot = await this.bots.chooseFor(actor.orgId, botId);
+    } catch (err) {
+      return this.unavailable(
+        (err as Error).message || 'No Telegram bot is connected yet.'
+      );
     }
     try {
-      const chat = await this.gateway.getChat(chatRef);
-      const perms = await this.gateway.getBotPermissions(chat.id);
+      const chat = await bot.gateway.getChat(chatRef);
+      const perms = await bot.gateway.getBotPermissions(chat.id);
       return {
         valid: true,
         title: chat.title,
@@ -101,6 +109,8 @@ export class AgencyTelegramService {
     this.access.assert(actor, 'destination:manage');
     const chatRef = this.normalizeRef(dto.chatId);
     this.assertSettings(dto);
+    // The bot is chosen first: it is the one that looks the chat up, posts in it and hears /authorize.
+    const bot = await this.bots.chooseFor(actor.orgId, dto.botId);
 
     const existing = await this.repo.getTelegramDestinationByChat(
       actor.orgId,
@@ -116,26 +126,24 @@ export class AgencyTelegramService {
     let type = 'channel';
     let chatId = chatRef;
     let botNote: string | null = null;
-    if (this.gateway.isConfigured()) {
-      try {
-        const chat = await this.gateway.getChat(chatRef);
-        title = chat.title;
-        type = chat.type;
-        chatId = chat.id;
-        const dupe = await this.repo.getTelegramDestinationByChat(
-          actor.orgId,
-          chatId
+    try {
+      const chat = await bot.gateway.getChat(chatRef);
+      title = chat.title;
+      type = chat.type;
+      chatId = chat.id;
+      const dupe = await this.repo.getTelegramDestinationByChat(
+        actor.orgId,
+        chatId
+      );
+      if (dupe) {
+        throw new ConflictException(
+          'This chat is already registered. Open it to manage authorization.'
         );
-        if (dupe) {
-          throw new ConflictException(
-            'This chat is already registered. Open it to manage authorization.'
-          );
-        }
-      } catch (err) {
-        if (err instanceof ConflictException) throw err;
-        botNote =
-          'The bot cannot see this chat yet. Add it as an administrator, then authorize.';
       }
+    } catch (err) {
+      if (err instanceof ConflictException) throw err;
+      botNote =
+        'The bot cannot see this chat yet. Add it as an administrator, then authorize.';
     }
 
     const { code, hash } = this.newVerificationCode();
@@ -143,6 +151,8 @@ export class AgencyTelegramService {
       chatId,
       title,
       type,
+      botId: bot.id,
+      botUsername: (await this.usernameOf(bot)) || undefined,
       timezone: dto.timezone,
       ownerName: dto.ownerName,
       ownerContact: dto.ownerContact,
@@ -162,7 +172,7 @@ export class AgencyTelegramService {
     });
     return {
       destination: this.toView(created),
-      ...(await this.instructions(code)),
+      ...(await this.instructions(code, bot)),
     };
   }
 
@@ -173,6 +183,8 @@ export class AgencyTelegramService {
     if (dest.authorizationStatus === DestinationAuthStatus.ACTIVE) {
       throw new BadRequestException('Destination is already authorized');
     }
+    // A chat whose bot is gone cannot be authorized: say so now rather than issue a code nobody can use.
+    const bot = await this.bots.handleFor(actor.orgId, dest.botId);
     const { code, hash } = this.newVerificationCode();
     const updated = await this.repo.setDestinationAuthorization(
       actor.orgId,
@@ -191,7 +203,7 @@ export class AgencyTelegramService {
     });
     return {
       destination: this.toView(updated!),
-      ...(await this.instructions(code)),
+      ...(await this.instructions(code, bot)),
     };
   }
 
@@ -258,8 +270,9 @@ export class AgencyTelegramService {
         'Consent has expired; restart verification'
       );
     }
-    const perms = await this.gateway
-      .getBotPermissions(dest.chatId)
+    const perms = await this.bots
+      .handleFor(actor.orgId, dest.botId)
+      .then((bot) => bot.gateway.getBotPermissions(dest.chatId))
       .catch((e) => {
         throw new BadRequestException(this.describeError(e));
       });
@@ -333,7 +346,8 @@ export class AgencyTelegramService {
     this.access.assert(actor, 'destination:manage');
     const dest = await this.requireDestination(actor.orgId, id);
     try {
-      const perms = await this.gateway.getBotPermissions(dest.chatId);
+      const bot = await this.bots.handleFor(actor.orgId, dest.botId);
+      const perms = await bot.gateway.getBotPermissions(dest.chatId);
       if (
         dest.authorizationStatus === DestinationAuthStatus.ACTIVE &&
         (!perms.isAdmin || !perms.canPostMessages)
@@ -379,12 +393,57 @@ export class AgencyTelegramService {
   }
 
   // ==========================================
+  // BOTS: what happens to their chats
+  // ==========================================
+  /** Resuming a bot sends its authorized chats' paused posts on their way again. */
+  async setBotEnabled(actor: AgencyActor, id: string, enabled: boolean) {
+    const bot = await this.bots.setEnabled(actor, id, enabled);
+    if (bot.status === 'ACTIVE') {
+      for (const d of await this.repo.getDestinationsOfBot(actor.orgId, id)) {
+        if (d.authorizationStatus === DestinationAuthStatus.ACTIVE) {
+          await this.publishing.unblockForDestination(actor.orgId, d.id);
+        }
+      }
+    }
+    return bot;
+  }
+
+  /**
+   * Removing a bot wipes its token and takes every chat it served out of service, with queued posts
+   * paused and a reason shown. A chat is never silently handed to a different bot.
+   */
+  async removeBot(actor: AgencyActor, id: string) {
+    const chats = (await this.repo.getDestinationsOfBot(actor.orgId, id)).filter(
+      (d) => d.authorizationStatus !== DestinationAuthStatus.REVOKED
+    );
+    const result = await this.bots.delete(actor, id);
+    for (const d of chats) {
+      await this.publishing.handleDestinationUnavailable(
+        actor.orgId,
+        d.id,
+        'DISCONNECTED',
+        'Its bot was removed',
+        actor
+      );
+    }
+    return { ...result, chatsStopped: chats.length };
+  }
+
+  // ==========================================
   // INBOUND TELEGRAM UPDATES (webhook or polling) — must never throw
   // ==========================================
-  async handleUpdate(update: TelegramInboundUpdate): Promise<void> {
+  /**
+   * `bot` is the bot that received the update: it alone may act on it, and it answers in the chat.
+   * Without one the update came by the webhook, which only the server's bot has.
+   */
+  async handleUpdate(
+    update: TelegramInboundUpdate,
+    receiver?: BotHandle
+  ): Promise<void> {
     try {
+      const bot = receiver ?? (await this.bots.handleFor('', null));
       if (update.my_chat_member) {
-        await this.onBotMembershipChanged(update.my_chat_member);
+        await this.onBotMembershipChanged(update.my_chat_member, bot);
         return;
       }
       const msg = update.message ?? update.channel_post;
@@ -392,9 +451,9 @@ export class AgencyTelegramService {
       const text = msg.text.trim();
       const authorize = AUTHORIZE_RE.exec(text);
       if (authorize) {
-        await this.onAuthorizeCommand(msg, authorize[1].toUpperCase());
+        await this.onAuthorizeCommand(msg, authorize[1].toUpperCase(), bot);
       } else if (REVOKE_RE.test(text)) {
-        await this.onRevokeCommand(msg);
+        await this.onRevokeCommand(msg, bot);
       }
     } catch (err: any) {
       this.logger.error(
@@ -405,7 +464,8 @@ export class AgencyTelegramService {
 
   private async onAuthorizeCommand(
     msg: NonNullable<TelegramInboundUpdate['message']>,
-    code: string
+    code: string,
+    bot: BotHandle
   ) {
     const chatId = String(msg.chat.id);
     const refs = [
@@ -415,7 +475,7 @@ export class AgencyTelegramService {
     const candidates = (
       await Promise.all(
         refs.map((r) =>
-          this.repo.getDestinationsPendingVerification(r, new Date())
+          this.repo.getDestinationsPendingVerification(r, new Date(), bot.id)
         )
       )
     ).flat();
@@ -444,8 +504,9 @@ export class AgencyTelegramService {
       // An administrator posting anonymously as the group.
       authorizerName = msg.author_signature || 'anonymous group administrator';
     } else if (fromId && !msg.from?.is_bot) {
-      if (!(await this.gateway.isChatAdmin(chatId, fromId))) {
+      if (!(await bot.gateway.isChatAdmin(chatId, fromId))) {
         await this.notice(
+          bot,
           chatId,
           'Only a group administrator can authorize advertising here.'
         );
@@ -460,9 +521,10 @@ export class AgencyTelegramService {
       return;
     }
 
-    const perms = await this.gateway.getBotPermissions(chatId);
+    const perms = await bot.gateway.getBotPermissions(chatId);
     if (!perms.isAdmin || !perms.canPostMessages) {
       await this.notice(
+        bot,
         chatId,
         'Please make me an administrator with permission to post messages, then send the command again.'
       );
@@ -507,6 +569,7 @@ export class AgencyTelegramService {
     });
     await this.publishing.unblockForDestination(dest.orgId, dest.id);
     await this.notice(
+      bot,
       chatId,
       `✅ ${orgName} is now authorized to publish advertising posts in this chat until ${expires
         .toISOString()
@@ -519,7 +582,8 @@ export class AgencyTelegramService {
 
   /** A chat administrator can withdraw consent for every agency using this chat, without anyone's cooperation. */
   private async onRevokeCommand(
-    msg: NonNullable<TelegramInboundUpdate['message']>
+    msg: NonNullable<TelegramInboundUpdate['message']>,
+    bot: BotHandle
   ) {
     const chatId = String(msg.chat.id);
     const isChannelPost = !msg.from && !!msg.sender_chat;
@@ -532,7 +596,7 @@ export class AgencyTelegramService {
         !anonymousAdmin &&
         (!fromId ||
           msg.from?.is_bot ||
-          !(await this.gateway.isChatAdmin(chatId, fromId)))
+          !(await bot.gateway.isChatAdmin(chatId, fromId)))
       ) {
         return;
       }
@@ -552,6 +616,7 @@ export class AgencyTelegramService {
       );
     }
     await this.notice(
+      bot,
       chatId,
       live.length
         ? '🛑 Advertising authorization revoked. No further ads will be posted here.'
@@ -560,7 +625,8 @@ export class AgencyTelegramService {
   }
 
   private async onBotMembershipChanged(
-    change: NonNullable<TelegramInboundUpdate['my_chat_member']>
+    change: NonNullable<TelegramInboundUpdate['my_chat_member']>,
+    bot: BotHandle
   ) {
     const status = change.new_chat_member?.status;
     const can = (change.new_chat_member as any)?.can_post_messages;
@@ -573,8 +639,10 @@ export class AgencyTelegramService {
         change.chat.type === 'channel' &&
         can === false);
     if (!lost) return;
-    const rows = await this.repo.getTelegramDestinationsByChatAcrossOrgs(
-      String(change.chat.id)
+    // This bot lost its place; chats served by another bot are not affected.
+    const rows = await this.repo.getTelegramDestinationsOfBotByChat(
+      String(change.chat.id),
+      bot.id
     );
     for (const r of rows.filter(
       (x) => x.authorizationStatus === DestinationAuthStatus.ACTIVE
@@ -605,23 +673,23 @@ export class AgencyTelegramService {
   // ==========================================
   // UPDATE TRANSPORT
   // ==========================================
-  /** Long-polls once. Only the lease holder polls, so processes never fight over getUpdates. */
-  async pollUpdatesOnce(timeoutSeconds = 20): Promise<number> {
-    if (!this.gateway.isConfigured()) return 0;
+  /** Long-polls one bot once. Only the lease holder polls a bot, so processes never fight over getUpdates. */
+  async pollUpdatesOnce(bot: BotHandle, timeoutSeconds = 20): Promise<number> {
+    const lease = AgencyTelegramBotsService.leaseName(bot);
     const leader = await this.jobs.acquireLease(
-      POLL_LEASE_NAME,
+      lease,
       this.holderId,
       (timeoutSeconds + 40) * 1000
     );
     if (!leader) return 0;
     try {
-      const updates = await this.gateway.getUpdates(
-        this.updateOffset,
+      const updates = await bot.gateway.getUpdates(
+        this.updateOffsets.get(lease),
         timeoutSeconds
       );
       for (const u of updates) {
-        await this.handleUpdate(u);
-        this.updateOffset = u.update_id + 1;
+        await this.handleUpdate(u, bot);
+        this.updateOffsets.set(lease, u.update_id + 1);
       }
       return updates.length;
     } catch (err) {
@@ -630,9 +698,17 @@ export class AgencyTelegramService {
         err.kind === 'UNKNOWN' &&
         /webhook/i.test(err.message)
       ) {
-        this.logger.warn('Telegram webhook is active; polling is disabled');
+        this.logger.warn(
+          `The webhook of "${bot.label}" is active; polling is disabled for it`
+        );
       } else {
-        this.logger.warn(`Telegram polling failed: ${(err as Error)?.message}`);
+        this.logger.warn(
+          `Telegram polling for "${bot.label}" failed: ${(err as Error)?.message}`
+        );
+        // Telegram refusing the token is permanent until a new one is given: stop asking.
+        if (err instanceof TelegramGatewayError && err.kind === 'UNCONFIGURED') {
+          await this.bots.markRejected(bot, err.message).catch(() => undefined);
+        }
       }
       return 0;
     }
@@ -673,14 +749,16 @@ export class AgencyTelegramService {
     return ab.length === bb.length && timingSafeEqual(ab, bb);
   }
 
-  private async instructions(code: string) {
-    let botUsername: string | null = null;
-    if (this.gateway.isConfigured()) {
-      botUsername = await this.gateway.getBotInfo().then(
-        (b) => b.username,
-        () => null
-      );
-    }
+  private async usernameOf(bot: BotHandle): Promise<string | null> {
+    if (bot.username) return bot.username;
+    return bot.gateway.getBotInfo().then(
+      (b) => b.username,
+      () => null
+    );
+  }
+
+  private async instructions(code: string, bot: BotHandle) {
+    const botUsername = await this.usernameOf(bot);
     return {
       verificationCode: code,
       botUsername,
@@ -772,9 +850,9 @@ export class AgencyTelegramService {
     };
   }
 
-  private async notice(chatId: string, text: string) {
+  private async notice(bot: BotHandle, chatId: string, text: string) {
     try {
-      await this.gateway.sendNotice(chatId, text);
+      await bot.gateway.sendNotice(chatId, text);
     } catch (err: any) {
       this.logger.warn(`Could not reply in chat ${chatId}: ${err?.message}`);
     }

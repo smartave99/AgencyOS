@@ -23,6 +23,7 @@ export type AgencyPermission =
   | 'campaign:delete'
   | 'destination:read'
   | 'destination:manage'
+  | 'bot:manage'
   | 'accounts:read'
   | 'accounts:manage'
   | 'crm:read'
@@ -94,6 +95,8 @@ export const AGENCY_PERMISSIONS: Record<AgencyPermission, AgencyRole[]> = {
   'campaign:delete': [OWNER, ADMIN, CAMPAIGN_MANAGER],
   'destination:read': ALL_STAFF,
   'destination:manage': [OWNER, ADMIN, CAMPAIGN_MANAGER],
+  // A bot's token is a password for it, so only owners and admins connect or remove bots.
+  'bot:manage': [OWNER, ADMIN],
   'accounts:read': ALL_STAFF,
   'accounts:manage': [OWNER, ADMIN, CAMPAIGN_MANAGER],
   'crm:read': [OWNER, ADMIN, SALES_MANAGER, SALES_EXEC],

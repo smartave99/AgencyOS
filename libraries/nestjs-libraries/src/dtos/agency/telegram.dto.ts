@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -12,6 +13,47 @@ export class VerifyTelegramChatDto {
   @IsString()
   @IsNotEmpty()
   chatId: string;
+
+  @ApiPropertyOptional({
+    description: 'The connected bot to look through (omit for the server bot)',
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(64)
+  botId?: string;
+}
+
+/** What @BotFather hands out: 123456789:AAH… */
+export const TELEGRAM_BOT_TOKEN = /^\d{6,}:[A-Za-z0-9_-]{30,}$/;
+
+export class AddTelegramBotDto {
+  @ApiProperty({ description: 'Your own name for the bot, e.g. "Acme Ads"' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(80)
+  label: string;
+
+  @ApiProperty({ description: 'The bot token from @BotFather' })
+  @IsString()
+  @Matches(TELEGRAM_BOT_TOKEN, {
+    message:
+      'That does not look like a bot token. It looks like 123456789:AAH… and comes from @BotFather.',
+  })
+  token: string;
+}
+
+export class UpdateTelegramBotDto {
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @IsNotEmpty()
+  @MaxLength(80)
+  label?: string;
+
+  @ApiPropertyOptional({ description: 'false pauses the bot without removing it' })
+  @IsBoolean()
+  @IsOptional()
+  enabled?: boolean;
 }
 
 /**
@@ -19,6 +61,15 @@ export class VerifyTelegramChatDto {
  * never accepted from the caller.
  */
 export class RegisterTelegramDestinationDto {
+  @ApiPropertyOptional({
+    description:
+      'Which connected bot posts here. Required when more than one bot is connected.',
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(64)
+  botId?: string;
+
   @ApiProperty({
     description: 'Telegram Chat ID (e.g. -100123456789 or @channelname)',
   })

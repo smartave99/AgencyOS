@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
-import { CampaignStatus, DestinationAuthStatus, Prisma } from '@prisma/client';
+import {
+  CampaignStatus,
+  DestinationAuthStatus,
+  Prisma,
+  TelegramBotStatus,
+} from '@prisma/client';
 
 export interface CreateClientParams {
   name: string;
@@ -78,6 +83,7 @@ export interface CreateTelegramDestinationParams {
   chatId: string;
   title: string;
   type?: string;
+  botId?: string | null;
   botUsername?: string;
   canPostMessages?: boolean;
   canDeleteMessages?: boolean;
@@ -601,14 +607,30 @@ export class AgencyRepository {
     });
   }
 
-  async getDestinationsPendingVerification(chatId: string, now: Date) {
+  /** `botId` is the bot that received the command (null: the server's bot); no other bot can authorize a chat. */
+  async getDestinationsPendingVerification(
+    chatId: string,
+    now: Date,
+    botId: string | null
+  ) {
     return this.prisma.telegramDestination.findMany({
       where: {
         chatId,
+        botId,
         deletedAt: null,
         authorizationStatus: DestinationAuthStatus.PENDING_VERIFICATION,
         verificationExpiresAt: { gt: now },
       },
+    });
+  }
+
+  /** The chats one bot serves, for when that bot is told it lost its place in a chat. */
+  async getTelegramDestinationsOfBotByChat(
+    chatId: string,
+    botId: string | null
+  ) {
+    return this.prisma.telegramDestination.findMany({
+      where: { chatId, botId, deletedAt: null },
     });
   }
 
@@ -633,6 +655,7 @@ export class AgencyRepository {
         chatId: params.chatId,
         title: params.title,
         type: params.type || 'channel',
+        botId: params.botId ?? null,
         botUsername: params.botUsername,
         canPostMessages: params.canPostMessages ?? false,
         canDeleteMessages: params.canDeleteMessages ?? false,
@@ -725,6 +748,117 @@ export class AgencyRepository {
         consentRevokedAt: new Date(),
         revokedReason: 'Destination removed',
       },
+    });
+  }
+
+  // ==========================================
+  // TELEGRAM BOTS
+  // ==========================================
+  // The sealed token is selected only by the *WithToken readers, which are for the services that
+  // have to talk as the bot; every list that reaches a controller leaves it out.
+  private static readonly BOT_VIEW = {
+    id: true,
+    orgId: true,
+    label: true,
+    telegramBotId: true,
+    username: true,
+    status: true,
+    lastError: true,
+    lastCheckedAt: true,
+    createdAt: true,
+  } satisfies Prisma.TelegramBotSelect;
+
+  async getTelegramBots(orgId: string) {
+    const rows = await this.prisma.telegramBot.findMany({
+      where: { orgId, deletedAt: null },
+      select: {
+        ...AgencyRepository.BOT_VIEW,
+        _count: { select: { destinations: { where: { deletedAt: null } } } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map(({ _count, ...bot }) => ({
+      ...bot,
+      destinationCount: _count.destinations,
+    }));
+  }
+
+  async getTelegramBotWithToken(orgId: string, id: string) {
+    return this.prisma.telegramBot.findFirst({
+      where: { id, orgId, deletedAt: null },
+    });
+  }
+
+  /** Used by the sender and the pollers, which know a destination's bot id but not who owns it. */
+  async getTelegramBotByIdWithToken(id: string) {
+    return this.prisma.telegramBot.findUnique({ where: { id } });
+  }
+
+  /** Every enabled bot of every agency: the update pollers' work list. */
+  async getPollableTelegramBots() {
+    return this.prisma.telegramBot.findMany({
+      where: { deletedAt: null, status: TelegramBotStatus.ACTIVE },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async findTelegramBotByTokenHash(tokenHash: string) {
+    return this.prisma.telegramBot.findFirst({
+      where: { tokenHash, deletedAt: null },
+      select: { id: true, orgId: true, label: true },
+    });
+  }
+
+  async createTelegramBot(
+    orgId: string,
+    params: {
+      label: string;
+      tokenSealed: string;
+      tokenHash: string;
+      telegramBotId: string;
+      username: string;
+    }
+  ) {
+    return this.prisma.telegramBot.create({
+      data: { orgId, ...params, lastCheckedAt: new Date() },
+      select: AgencyRepository.BOT_VIEW,
+    });
+  }
+
+  async updateTelegramBot(
+    orgId: string,
+    id: string,
+    data: {
+      label?: string;
+      status?: TelegramBotStatus;
+      lastError?: string | null;
+      lastCheckedAt?: Date;
+      username?: string;
+    }
+  ) {
+    await this.prisma.telegramBot.updateMany({
+      where: { id, orgId, deletedAt: null },
+      data,
+    });
+  }
+
+  /** The token is wiped, not just hidden: a removed bot cannot be used again, only connected anew. */
+  async deleteTelegramBot(orgId: string, id: string) {
+    await this.prisma.telegramBot.updateMany({
+      where: { id, orgId, deletedAt: null },
+      data: {
+        deletedAt: new Date(),
+        status: TelegramBotStatus.DISABLED,
+        tokenSealed: '',
+        tokenHash: '',
+      },
+    });
+  }
+
+  async getDestinationsOfBot(orgId: string, botId: string) {
+    return this.prisma.telegramDestination.findMany({
+      where: { orgId, botId, deletedAt: null },
+      select: { id: true, title: true, authorizationStatus: true },
     });
   }
 

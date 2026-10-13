@@ -87,9 +87,35 @@ const VIDEO_EXT = new Set(['.mp4', '.mov', '.webm', '.m4v']);
 @Injectable()
 export class TelegramGateway {
   private bot: TelegramBot | null = null;
+  // Set on the copies made by bound(): they talk as that one bot instead of the server's.
+  private ownToken: string | undefined;
+  private readonly boundCopies = new Map<string, TelegramGateway>();
+
+  /** The token in the server settings, which is how the single bot worked before bots were added in the app. */
+  static serverToken(): string | undefined {
+    return process.env.AGENCY_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_TOKEN;
+  }
 
   private get token(): string | undefined {
-    return process.env.AGENCY_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_TOKEN;
+    return this.ownToken ?? TelegramGateway.serverToken();
+  }
+
+  /**
+   * The same gateway, speaking as the bot with this token. Copies are kept per token so each bot
+   * reuses its own connection; call forget() when a bot is removed.
+   */
+  bound(token: string): TelegramGateway {
+    let gateway = this.boundCopies.get(token);
+    if (!gateway) {
+      gateway = new TelegramGateway();
+      gateway.ownToken = token;
+      this.boundCopies.set(token, gateway);
+    }
+    return gateway;
+  }
+
+  forget(token: string) {
+    this.boundCopies.delete(token);
   }
 
   isConfigured(): boolean {
@@ -100,7 +126,7 @@ export class TelegramGateway {
     if (!this.token) {
       throw new TelegramGatewayError(
         'UNCONFIGURED',
-        'Telegram bot is not configured (set AGENCY_TELEGRAM_BOT_TOKEN)'
+        'No Telegram bot is connected. Add one in Settings → Telegram bots.'
       );
     }
     if (!this.bot) {

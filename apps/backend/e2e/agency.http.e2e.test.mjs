@@ -593,33 +593,23 @@ describe(
       });
     });
 
-    describe('Telegram without a configured bot token', () => {
+    describe('Telegram without a bot connected', () => {
       it('says so plainly instead of pretending', async () => {
         const verify = await call('POST', '/agency/telegram/verify', {
           as: 'manager',
           body: { chatId: '-100999' },
         });
         matches(verify.json, { valid: false });
-        assert.match(verify.json.error, /not configured/i);
+        assert.match(verify.json.error, /Telegram bots/);
       });
 
-      it('registering a destination yields a pending destination and a one-time code; it never starts authorized', async () => {
+      it('refuses to register a chat nobody could authorize, and still validates and guards the request', async () => {
         const reg = await call('POST', '/agency/telegram/destinations', {
           as: 'manager',
-          body: {
-            chatId: '-100123456789',
-            title: 'Fruit chat',
-            canPostMessages: true,
-            isAuthorized: true,
-          },
+          body: { chatId: '-100123456789', title: 'Fruit chat' },
         });
-        assert.equal(reg.status, 201, reg.text);
-        matches(reg.json.destination, {
-          authorizationStatus: 'PENDING_VERIFICATION',
-          isAuthorized: false,
-        });
-        assert.match(reg.json.verificationCode, /^AOS-[A-Z0-9]{8}$/);
-        assert.ok(!reg.text.includes('verificationCodeHash'));
+        assert.equal(reg.status, 400, reg.text);
+        assert.match(reg.json.message, /Connect a Telegram bot first/);
         assert.equal(
           (
             await call('POST', '/agency/telegram/destinations', {
@@ -639,6 +629,111 @@ describe(
           ).status,
           403
         );
+      });
+    });
+
+    describe('Telegram bots', () => {
+      it('lists none at first, refuses a malformed token, and keeps connecting to owners and admins', async () => {
+        const none = await call('GET', '/agency/telegram/bots', { as: 'manager' });
+        assert.equal(none.status, 200, none.text);
+        assert.deepEqual(none.json.bots, []);
+        assert.equal(none.json.server.configured, false);
+        assert.equal(
+          (await call('GET', '/agency/telegram/bots', { as: 'client' })).status,
+          403
+        );
+        assert.equal(
+          (
+            await call('POST', '/agency/telegram/bots', {
+              as: 'owner',
+              body: { label: 'Acme', token: 'not-a-token' },
+            })
+          ).status,
+          400
+        );
+        assert.equal(
+          (
+            await call('POST', '/agency/telegram/bots', {
+              as: 'manager',
+              body: { label: 'Acme', token: '123456789:' + 'A'.repeat(35) },
+            })
+          ).status,
+          403
+        );
+      });
+
+      it('connect, register a chat with it, pause, and remove: the token is never returned and removal stops the chat', async () => {
+        // Telegram itself is not reachable from a test: answer for it.
+        const { TelegramGateway } = require(resolve(
+          root,
+          'dist/libraries/nestjs-libraries/src/integrations/telegram/telegram.gateway.js'
+        ));
+        const saved = {
+          getBotInfo: TelegramGateway.prototype.getBotInfo,
+          getChat: TelegramGateway.prototype.getChat,
+        };
+        TelegramGateway.prototype.getBotInfo = async function () {
+          return { id: 424242, username: 'acme_ads_bot' };
+        };
+        TelegramGateway.prototype.getChat = async function () {
+          throw new Error('offline'); // the chat is registered anyway; the bot just cannot see it yet
+        };
+        try {
+          const tok = '424242:' + 'B'.repeat(35);
+          const added = await call('POST', '/agency/telegram/bots', {
+            as: 'owner',
+            body: { label: 'Acme Ads', token: tok },
+          });
+          assert.equal(added.status, 201, added.text);
+          matches(added.json, { label: 'Acme Ads', username: 'acme_ads_bot', status: 'ACTIVE' });
+          const dupe = await call('POST', '/agency/telegram/bots', {
+            as: 'owner',
+            body: { label: 'Again', token: tok },
+          });
+          assert.equal(dupe.status, 409, dupe.text);
+
+          const listed = await call('GET', '/agency/telegram/bots', { as: 'manager' });
+          assert.equal(listed.json.bots.length, 1);
+          assert.ok(!listed.text.includes(tok) && !added.text.includes(tok));
+          assert.ok(!listed.text.includes('tokenSealed'));
+
+          const reg = await call('POST', '/agency/telegram/destinations', {
+            as: 'manager',
+            body: { chatId: '-100123456789', title: 'Fruit chat', isAuthorized: true },
+          });
+          assert.equal(reg.status, 201, reg.text);
+          matches(reg.json.destination, {
+            authorizationStatus: 'PENDING_VERIFICATION',
+            isAuthorized: false,
+            botId: added.json.id,
+            botUsername: 'acme_ads_bot',
+          });
+          assert.match(reg.json.verificationCode, /^AOS-[A-Z0-9]{8}$/);
+          assert.match(reg.json.steps[0], /@acme_ads_bot/);
+          assert.ok(!reg.text.includes('verificationCodeHash'));
+
+          const paused = await call('PUT', `/agency/telegram/bots/${added.json.id}`, {
+            as: 'owner',
+            body: { enabled: false },
+          });
+          assert.equal(paused.json.status, 'DISABLED', paused.text);
+          assert.equal(
+            (await call('DELETE', `/agency/telegram/bots/${added.json.id}`, { as: 'manager' })).status,
+            403
+          );
+          const removed = await call('DELETE', `/agency/telegram/bots/${added.json.id}`, { as: 'owner' });
+          assert.equal(removed.status, 200, removed.text);
+          matches(removed.json, { removed: true, chatsStopped: 1 });
+          const after = await call('GET', '/agency/telegram/destinations', { as: 'manager' });
+          const mine = after.json.find((d) => d.id === reg.json.destination.id);
+          assert.equal(mine.authorizationStatus, 'DISCONNECTED');
+          assert.equal(
+            (await call('GET', '/agency/telegram/bots', { as: 'manager' })).json.bots.length,
+            0
+          );
+        } finally {
+          Object.assign(TelegramGateway.prototype, saved);
+        }
       });
     });
 

@@ -17,9 +17,12 @@ import { PostingJobStatus } from '@prisma/client';
 import { timingSafeEqual } from 'crypto';
 import { AgencyService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.service';
 import { AgencyTelegramService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.telegram.service';
+import { AgencyTelegramBotsService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.telegram.bots.service';
 import { AgencyActor } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.access.service';
 import { TelegramInboundUpdate } from '@gitroom/nestjs-libraries/integrations/telegram/telegram.gateway';
 import {
+  AddTelegramBotDto,
+  UpdateTelegramBotDto,
   DestinationReasonDto,
   RegisterTelegramDestinationDto,
   UpdateTelegramDestinationDto,
@@ -38,8 +41,53 @@ import {
 export class AgencyTelegramController {
   constructor(
     private telegramService: AgencyTelegramService,
+    private botsService: AgencyTelegramBotsService,
     private agencyService: AgencyService
   ) {}
+
+  // ----- bots: any number can be connected; the token is never returned -----
+  @Get('/bots')
+  async getBots(@AgencyActorFromRequest() actor: AgencyActor) {
+    return this.botsService.list(actor);
+  }
+
+  @Post('/bots')
+  async addBot(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Body() body: AddTelegramBotDto
+  ) {
+    return this.botsService.add(actor, body);
+  }
+
+  @Put('/bots/:id')
+  async updateBot(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Param('id') id: string,
+    @Body() body: UpdateTelegramBotDto
+  ) {
+    if (body.label !== undefined) await this.botsService.rename(actor, id, body);
+    if (body.enabled !== undefined) {
+      return this.telegramService.setBotEnabled(actor, id, body.enabled);
+    }
+    return this.botsService.check(actor, id);
+  }
+
+  /** Asks Telegram whether the token still works. */
+  @Post('/bots/:id/check')
+  async checkBot(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Param('id') id: string
+  ) {
+    return this.botsService.check(actor, id);
+  }
+
+  @Delete('/bots/:id')
+  async removeBot(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Param('id') id: string
+  ) {
+    return this.telegramService.removeBot(actor, id);
+  }
 
   @Get('/destinations')
   async getDestinations(@AgencyActorFromRequest() actor: AgencyActor) {
@@ -52,7 +100,7 @@ export class AgencyTelegramController {
     @AgencyActorFromRequest() actor: AgencyActor,
     @Body() body: VerifyTelegramChatDto
   ) {
-    return this.telegramService.previewChat(actor, body.chatId);
+    return this.telegramService.previewChat(actor, body.chatId, body.botId);
   }
 
   @Post('/destinations')
@@ -162,6 +210,7 @@ export class AgencyTelegramWebhookController {
       const a = Buffer.from(token);
       const b = Buffer.from(secret);
       if (a.length !== b.length || !timingSafeEqual(a, b)) return { ok: true };
+      // A webhook is only ever set for the server's bot (bots connected in the app poll).
       await this.telegramService.handleUpdate(update);
     } catch {
       // handleUpdate already logs; swallowing here is the point.

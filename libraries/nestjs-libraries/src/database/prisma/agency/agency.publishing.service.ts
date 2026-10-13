@@ -15,6 +15,7 @@ import {
 import { AgencyRepository } from './agency.repository';
 import { AgencyPublishingRepository } from './agency.publishing.repository';
 import { AgencyAccessService, AgencyActor } from './agency.access.service';
+import { AgencyTelegramBotsService } from './agency.telegram.bots.service';
 import { NotificationService } from '@gitroom/nestjs-libraries/database/prisma/notifications/notification.service';
 import {
   CAPTION_LIMIT,
@@ -92,7 +93,8 @@ export class AgencyPublishingService {
     private readonly jobs: AgencyPublishingRepository,
     private readonly gateway: TelegramGateway,
     private readonly access: AgencyAccessService,
-    private readonly notifications: NotificationService
+    private readonly notifications: NotificationService,
+    private readonly bots: AgencyTelegramBotsService
   ) {}
 
   private get leaseMs() {
@@ -123,24 +125,32 @@ export class AgencyPublishingService {
   }
 
   async getSystemStatus() {
-    const [dispatcher, poller] = await Promise.all([
+    const connection = await this.bots.connection();
+    const [dispatcher, pollers] = await Promise.all([
       this.jobs.getHeartbeat(AgencyPublishingService.DISPATCHER_HEARTBEAT),
-      this.jobs.getHeartbeat('agency-telegram-updates'),
+      Promise.all(
+        connection.handles.map((bot) =>
+          this.jobs.getHeartbeat(AgencyTelegramBotsService.leaseName(bot))
+        )
+      ),
     ]);
     const webhook = !!(
       process.env.AGENCY_TELEGRAM_WEBHOOK_URL &&
       process.env.AGENCY_TELEGRAM_WEBHOOK_SECRET
     );
+    // Online only counts for the bots that should be listening; one that is not is not hidden by another.
+    const polling = pollers.length > 0 && pollers.every((p) => p.online);
     return {
       dispatcher: {
         online: dispatcher.online,
         lastSeenAt: dispatcher.lastSeenAt,
       },
       telegram: {
-        configured: this.gateway.isConfigured(),
+        configured: connection.configured,
+        bots: connection.count,
         // Whether a chat admin's /authorize can actually reach us right now.
-        listening: this.gateway.isConfigured() && (webhook || poller.online),
-        updates: webhook ? 'webhook' : poller.online ? 'polling' : 'off',
+        listening: connection.configured && (webhook || polling),
+        updates: webhook ? 'webhook' : polling ? 'polling' : 'off',
       },
     };
   }
@@ -525,8 +535,10 @@ export class AgencyPublishingService {
     }
 
     // --- The bot must still be able to post right now.
+    let bot: Awaited<ReturnType<AgencyTelegramBotsService['handleFor']>>;
     try {
-      const perms = await this.gateway.getBotPermissions(dest.chatId);
+      bot = await this.bots.handleFor(orgId, dest.botId);
+      const perms = await bot.gateway.getBotPermissions(dest.chatId);
       if (!perms.isAdmin || !perms.canPostMessages) {
         await this.handleDestinationUnavailable(
           orgId,
@@ -557,7 +569,7 @@ export class AgencyPublishingService {
 
     // --- Send.
     try {
-      const result = await this.gateway.sendAd(
+      const result = await bot.gateway.sendAd(
         dest.chatId,
         this.buildAd(campaign)
       );
@@ -660,8 +672,8 @@ export class AgencyPublishingService {
         );
         await this.notify(
           orgId,
-          'Telegram bot not configured',
-          'Publishing is paused because no valid Telegram bot token is configured on the server.'
+          'Telegram bot not available',
+          `Posting to "${dest.title}" is paused: ${err.message}`
         );
         return;
       case 'BAD_REQUEST':

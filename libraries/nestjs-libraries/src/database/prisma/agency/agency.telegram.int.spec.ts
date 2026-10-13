@@ -567,9 +567,10 @@ describeDb(
           .spyOn(h.gateway, 'getUpdates')
           .mockResolvedValueOnce(batch as any)
           .mockResolvedValue([]);
-        expect(await h.telegram.pollUpdatesOnce(0)).toBe(3);
+        const server = await h.bots.handleFor(t.orgId, null);
+        expect(await h.telegram.pollUpdatesOnce(server, 0)).toBe(3);
         expect(await status(id)).toBe('ACTIVE');
-        await h.telegram.pollUpdatesOnce(0);
+        await h.telegram.pollUpdatesOnce(server, 0);
         expect(spy).toHaveBeenLastCalledWith(103, 0); // acknowledges what it processed
         spy.mockRestore();
       });

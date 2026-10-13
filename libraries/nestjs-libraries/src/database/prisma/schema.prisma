@@ -47,6 +47,7 @@ model Organization {
   oauthAuthorizations OAuthAuthorization[]
   campaigns           Campaign[]
   telegramDestinations TelegramDestination[]
+  telegramBots         TelegramBot[]
   leads               LeadCapture[]
   agencyInvoices      AgencyInvoice[]
   agencyKnowledge     AgencyKnowledgeDocument[]
@@ -1947,6 +1948,38 @@ model Campaign {
   @@index([createdAt])
 }
 
+enum TelegramBotStatus {
+  ACTIVE
+  DISABLED
+  INVALID
+}
+
+// A Telegram bot the agency connected in the app. Any number can be connected; each chat is
+// registered with one of them.
+model TelegramBot {
+  id            String                @id @default(cuid())
+  orgId         String
+  label         String
+  // The token is the bot's password: sealed with AES-256-GCM and never returned by any API.
+  tokenSealed   String
+  // SHA-256 of the token, only to refuse connecting the same bot twice.
+  tokenHash     String
+  telegramBotId String
+  username      String
+  status        TelegramBotStatus     @default(ACTIVE)
+  lastError     String?
+  lastCheckedAt DateTime?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  deletedAt     DateTime?
+
+  organization  Organization          @relation(fields: [orgId], references: [id])
+  destinations  TelegramDestination[]
+
+  @@index([orgId])
+  @@index([tokenHash])
+}
+
 model TelegramDestination {
   id                    String                @id @default(cuid())
   orgId                 String
@@ -1954,6 +1987,10 @@ model TelegramDestination {
   title                 String
   type                  String                @default("channel")
   botUsername           String?
+  // The bot that posts here and receives this chat's /authorize. Null means the bot named in the
+  // server settings (AGENCY_TELEGRAM_BOT_TOKEN), which is how every chat worked before bots could
+  // be added in the app. A removed bot keeps its id, so its chats stop instead of switching bots.
+  botId                 String?
   // DEPRECATED mirror of (authorizationStatus === ACTIVE). Kept so older readers
   // keep working; written only by AgencyTelegramService.setAuthorization().
   isAuthorized          Boolean               @default(false)
@@ -1985,11 +2022,13 @@ model TelegramDestination {
   deletedAt             DateTime?
 
   organization          Organization          @relation(fields: [orgId], references: [id])
+  bot                   TelegramBot?          @relation(fields: [botId], references: [id], onDelete: Restrict)
   campaignDestinations  CampaignDestination[]
   publishingEvents      PublishingEvent[]
   postingJobs           PostingJob[]
 
   @@unique([orgId, chatId, deletedAt])
+  @@index([botId])
   @@index([orgId])
   @@index([chatId])
   @@index([isAuthorized])

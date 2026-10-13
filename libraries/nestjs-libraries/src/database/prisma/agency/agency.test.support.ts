@@ -12,6 +12,7 @@ import { AgencyAccessService, AgencyActor } from './agency.access.service';
 import { AgencyPublishingRepository } from './agency.publishing.repository';
 import { AgencyPublishingService } from './agency.publishing.service';
 import { AgencyTelegramService } from './agency.telegram.service';
+import { AgencyTelegramBotsService } from './agency.telegram.bots.service';
 import { AgencyService, CampaignInput } from './agency.service';
 import { AgencyPortalService } from './agency.portal.service';
 import { AgencyCrmRepository } from './agency.crm.repository';
@@ -53,11 +54,36 @@ export class FakeTelegramGateway extends TelegramGateway {
   permErrors = new Map<string, TelegramGatewayError>();
   sendDelayMs = 0;
   private nextId = 1000;
+  // Bots connected in the app: bound(token) hands out one fake per token, each with its own log.
+  readonly bots = new Map<string, FakeTelegramGateway>();
+  rejectedTokens = new Set<string>();
+  private fakeToken: string | null = null;
+  private parent: FakeTelegramGateway | null = null;
 
   override isConfigured() {
     return true;
   }
+  override bound(token: string): TelegramGateway {
+    let bot = this.bots.get(token);
+    if (!bot) {
+      bot = new FakeTelegramGateway();
+      bot.fakeToken = token;
+      bot.parent = this;
+      this.bots.set(token, bot);
+    }
+    return bot;
+  }
   override async getBotInfo() {
+    if (this.fakeToken) {
+      if (this.parent?.rejectedTokens.has(this.fakeToken)) {
+        throw new TelegramGatewayError(
+          'UNCONFIGURED',
+          'Telegram bot token was rejected'
+        );
+      }
+      const id = Number(this.fakeToken.split(':')[0]);
+      return { id, username: `bot_${id}` };
+    }
     return { id: 1, username: 'agencyos_test_bot' };
   }
   override async getChat(ref: string): Promise<TelegramChatInfo> {
@@ -125,6 +151,7 @@ export interface Harness {
   access: AgencyAccessService;
   publishing: AgencyPublishingService;
   telegram: AgencyTelegramService;
+  bots: AgencyTelegramBotsService;
   agency: AgencyService;
   portal: AgencyPortalService;
   crm: AgencyCrmService;
@@ -141,6 +168,9 @@ export async function buildHarness(): Promise<Harness> {
   process.env.AGENCY_SEND_DELAY_MS = '0';
   process.env.AGENCY_JOB_BACKOFF_SECONDS = '60';
   process.env.AGENCY_JOB_MAX_ATTEMPTS = '3';
+  // The "server bot": chats registered without choosing one use it, as before bots could be added.
+  process.env.AGENCY_TELEGRAM_BOT_TOKEN = '100000:server-bot-token-for-tests-0123456789';
+  process.env.JWT_SECRET ||= 'test-secret-for-sealing-bot-tokens';
   const prisma = new PrismaService();
   await prisma.$connect();
   const gateway = new FakeTelegramGateway();
@@ -151,19 +181,21 @@ export async function buildHarness(): Promise<Harness> {
   const accessRepo = new AgencyAccessRepository(prisma);
   const jobsRepo = new AgencyPublishingRepository(prisma);
   const access = new AgencyAccessService(accessRepo, agencyRepo);
+  const bots = new AgencyTelegramBotsService(agencyRepo, access, gateway);
   const publishing = new AgencyPublishingService(
     agencyRepo,
     jobsRepo,
     gateway,
     access,
-    notifications as any
+    notifications as any,
+    bots
   );
   const telegram = new AgencyTelegramService(
     agencyRepo,
     jobsRepo,
     publishing,
     access,
-    gateway
+    bots
   );
   const agency = new AgencyService(agencyRepo, jobsRepo, publishing, access);
   const portal = new AgencyPortalService(agencyRepo, access, publishing);
@@ -202,6 +234,7 @@ export async function buildHarness(): Promise<Harness> {
     access,
     publishing,
     telegram,
+    bots,
     agency,
     portal,
     platforms,

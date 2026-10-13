@@ -6,7 +6,11 @@ import {
 } from '@nestjs/common';
 import { AgencyPublishingService } from './agency.publishing.service';
 import { AgencyTelegramService } from './agency.telegram.service';
-import { TelegramGateway } from '@gitroom/nestjs-libraries/integrations/telegram/telegram.gateway';
+import {
+  AgencyTelegramBotsService,
+  BotHandle,
+} from './agency.telegram.bots.service';
+import { TelegramGatewayError } from '@gitroom/nestjs-libraries/integrations/telegram/telegram.gateway';
 
 /**
  * Drives the database-backed publishing queue. It is a thin loop: every guarantee
@@ -24,11 +28,14 @@ export class AgencySchedulerService implements OnModuleInit, OnModuleDestroy {
   private running = false;
   private stopped = false;
   private intervalMs = 15000;
+  // One listener per bot, so a slow or silent bot never holds up another one's /authorize.
+  private readonly listeners = new Map<string, { stop: boolean }>();
+  private serverWebhookSet = false;
 
   constructor(
     private readonly publishing: AgencyPublishingService,
     private readonly telegram: AgencyTelegramService,
-    private readonly gateway: TelegramGateway
+    private readonly bots: AgencyTelegramBotsService
   ) {}
 
   onModuleInit() {
@@ -48,11 +55,11 @@ export class AgencySchedulerService implements OnModuleInit, OnModuleDestroy {
     );
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
     void this.tick();
-    void this.startUpdateTransport();
   }
 
   onModuleDestroy() {
     this.stopped = true;
+    for (const listener of this.listeners.values()) listener.stop = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -73,32 +80,70 @@ export class AgencySchedulerService implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.running = false;
     }
+    // Bots can be connected or paused at any time in the app: each pass starts and stops listeners to match.
+    await this.syncListeners();
   }
 
-  private async startUpdateTransport() {
-    if (!this.gateway.isConfigured()) {
-      this.logger.warn(
-        'No Telegram bot token configured; destination authorization and publishing are unavailable.'
-      );
-      return;
+  private async syncListeners() {
+    try {
+      const bots = await this.bots.pollable();
+      const wanted = new Set(bots.map((b) => AgencyTelegramBotsService.leaseName(b)));
+      for (const [name, listener] of this.listeners) {
+        if (!wanted.has(name)) {
+          listener.stop = true;
+          this.listeners.delete(name);
+          this.logger.log(`Stopped listening on ${name}.`);
+        }
+      }
+      if (bots.length === 0 && !this.warnedNoBot) {
+        this.warnedNoBot = true;
+        this.logger.warn(
+          'No Telegram bot is connected; destination authorization and publishing are unavailable. Add one in Settings → Telegram bots.'
+        );
+      }
+      for (const bot of bots) {
+        const name = AgencyTelegramBotsService.leaseName(bot);
+        if (this.listeners.has(name)) continue;
+        this.warnedNoBot = false;
+        const listener = { stop: false };
+        this.listeners.set(name, listener);
+        void this.listen(bot, listener);
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not update the Telegram listeners: ${err?.message}`);
     }
+  }
+
+  private warnedNoBot = false;
+
+  private async listen(bot: BotHandle, listener: { stop: boolean }) {
     const webhookUrl = process.env.AGENCY_TELEGRAM_WEBHOOK_URL;
     const secret = process.env.AGENCY_TELEGRAM_WEBHOOK_SECRET;
     try {
-      if (webhookUrl && secret) {
-        await this.gateway.setWebhook(webhookUrl, secret);
+      // A webhook is only for the server's bot: bots connected in the app always poll.
+      if (bot.id === null && webhookUrl && secret) {
+        if (!this.serverWebhookSet) {
+          await bot.gateway.setWebhook(webhookUrl, secret);
+          this.serverWebhookSet = true;
+        }
         this.logger.log('Telegram updates are delivered by webhook.');
         return;
       }
       // Polling and a webhook are mutually exclusive on the Telegram side.
-      await this.gateway.deleteWebhook();
+      await bot.gateway.deleteWebhook();
     } catch (err: any) {
       this.logger.warn(
-        `Could not configure Telegram update delivery: ${err?.message}`
+        `Could not configure Telegram update delivery for "${bot.label}": ${err?.message}`
       );
+      if (err instanceof TelegramGatewayError && err.kind === 'UNCONFIGURED') {
+        await this.bots.markRejected(bot, err.message).catch(() => undefined);
+      }
+      // Try again on the next pass (a bot Telegram rejected is no longer in the list).
+      this.listeners.delete(AgencyTelegramBotsService.leaseName(bot));
       return;
     }
     if (
+      bot.id === null &&
       process.env.AGENCY_TELEGRAM_BOT_TOKEN === undefined &&
       process.env.TELEGRAM_TOKEN
     ) {
@@ -106,14 +151,10 @@ export class AgencySchedulerService implements OnModuleInit, OnModuleDestroy {
         "Polling with TELEGRAM_TOKEN, which AgencyOS channel linking also polls. Set a dedicated AGENCY_TELEGRAM_BOT_TOKEN to avoid the two consuming each other's updates."
       );
     }
-    this.logger.log('Telegram updates are delivered by long polling.');
-    void this.pollLoop();
-  }
-
-  private async pollLoop() {
-    while (!this.stopped) {
+    this.logger.log(`Listening for Telegram updates for "${bot.label}".`);
+    while (!this.stopped && !listener.stop) {
       const started = Date.now();
-      await this.telegram.pollUpdatesOnce(20);
+      await this.telegram.pollUpdatesOnce(bot, 20);
       // A poll that returned instantly (not the leader, or an error) must not spin.
       if (Date.now() - started < 1000) {
         await new Promise((r) => setTimeout(r, 5000));

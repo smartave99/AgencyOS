@@ -3,6 +3,7 @@ import { PrismaService } from '@gitroom/nestjs-libraries/database/prisma/prisma.
 import {
   CampaignStatus,
   DestinationAuthStatus,
+  PostingJobStatus,
   Prisma,
   TelegramBotStatus,
   TelegramBotStrategy,
@@ -1040,6 +1041,10 @@ export class AgencyRepository {
       jobStats,
       recentCampaigns,
       recentEvents,
+      liveJobs,
+      botRows,
+      chatRows,
+      rateLimitedRows,
     ] = await Promise.all([
       this.prisma.customer.count({
         where: { orgId, deletedAt: null, status: 'ACTIVE' },
@@ -1113,7 +1118,88 @@ export class AgencyRepository {
         orderBy: { createdAt: 'desc' },
         take: 8,
       }),
+      // The jobs that are doing something or need someone: most urgent first below.
+      this.prisma.postingJob.findMany({
+        where: {
+          orgId,
+          campaign: { deletedAt: null },
+          status: {
+            in: [
+              PostingJobStatus.SENDING,
+              PostingJobStatus.UNCERTAIN,
+              PostingJobStatus.DEAD,
+              PostingJobStatus.BLOCKED,
+              PostingJobStatus.PENDING,
+            ],
+          },
+        },
+        select: {
+          id: true,
+          status: true,
+          attempts: true,
+          maxAttempts: true,
+          nextAttemptAt: true,
+          lastError: true,
+          lastErrorCode: true,
+          campaign: { select: { id: true, name: true } },
+          telegramDestination: { select: { id: true, title: true } },
+        },
+        orderBy: { nextAttemptAt: 'asc' },
+        take: 60,
+      }),
+      this.prisma.telegramBot.findMany({
+        where: { orgId, deletedAt: null },
+        select: {
+          id: true,
+          label: true,
+          username: true,
+          status: true,
+          lastError: true,
+          lastCheckedAt: true,
+          _count: {
+            select: { destinations: { where: { deletedAt: null } } },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.telegramDestination.groupBy({
+        by: ['authorizationStatus'],
+        where: { orgId, deletedAt: null },
+        _count: { authorizationStatus: true },
+      }),
+      // Telegram asked a bot to slow down: those posts wait for the time it named.
+      this.prisma.postingJob.findMany({
+        where: {
+          orgId,
+          status: PostingJobStatus.PENDING,
+          lastErrorCode: 'RATE_LIMITED',
+          nextAttemptAt: { gt: new Date() },
+        },
+        select: { telegramDestinationId: true },
+        distinct: ['telegramDestinationId'],
+      }),
     ]);
+
+    const urgency: Record<string, number> = {
+      SENDING: 0,
+      UNCERTAIN: 1,
+      DEAD: 2,
+      BLOCKED: 3,
+      PENDING: 4,
+    };
+    const queue = liveJobs
+      .sort(
+        (a, b) =>
+          urgency[a.status] - urgency[b.status] ||
+          a.nextAttemptAt.getTime() - b.nextAttemptAt.getTime()
+      )
+      .slice(0, 8);
+    const chats = Object.fromEntries(
+      chatRows.map((row) => [
+        row.authorizationStatus,
+        row._count.authorizationStatus,
+      ])
+    );
 
     const jobCount = (...statuses: string[]) =>
       jobStats
@@ -1141,9 +1227,19 @@ export class AgencyRepository {
       failedPosts,
       blockedPosts,
       queuedPosts,
+      runningPosts: jobCount('SENDING'),
       deliveryRate,
       recentCampaigns,
       recentEvents,
+      queue,
+      health: {
+        bots: botRows.map(({ _count, ...bot }) => ({
+          ...bot,
+          chats: _count.destinations,
+        })),
+        chats,
+        rateLimitedChats: rateLimitedRows.length,
+      },
     };
   }
 

@@ -22,6 +22,12 @@ import {
 } from './agency.ui';
 import { SystemBanner } from './system-banner.component';
 
+const BOT_BADGE: Record<string, string> = {
+  ACTIVE: 'Ready',
+  DISABLED: 'Paused',
+  INVALID: 'Needs attention',
+};
+
 const AttentionRow: FC<{
   count: number;
   text: string;
@@ -332,6 +338,144 @@ export const AgencyDashboardComponent: FC = () => {
                   ))
                 )}
               </div>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <Card
+              className="lg:col-span-2"
+              title="Live queue"
+              subtitle="Sending now, waiting, or needing someone. Refreshes by itself."
+              right={
+                <Link
+                  href="/agency/telegram"
+                  className="text-[13px] font-medium text-[color:var(--ag-accent-text)] hover:underline"
+                >
+                  Open queue
+                </Link>
+              }
+            >
+              {data.queue.length === 0 ? (
+                <EmptyState
+                  icon="clock"
+                  title="The queue is empty"
+                  hint="Approved and scheduled posts appear here until they are delivered."
+                />
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {data.queue.map((job) => (
+                    <li
+                      key={job.id}
+                      className="p-3 rounded-xl bg-[var(--ag-neutral-bg)] flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <Link
+                          href={`/agency/campaigns/${job.campaign.id}`}
+                          className="block truncate text-[13px] font-medium text-newTextColor hover:text-[color:var(--ag-accent-text)]"
+                        >
+                          {job.campaign.name}
+                        </Link>
+                        <div className="truncate text-xs text-textItemBlur">
+                          {job.telegramDestination?.title ?? 'Telegram'}
+                          {job.status === 'PENDING' &&
+                            ` · due ${timeAgo(job.nextAttemptAt)}`}
+                          {job.attempts > 0 &&
+                            ` · attempt ${job.attempts} of ${job.maxAttempts}`}
+                          {job.lastError && ` · ${job.lastError}`}
+                        </div>
+                      </div>
+                      <StatusBadge status={job.status} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+
+            <Card
+              title="Bots and chats"
+              subtitle="Whether AgencyOS can post right now."
+            >
+              {data.health.bots.length === 0 &&
+              !data.system.telegram.configured ? (
+                <p className="text-[13px] text-textItemBlur">
+                  No Telegram bot is connected.{' '}
+                  <Link
+                    href="/settings?tab=telegram"
+                    className="font-medium text-[color:var(--ag-accent-text)] hover:underline"
+                  >
+                    Connect one
+                  </Link>
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {data.system.telegram.configured && (
+                    <li className="flex items-center justify-between gap-2 text-[13px]">
+                      <span className="truncate text-newTextColor">
+                        Server bot
+                      </span>
+                      <StatusBadge
+                        status={
+                          data.system.telegram.listening ? 'ACTIVE' : 'INVALID'
+                        }
+                        label={
+                          data.system.telegram.listening
+                            ? BOT_BADGE.ACTIVE
+                            : BOT_BADGE.INVALID
+                        }
+                      />
+                    </li>
+                  )}
+                  {data.health.bots.map((bot) => (
+                    <li
+                      key={bot.id}
+                      className="flex items-center justify-between gap-2 text-[13px]"
+                      title={bot.lastError ?? undefined}
+                    >
+                      <span className="min-w-0 truncate text-newTextColor">
+                        {bot.label}{' '}
+                        <span className="text-textItemBlur">
+                          · {bot.chats} chat{bot.chats === 1 ? '' : 's'}
+                        </span>
+                      </span>
+                      <StatusBadge
+                        status={bot.status}
+                        label={BOT_BADGE[bot.status]}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <MiniStat
+                  label="Chats ready"
+                  value={data.health.chats.ACTIVE ?? 0}
+                  tone="good"
+                />
+                <MiniStat
+                  label="Chats lost"
+                  value={
+                    (data.health.chats.DISCONNECTED ?? 0) +
+                    (data.health.chats.REVOKED ?? 0) +
+                    (data.health.chats.EXPIRED ?? 0) +
+                    (data.health.chats.SUSPENDED ?? 0)
+                  }
+                  tone="bad"
+                />
+                <MiniStat
+                  label="Slowed by Telegram"
+                  value={data.health.rateLimitedChats}
+                  tone="warn"
+                />
+                <MiniStat
+                  label="Sending now"
+                  value={data.runningPosts}
+                  tone="info"
+                />
+              </div>
+              <p className="text-xs text-textItemBlur">
+                Telegram does not tell bots when a post is hidden from people,
+                so there is no shadow-ban indicator.
+              </p>
             </Card>
           </div>
         </>

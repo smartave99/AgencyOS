@@ -279,7 +279,33 @@ export interface DashboardResponse {
   failedPosts: number;
   blockedPosts: number;
   queuedPosts: number;
+  runningPosts: number;
   deliveryRate: number | null;
+  /** What is sending or waiting on someone, most urgent first. */
+  queue: Array<{
+    id: string;
+    status: string;
+    attempts: number;
+    maxAttempts: number;
+    nextAttemptAt: string;
+    lastError: string | null;
+    lastErrorCode: string | null;
+    campaign: { id: string; name: string };
+    telegramDestination: { id: string; title: string } | null;
+  }>;
+  health: {
+    bots: Array<{
+      id: string;
+      label: string;
+      username: string;
+      status: string;
+      lastError: string | null;
+      lastCheckedAt: string | null;
+      chats: number;
+    }>;
+    chats: Record<string, number>;
+    rateLimitedChats: number;
+  };
   system: {
     dispatcher: { online: boolean; lastSeenAt: string | null };
     telegram: {

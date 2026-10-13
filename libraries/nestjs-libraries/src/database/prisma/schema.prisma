@@ -48,6 +48,7 @@ model Organization {
   campaigns           Campaign[]
   telegramDestinations TelegramDestination[]
   telegramBots         TelegramBot[]
+  adTemplates          AdTemplate[]
   leads               LeadCapture[]
   agencyInvoices      AgencyInvoice[]
   agencyKnowledge     AgencyKnowledgeDocument[]
@@ -1968,6 +1969,27 @@ enum TelegramBotStatus {
 
 // A Telegram bot the agency connected in the app. Any number can be connected; each chat is
 // registered with one of them.
+// A saved ad format to start a campaign from. It holds content only (no client, chats or schedule),
+// so using one never sends anything by itself; a campaign made from it is reviewed like any other.
+model AdTemplate {
+  id           String       @id @default(cuid())
+  orgId        String
+  name         String
+  contentTitle String?
+  contentBody  String
+  contentMedia String?
+  ctaLink      String?
+  ctaText      String?
+  createdById  String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, name])
+  @@index([orgId])
+}
+
 model TelegramBot {
   id            String                @id @default(cuid())
   orgId         String

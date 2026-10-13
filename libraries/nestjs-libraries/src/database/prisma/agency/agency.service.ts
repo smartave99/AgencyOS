@@ -10,6 +10,7 @@ import { randomBytes, createHash } from 'crypto';
 import { AgencyRole, CampaignStatus, PostingJobStatus } from '@prisma/client';
 import {
   AgencyRepository,
+  AdTemplateParams,
   CreateClientParams,
   UpdateClientParams,
 } from './agency.repository';
@@ -389,6 +390,66 @@ export class AgencyService {
       entityType: 'Campaign',
       entityId: id,
       summary: campaign.name,
+    });
+    return { deleted: true };
+  }
+
+  // ==========================================
+  // AD TEMPLATES
+  // ==========================================
+  async getTemplates(actor: AgencyActor) {
+    this.access.assert(actor, 'campaign:read');
+    return this.agencyRepo.getTemplates(actor.orgId);
+  }
+
+  async createTemplate(actor: AgencyActor, params: AdTemplateParams) {
+    this.access.assert(actor, 'campaign:write');
+    const clean = await this.cleanTemplate(actor.orgId, params);
+    const template = await this.agencyRepo.createTemplate(
+      actor.orgId,
+      actor.userId,
+      clean as AdTemplateParams
+    );
+    await this.access.audit(actor, {
+      action: 'template.created',
+      entityType: 'AdTemplate',
+      entityId: template.id,
+      summary: template.name,
+    });
+    return template;
+  }
+
+  async updateTemplate(
+    actor: AgencyActor,
+    id: string,
+    params: Partial<AdTemplateParams>
+  ) {
+    this.access.assert(actor, 'campaign:write');
+    const current = await this.requireTemplate(actor.orgId, id);
+    const clean = await this.cleanTemplate(actor.orgId, params, current.id);
+    const template = await this.agencyRepo.updateTemplate(
+      actor.orgId,
+      id,
+      clean
+    );
+    await this.access.audit(actor, {
+      action: 'template.updated',
+      entityType: 'AdTemplate',
+      entityId: id,
+      summary: template?.name ?? current.name,
+    });
+    return template;
+  }
+
+  async deleteTemplate(actor: AgencyActor, id: string) {
+    this.access.assert(actor, 'campaign:write');
+    const template = await this.requireTemplate(actor.orgId, id);
+    await this.agencyRepo.deleteTemplate(actor.orgId, id);
+    await this.access.audit(actor, {
+      action: 'template.deleted',
+      entityType: 'AdTemplate',
+      entityId: id,
+      summary: template.name,
     });
     return { deleted: true };
   }
@@ -1281,6 +1342,43 @@ export class AgencyService {
     return client;
   }
 
+  private async requireTemplate(orgId: string, id: string) {
+    const template = await this.agencyRepo.getTemplateById(orgId, id);
+    if (!template)
+      throw new NotFoundException(`Template with ID ${id} not found`);
+    return template;
+  }
+
+  /** Trims the text, keeps blank optional fields as empty, and refuses a name that is already used. */
+  private async cleanTemplate(
+    orgId: string,
+    params: Partial<AdTemplateParams>,
+    ownId?: string
+  ) {
+    const clean: Partial<AdTemplateParams> = { ...params };
+    if (params.name !== undefined) {
+      const name = params.name.trim();
+      if (!name) throw new BadRequestException('Give the template a name');
+      const taken = await this.agencyRepo.findTemplateByName(orgId, name);
+      if (taken && taken.id !== ownId) {
+        throw new BadRequestException(
+          `A template called "${name}" already exists`
+        );
+      }
+      clean.name = name;
+    }
+    if (params.contentBody !== undefined && !params.contentBody.trim()) {
+      throw new BadRequestException('A template needs some ad text');
+    }
+    for (const key of ['contentTitle', 'ctaLink', 'ctaText'] as const) {
+      if (params[key] !== undefined) clean[key] = params[key]?.trim() || null;
+    }
+    if (clean.ctaLink) {
+      clean.ctaLink = this.assertHttpUrl(clean.ctaLink, 'The link');
+    }
+    return clean;
+  }
+
   private async requireCampaign(orgId: string, id: string) {
     const campaign = await this.agencyRepo.getCampaignById(orgId, id);
     if (!campaign)
@@ -1365,7 +1463,7 @@ export class AgencyService {
     }
   }
 
-  private assertHttpUrl(value: string): string {
+  private assertHttpUrl(value: string, what = 'Destination URL'): string {
     try {
       const url = new URL(value);
       if (url.protocol === 'http:' || url.protocol === 'https:')
@@ -1373,8 +1471,6 @@ export class AgencyService {
     } catch {
       // handled below
     }
-    throw new BadRequestException(
-      'Destination URL must be a valid http(s) link'
-    );
+    throw new BadRequestException(`${what} must be a valid http(s) link`);
   }
 }

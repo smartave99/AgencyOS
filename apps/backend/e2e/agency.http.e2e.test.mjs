@@ -808,6 +808,90 @@ describe(
       });
     });
 
+    describe('ad templates over HTTP', () => {
+      it('saves, lists, edits and deletes content-only templates, and keeps them per workspace', async () => {
+        const body = {
+          name: 'Weekly offer',
+          contentTitle: 'Fresh every Friday',
+          contentBody: 'Order by Thursday and get free delivery.',
+          ctaLink: 'https://bakery.test/offer',
+          ctaText: 'Order',
+        };
+        const made = await call('POST', '/agency/templates', {
+          as: 'manager',
+          body,
+        });
+        assert.equal(made.status, 201, made.text);
+        matches(made.json, {
+          name: 'Weekly offer',
+          orgId: ctx.users.manager.orgId,
+        });
+
+        // The same name is refused; so are bad input and fields that must not be settable.
+        assert.equal(
+          (await call('POST', '/agency/templates', { as: 'manager', body }))
+            .status,
+          400
+        );
+        for (const bad of [
+          { name: 'X' },
+          { name: 'X', contentBody: 'y', ctaLink: 'ftp://x' },
+        ]) {
+          assert.equal(
+            (
+              await call('POST', '/agency/templates', {
+                as: 'manager',
+                body: bad,
+              })
+            ).status,
+            400
+          );
+        }
+
+        const list = await call('GET', '/agency/templates', { as: 'manager' });
+        assert.equal(list.status, 200);
+        assert.deepEqual(
+          list.json.map((t) => t.name),
+          ['Weekly offer']
+        );
+
+        const edited = await call('PUT', `/agency/templates/${made.json.id}`, {
+          as: 'manager',
+          body: { name: 'Friday offer' },
+        });
+        assert.equal(edited.status, 200, edited.text);
+        assert.equal(edited.json.name, 'Friday offer');
+
+        // Another workspace sees none of it and cannot touch it.
+        const theirs = await call('GET', '/agency/templates', {
+          as: 'otherOwner',
+        });
+        assert.deepEqual(theirs.json, []);
+        assert.equal(
+          (
+            await call('DELETE', `/agency/templates/${made.json.id}`, {
+              as: 'otherOwner',
+            })
+          ).status,
+          404
+        );
+        // A client account is shut out of staff APIs.
+        assert.equal(
+          (await call('GET', '/agency/templates', { as: 'client' })).status,
+          403
+        );
+
+        const gone = await call('DELETE', `/agency/templates/${made.json.id}`, {
+          as: 'manager',
+        });
+        assert.equal(gone.status, 200, gone.text);
+        assert.deepEqual(
+          (await call('GET', '/agency/templates', { as: 'manager' })).json,
+          []
+        );
+      });
+    });
+
     describe('client accounts are portal-only', () => {
       it("a CLIENT is refused the workspace's own APIs (plain 403, not a logout) but keeps its identity and portal", async () => {
         for (const path of [

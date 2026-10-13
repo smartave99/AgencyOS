@@ -31,6 +31,15 @@ export interface UpdateClientParams {
   assignedSalesUserId?: string;
 }
 
+export interface AdTemplateParams {
+  name: string;
+  contentTitle?: string | null;
+  contentBody: string;
+  contentMedia?: string | null;
+  ctaLink?: string | null;
+  ctaText?: string | null;
+}
+
 export interface CreateCampaignParams {
   customerId: string;
   name: string;
@@ -225,6 +234,52 @@ export class AgencyRepository {
       where: { id, orgId },
       data: { deletedAt: new Date() },
     });
+  }
+
+  // ---- ad templates (content only) ------------------------------------------------------
+
+  async getTemplates(orgId: string) {
+    return this.prisma.adTemplate.findMany({
+      where: { orgId },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async getTemplateById(orgId: string, id: string) {
+    return this.prisma.adTemplate.findFirst({ where: { id, orgId } });
+  }
+
+  async findTemplateByName(orgId: string, name: string) {
+    return this.prisma.adTemplate.findFirst({
+      where: { orgId, name: { equals: name, mode: 'insensitive' } },
+      select: { id: true },
+    });
+  }
+
+  async createTemplate(
+    orgId: string,
+    createdById: string,
+    params: AdTemplateParams
+  ) {
+    return this.prisma.adTemplate.create({
+      data: { orgId, createdById, ...params },
+    });
+  }
+
+  async updateTemplate(
+    orgId: string,
+    id: string,
+    params: Partial<AdTemplateParams>
+  ) {
+    await this.prisma.adTemplate.updateMany({
+      where: { id, orgId },
+      data: params,
+    });
+    return this.getTemplateById(orgId, id);
+  }
+
+  async deleteTemplate(orgId: string, id: string) {
+    return this.prisma.adTemplate.deleteMany({ where: { id, orgId } });
   }
 
   async getOrganizationName(orgId: string) {

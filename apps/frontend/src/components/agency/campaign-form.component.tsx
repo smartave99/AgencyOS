@@ -10,6 +10,7 @@ import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { MediaBox } from '@gitroom/frontend/components/media/media.component';
 import { useMediaDirectory } from '@gitroom/react/helpers/use.media.directory';
 import {
+  AdTemplate,
   CampaignDetail,
   DestinationView,
   useAgencyApi,
@@ -18,6 +19,7 @@ import {
   useClients,
   useTelegramDestinations,
 } from './agency.hooks';
+import { TemplatesDialog } from './templates.dialog.component';
 import {
   Btn,
   Card,
@@ -359,6 +361,8 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
   const [busy, setBusy] = useState<'draft' | 'submit' | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
 
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+
   // --- AI assist -----------------------------------------------------------
   const [aiOpen, setAiOpen] = useState(false);
   const [aiBrief, setAiBrief] = useState('');
@@ -529,6 +533,16 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
     preventDefault: true,
     enableOnFormTags: true,
   });
+
+  /** Fills the ad from a saved template. It changes nothing else about the campaign. */
+  const applyTemplate = (template: AdTemplate) => {
+    setContentTitle(template.contentTitle ?? '');
+    setContentBody(template.contentBody);
+    setMedia(parseMedia(template.contentMedia));
+    setCtaLink(template.ctaLink ?? '');
+    setCtaText(template.ctaText ?? 'Learn more');
+    toaster.show(`Started from “${template.name}”.`, 'success');
+  };
 
   const generate = async () => {
     if (aiBrief.trim().length < 5) {
@@ -707,9 +721,14 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
           <Card>
             <div className="flex items-start justify-between gap-3">
               <Step n={2} title="The ad" />
-              <Btn variant="ghost" onClick={() => setAiOpen((v) => !v)}>
-                {aiOpen ? 'Hide writing help' : 'Help me write it'}
-              </Btn>
+              <div className="flex flex-wrap justify-end gap-1">
+                <Btn variant="ghost" onClick={() => setTemplatesOpen(true)}>
+                  Templates
+                </Btn>
+                <Btn variant="ghost" onClick={() => setAiOpen((v) => !v)}>
+                  {aiOpen ? 'Hide writing help' : 'Help me write it'}
+                </Btn>
+              </div>
             </div>
 
             {aiOpen && (
@@ -1009,6 +1028,19 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
           </Card>
         </div>
       </div>
+      {templatesOpen && (
+        <TemplatesDialog
+          current={{
+            contentTitle,
+            contentBody,
+            contentMedia: JSON.stringify(media),
+            ctaLink,
+            ctaText,
+          }}
+          onUse={applyTemplate}
+          onClose={() => setTemplatesOpen(false)}
+        />
+      )}
     </PageShell>
   );
 };

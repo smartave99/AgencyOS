@@ -185,6 +185,19 @@ export interface TelegramBots {
   server: { configured: boolean; label: string; username: string | null };
 }
 
+/** A saved ad format: content only, no client, chats or schedule. */
+export interface AdTemplate {
+  id: string;
+  name: string;
+  contentTitle: string | null;
+  contentBody: string;
+  contentMedia: string | null;
+  ctaLink: string | null;
+  ctaText: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DestinationView {
   id: string;
   /** Which connected bot serves this chat; null is the server's bot. */
@@ -622,6 +635,12 @@ export const useTelegramDestinations = () =>
     ['agency-telegram-destinations'],
     '/agency/telegram/destinations',
     15000
+  );
+
+export const useAdTemplates = (enabled = true) =>
+  useResource<AdTemplate[]>(
+    enabled ? ['agency-templates'] : null,
+    '/agency/templates'
   );
 
 export const useTelegramBots = (enabled = true) =>

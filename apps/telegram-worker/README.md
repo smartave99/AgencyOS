@@ -101,9 +101,15 @@ process logs a warning at start. Do not ship it enabled.
 
 * **`timeoutSeconds`** in `/v1/login/start` is how long the worker keeps that `loginId` (600), not Telegram's
   code-resend timer.
-* **Any failure on `/v1/login/code` or `/v1/login/password` deletes the pending login** (contract: "deleted on
-  success, cancel, error or expiry"); the operator starts over. `password_required` is not an error and keeps it.
-  The ten minutes run from `login/start`. Unknown or expired ids, including on `/cancel`, are `LOGIN_NOT_FOUND`.
+* **A typo is not a restart.** On `/v1/login/code` a `CODE_INVALID` keeps the pending login so the code can
+  be typed again; on `/v1/login/password` a `PASSWORD_INVALID` keeps it likewise. At most 5 wrong attempts
+  (codes and passwords together) are allowed per `loginId`: the 5th returns the same error code with a message
+  saying to start the login again, and deletes the login. **Every other error** (`CODE_EXPIRED`,
+  `RATE_LIMITED`, `NETWORK`, `SESSION_INVALID`, `PHONE_INVALID`, `UNKNOWN`, a timeout, ...) deletes it, as do
+  success, cancel and expiry. `password_required` is not an error and keeps it. The ten minutes run from
+  `login/start` and a wrong attempt does not extend them. Unknown or expired ids, including on `/cancel`, are
+  `LOGIN_NOT_FOUND`. The in-memory backend treats `12345` as the right code, `00000` as an expired one and
+  anything else as wrong.
 * **`telegramId`** is Telethon's raw numeric id (`entity.id`). The Bot API form is `-100<id>` for supergroups and
   channels and `-<id>` for basic groups. For an invite-link preview of a community the account has not joined,
   Telegram gives no id, so `telegramId` is `null` (and `username`/`link` are `null`).
@@ -220,7 +226,10 @@ unverified until someone has done it.
 **Login and sessions**
 
 1. The whole login: `send_code_request` -> `sign_in(code)` -> `SessionPasswordNeeded` -> `sign_in(password)`, the
-   returned `StringSession` working in a later process, and `codeDelivery`/`Me` values for real accounts.
+   returned `StringSession` working in a later process, and `codeDelivery`/`Me` values for real accounts. Also
+   that Telegram accepts a second `sign_in` with the same `phone_code_hash` after `PHONE_CODE_INVALID`, and a
+   second password try after `PASSWORD_HASH_INVALID`, on the same connection (the retry relies on both), and what
+   up to 5 wrong tries do to the account's flood limits.
 2. `PHONE_MIGRATE` being followed on the first call for a phone that lives on another data center (login clients
    allow one repeat). Also that `UserMigrate`/`NetworkMigrate` on a saved session surfaces as `NETWORK` and the next
    call succeeds.

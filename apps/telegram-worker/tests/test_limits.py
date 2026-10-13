@@ -15,6 +15,7 @@ def test_bounds_match_the_contract():
     assert limits.MAX_INFLIGHT == 4 and limits.INFLIGHT_WAIT_SECONDS == 5 and limits.INFLIGHT_RETRY_AFTER_SECONDS == 5
     assert limits.BODY_LIMIT_BYTES == 256 * 1024
     assert limits.CLIENT_IDLE_SECONDS == 120 and limits.LOGIN_TTL_SECONDS == 600
+    assert limits.MAX_WRONG_LOGIN_ATTEMPTS == 5
 
 
 def test_clamp():

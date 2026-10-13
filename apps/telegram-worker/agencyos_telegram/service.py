@@ -20,8 +20,8 @@ from . import __version__, limits, logs, schemas
 from .ads import plan_send
 from .backend import Account, LoginOutcome, TelegramBackend
 from .errors import (
-    ACCOUNT_RESTRICTED, LOGIN_NOT_FOUND, NETWORK, RATE_LIMITED, SESSION_INVALID, BadRequest,
-    WorkerError, map_exception,
+    ACCOUNT_RESTRICTED, CODE_INVALID, LOGIN_NOT_FOUND, NETWORK, PASSWORD_INVALID, RATE_LIMITED,
+    SESSION_INVALID, BadRequest, WorkerError, map_exception,
 )
 from .models import mask_phone
 from .refs import parse_ref
@@ -29,6 +29,8 @@ from .schemas import Context
 
 STAGE_CODE = "code"
 STAGE_PASSWORD = "password"
+# The one error each login step can be retried after: a typo. Anything else ends the login.
+_RETRYABLE_ERROR = {STAGE_CODE: CODE_INVALID, STAGE_PASSWORD: PASSWORD_INVALID}
 # A failed lookup with one of these codes would fail the same way for every remaining ref.
 _REFRESH_STOP_CODES = frozenset({RATE_LIMITED, SESSION_INVALID, ACCOUNT_RESTRICTED, NETWORK})
 
@@ -88,6 +90,7 @@ class _PendingLogin:
     handle: Any
     created: float
     stage: str = STAGE_CODE
+    wrong_attempts: int = 0  # wrong codes and wrong passwords together
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -199,8 +202,20 @@ class WorkerService:
                 )
             try:
                 outcome: LoginOutcome = await self._bounded(run(pending.handle))
+            except WorkerError as err:
+                if err.code == _RETRYABLE_ERROR[stage]:
+                    pending.wrong_attempts += 1
+                    if pending.wrong_attempts < limits.MAX_WRONG_LOGIN_ATTEMPTS:
+                        raise  # a typo: the login stays so the person can type it again
+                    await self._drop_login(login_id)
+                    logs.event("login_too_many_wrong_attempts")
+                    raise WorkerError(
+                        err.code, f"{err.message} Too many wrong attempts: start the login again."
+                    ) from None
+                await self._drop_login(login_id)  # every other error ends the login
+                raise
             except BaseException:
-                await self._drop_login(login_id)  # deleted on error
+                await self._drop_login(login_id)
                 raise
             if outcome.status == "password_required":
                 pending.stage = STAGE_PASSWORD

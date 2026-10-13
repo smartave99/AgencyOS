@@ -7,9 +7,15 @@ import time
 
 import pytest
 from harness import WorkerHarness
+from stub_telethon import StubWorld, rpc
 
 from agencyos_telegram import limits
+from agencyos_telegram.errors import (
+    ACCOUNT_RESTRICTED, CODE_EXPIRED, CODE_INVALID, NETWORK, PASSWORD_INVALID, PHONE_INVALID, RATE_LIMITED,
+    SESSION_INVALID, UNKNOWN, WorkerError,
+)
 from agencyos_telegram.fake_backend import EXPIRED_CODE, LOGIN_CODE, TWO_STEP_PASSWORD, MemoryBackend
+from agencyos_telegram.telethon_backend import TelethonBackend
 
 API = {"apiId": 123456, "apiHash": "0123456789abcdef0123456789abcdef"}
 PHONE = "+4915112345678"
@@ -62,23 +68,179 @@ def test_two_step_password_flow(worker, backend):
     assert pending(worker) == 0 and backend.logins[0].disposed
 
 
-def test_wrong_password_ends_the_attempt(worker, backend):
+# ---- a typo is not a restart ---------------------------------------------------------------------------
+WRONG_CODES = ["99999", "11111", "54321", "00001", "98765"]  # anything but 12345 (right) and 00000 (expired)
+
+
+def code(worker, login_id, value):
+    return worker.post("/v1/login/code", {"loginId": login_id, "code": value})
+
+
+def password(worker, login_id, value):
+    return worker.post("/v1/login/password", {"loginId": login_id, "password": value})
+
+
+def test_a_wrong_code_keeps_the_login_so_it_can_be_retyped(worker, backend):
+    login_id = start(worker).body["loginId"]
+    wrong = code(worker, login_id, "99999")
+    assert wrong.status == 200 and wrong.error["code"] == "CODE_INVALID"
+    assert "start the login again" not in wrong.error["message"].lower()
+    assert pending(worker) == 1 and not backend.logins[0].disposed  # still there
+
+    done = code(worker, login_id, LOGIN_CODE)
+    assert done.ok and done.body["status"] == "authorized" and done.body["session"]
+    assert pending(worker) == 0 and backend.logins[0].disposed  # deleted on success
+
+
+def test_four_wrong_codes_then_the_right_one_still_works(worker):
+    login_id = start(worker).body["loginId"]
+    for value in WRONG_CODES[:4]:
+        assert code(worker, login_id, value).error["code"] == "CODE_INVALID"
+        assert pending(worker) == 1
+    assert code(worker, login_id, LOGIN_CODE).body["status"] == "authorized"
+
+
+def test_the_fifth_wrong_code_deletes_the_login(worker, backend):
+    login_id = start(worker).body["loginId"]
+    for value in WRONG_CODES[:4]:
+        assert code(worker, login_id, value).error["code"] == "CODE_INVALID"
+    assert pending(worker) == 1 and not backend.logins[0].disposed
+
+    fifth = code(worker, login_id, WRONG_CODES[4])
+    assert fifth.status == 200 and fifth.error["code"] == "CODE_INVALID"  # same code: the caller needs no new branch
+    assert "start the login again" in fifth.error["message"].lower()
+    assert pending(worker) == 0 and backend.logins[0].disposed
+
+    after = code(worker, login_id, LOGIN_CODE)  # even the right code is too late
+    assert after.error["code"] == "LOGIN_NOT_FOUND"
+
+
+def test_the_wrong_attempt_count_belongs_to_one_login_id(worker, backend):
+    first = start(worker).body["loginId"]
+    for value in WRONG_CODES[:4]:
+        code(worker, first, value)
+    second = start(worker).body["loginId"]
+    for value in WRONG_CODES[:4]:
+        assert code(worker, second, value).error["code"] == "CODE_INVALID"
+    assert pending(worker) == 2 and not any(login.disposed for login in backend.logins)
+    assert code(worker, first, LOGIN_CODE).body["status"] == "authorized"
+
+
+def test_a_wrong_password_keeps_the_login_so_it_can_be_retyped(worker, backend):
     backend.two_step_phones.add(PHONE)
     login_id = start(worker).body["loginId"]
-    worker.post("/v1/login/code", {"loginId": login_id, "code": LOGIN_CODE})
-    wrong = worker.post("/v1/login/password", {"loginId": login_id, "password": "nope"})
+    assert code(worker, login_id, LOGIN_CODE).body["status"] == "password_required"
+    wrong = password(worker, login_id, "nope")
     assert wrong.status == 200 and wrong.error["code"] == "PASSWORD_INVALID"
-    assert pending(worker) == 0 and backend.logins[0].disposed  # deleted on error
-    assert worker.post("/v1/login/password", {"loginId": login_id, "password": TWO_STEP_PASSWORD}).error["code"] == "LOGIN_NOT_FOUND"
+    assert "start the login again" not in wrong.error["message"].lower()
+    assert pending(worker) == 1 and not backend.logins[0].disposed
 
-
-@pytest.mark.parametrize(("code", "expected"), [("99999", "CODE_INVALID"), (EXPIRED_CODE, "CODE_EXPIRED")])
-def test_wrong_or_expired_code_ends_the_attempt(worker, backend, code, expected):
-    login_id = start(worker).body["loginId"]
-    response = worker.post("/v1/login/code", {"loginId": login_id, "code": code})
-    assert response.status == 200 and response.error["code"] == expected
+    done = password(worker, login_id, TWO_STEP_PASSWORD)
+    assert done.ok and done.body["status"] == "authorized"
     assert pending(worker) == 0 and backend.logins[0].disposed
-    assert worker.post("/v1/login/code", {"loginId": login_id, "code": LOGIN_CODE}).error["code"] == "LOGIN_NOT_FOUND"
+
+
+def test_the_fifth_wrong_password_deletes_the_login(worker, backend):
+    backend.two_step_phones.add(PHONE)
+    login_id = start(worker).body["loginId"]
+    code(worker, login_id, LOGIN_CODE)
+    for attempt in range(4):
+        assert password(worker, login_id, f"nope-{attempt}").error["code"] == "PASSWORD_INVALID"
+    assert pending(worker) == 1
+    fifth = password(worker, login_id, "nope-4")
+    assert fifth.error["code"] == "PASSWORD_INVALID" and "start the login again" in fifth.error["message"].lower()
+    assert pending(worker) == 0 and backend.logins[0].disposed
+    assert password(worker, login_id, TWO_STEP_PASSWORD).error["code"] == "LOGIN_NOT_FOUND"
+
+
+def test_wrong_codes_and_wrong_passwords_count_together(worker, backend):
+    backend.two_step_phones.add(PHONE)
+    login_id = start(worker).body["loginId"]
+    for value in WRONG_CODES[:3]:
+        assert code(worker, login_id, value).error["code"] == "CODE_INVALID"
+    assert code(worker, login_id, LOGIN_CODE).body["status"] == "password_required"
+    assert password(worker, login_id, "nope-1").error["code"] == "PASSWORD_INVALID"  # the 4th wrong attempt
+    assert pending(worker) == 1
+    last = password(worker, login_id, "nope-2")  # the 5th
+    assert last.error["code"] == "PASSWORD_INVALID" and "start the login again" in last.error["message"].lower()
+    assert pending(worker) == 0
+
+
+def test_a_wrong_attempt_does_not_extend_the_ten_minutes(worker, backend):
+    login_id = start(worker).body["loginId"]
+    worker.clock.advance(300)
+    assert code(worker, login_id, "99999").error["code"] == "CODE_INVALID"
+    worker.clock.advance(250)  # 550 s since the start: still fine
+    assert code(worker, login_id, "99999").error["code"] == "CODE_INVALID"
+    worker.clock.advance(60)  # 610 s
+    assert code(worker, login_id, LOGIN_CODE).error["code"] == "LOGIN_NOT_FOUND"
+    assert backend.logins[0].disposed
+
+
+def test_an_expired_code_deletes_the_login(worker, backend):
+    login_id = start(worker).body["loginId"]
+    response = code(worker, login_id, EXPIRED_CODE)
+    assert response.status == 200 and response.error["code"] == "CODE_EXPIRED"
+    assert pending(worker) == 0 and backend.logins[0].disposed
+    assert code(worker, login_id, LOGIN_CODE).error["code"] == "LOGIN_NOT_FOUND"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        WorkerError(RATE_LIMITED, "Telegram asked this account to wait.", 120),
+        WorkerError(NETWORK, "Connection problem. It is safe to retry."),
+        WorkerError(SESSION_INVALID, "The session was revoked."),
+        WorkerError(PHONE_INVALID, "Telegram does not accept this phone number."),
+        WorkerError(ACCOUNT_RESTRICTED, "Telegram has limited this account."),
+        WorkerError(UNKNOWN, "odd"),
+        WorkerError(CODE_EXPIRED, "The login code expired."),
+        WorkerError(PASSWORD_INVALID, "wrong password reported on the code step"),  # not this step's typo
+    ],
+    ids=lambda e: e.code,
+)
+def test_every_other_error_still_deletes_the_login(worker, backend, error):
+    login_id = start(worker).body["loginId"]
+    backend.fail_next("login_code", error)
+    response = code(worker, login_id, LOGIN_CODE)
+    assert response.status == 200 and response.error["code"] == error.code
+    assert pending(worker) == 0 and backend.logins[0].disposed
+    assert code(worker, login_id, LOGIN_CODE).error["code"] == "LOGIN_NOT_FOUND"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        WorkerError(RATE_LIMITED, "wait", 30),
+        WorkerError(NETWORK, "down"),
+        WorkerError(UNKNOWN, "odd"),
+        WorkerError(CODE_INVALID, "a code error on the password step"),  # not this step's typo
+    ],
+    ids=lambda e: e.code,
+)
+def test_every_other_error_on_the_password_step_deletes_the_login_too(worker, backend, error):
+    backend.two_step_phones.add(PHONE)
+    login_id = start(worker).body["loginId"]
+    code(worker, login_id, LOGIN_CODE)
+    backend.fail_next("login_password", error)
+    assert password(worker, login_id, TWO_STEP_PASSWORD).error["code"] == error.code
+    assert pending(worker) == 0 and backend.logins[0].disposed
+
+
+def test_a_timeout_on_a_login_step_deletes_the_login():
+    backend = MemoryBackend.with_demo_data()
+    harness = WorkerHarness(backend, service_options={"operation_timeout": 0.2}).start()
+    try:
+        login_id = start(harness).body["loginId"]
+
+        async def make_gate():
+            backend.gate = asyncio.Event()  # never opened
+
+        harness.run_in_loop(make_gate())
+        assert harness.post("/v1/login/code", {"loginId": login_id, "code": LOGIN_CODE}).error["code"] == "NETWORK"
+        assert pending(harness) == 0 and backend.logins[0].disposed
+    finally:
+        harness.stop()
 
 
 def test_invalid_phone_creates_no_pending_login(worker):
@@ -217,5 +379,35 @@ def test_one_attempt_at_a_time_per_login_id():
             thread.join(10)
         outcomes = sorted(r.body.get("status") or r.error["code"] for r in results)
         assert outcomes == ["LOGIN_NOT_FOUND", "authorized"]
+    finally:
+        harness.stop()
+
+
+def test_with_telethon_a_typo_keeps_the_same_connection_and_the_fifth_closes_it():
+    """The retry reuses the one Telethon client (same code hash); only the end of the login closes it."""
+    world = StubWorld()
+    world.sign_in_script = [rpc("PhoneCodeInvalidError"), rpc("PhoneCodeInvalidError")]  # then the default: success
+    harness = WorkerHarness(TelethonBackend(client_factory=world.factory)).start()
+    try:
+        login_id = start(harness).body["loginId"]
+        for _ in range(2):
+            assert code(harness, login_id, "99999").error["code"] == "CODE_INVALID"
+            assert world.disconnects == 0 and len(world.clients) == 1
+        done = code(harness, login_id, "12345")
+        assert done.body["status"] == "authorized"
+        assert [call[2]["hash"] for call in world.sent if call[0] == "sign_in"] == ["hash-123"] * 3
+        assert world.disconnects == 1 and pending(harness) == 0
+
+        world.sign_in_script = [rpc("PhoneCodeInvalidError")] * 5
+        login_id = start(harness).body["loginId"]
+        for _ in range(5):
+            last = code(harness, login_id, "99999")
+        assert last.error["code"] == "CODE_INVALID" and "start the login again" in last.error["message"].lower()
+        assert pending(harness) == 0 and world.disconnects == 2
+
+        world.sign_in_script = [rpc("PhoneCodeExpiredError")]
+        login_id = start(harness).body["loginId"]
+        assert code(harness, login_id, "12345").error["code"] == "CODE_EXPIRED"
+        assert pending(harness) == 0 and world.disconnects == 3
     finally:
         harness.stop()

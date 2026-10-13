@@ -110,7 +110,9 @@ refused).
 * `/v1/login/cancel` `{loginId}` → `{cancelled: true}`
 
 `session` is returned **once**, to the backend, on success. Pending logins live in memory for 10 minutes and
-are deleted on success, cancel, error or expiry.
+are deleted on success, cancel, expiry or any error, except that a wrong code (`CODE_INVALID`) or wrong
+two-step password (`PASSWORD_INVALID`) keeps the login so it can be retyped, up to 5 wrong attempts per
+`loginId`: the 5th deletes it and returns the same code with a message to start again.
 
 ### Account
 * `/v1/account/status` `{account}` → `{authorized: true, me}` or `{authorized: false}` (a revoked session is

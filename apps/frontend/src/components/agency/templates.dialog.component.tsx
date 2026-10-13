@@ -112,7 +112,6 @@ export const TemplatesDialog: FC<{
               }}
               error={touched.show('name', nameError)}
               placeholder="Weekly offer"
-              disabled={!canSave}
             />
             <Btn
               variant="primary"

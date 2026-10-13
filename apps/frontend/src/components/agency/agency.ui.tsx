@@ -491,7 +491,7 @@ export const Dialog: FC<{
       Array.from(panel.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
     (
       panel.current?.querySelector<HTMLElement>(
-        '[data-autofocus], input:not([type=checkbox]), select, textarea'
+        '[data-autofocus], input:not([type=checkbox]):not(:disabled), select:not(:disabled), textarea:not(:disabled)'
       ) ??
       focusables().find((el) => !el.hasAttribute('data-dialog-close')) ??
       panel.current

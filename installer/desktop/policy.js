@@ -91,6 +91,23 @@ function isStatusPage(url, statusPort) {
 }
 
 /**
+ * The app's own Settings page may open the folder picker too: the Storage controls live there now.
+ * No other page of the app can, and never another site.
+ */
+function isAppSettingsPage(url, frontendPort) {
+  const u = parseUrl(url);
+  return !!u && u.protocol === 'http:' && LOOPBACK.includes(u.hostname) && Number.isInteger(frontendPort) && u.port === String(frontendPort) && u.pathname === '/settings';
+}
+
+/** One plain line for the start-up screen: what is being started right now. */
+function startupLine(status) {
+  if (!status || !Array.isArray(status.services)) return 'Starting on this computer…';
+  const current = status.services.find((s) => s.state === 'starting' || s.state === 'restarting');
+  if (current && current.label) return `Starting ${String(current.label).toLowerCase()}…`;
+  return status.ready ? 'Opening AgencyOS…' : 'Almost ready…';
+}
+
+/**
  * The title bar is part of the page: the window buttons are drawn over the app's own top bar, so
  * their colours follow the app's theme (the top bar's background and text colours).
  */
@@ -105,4 +122,4 @@ function isOwnPage(url, origins) {
   return !!u && u.protocol === 'http:' && origins.has(u.origin);
 }
 
-module.exports = { parseArgs, trustedOrigins, classifyNavigation, safeToOpenExternally, parseStatusPort, windowPhase, trayTooltip, isStatusPage, titleBarOverlay, isOwnPage, TITLE_BAR_HEIGHT, RETRY_URL };
+module.exports = { parseArgs, trustedOrigins, classifyNavigation, safeToOpenExternally, parseStatusPort, windowPhase, trayTooltip, isStatusPage, isAppSettingsPage, startupLine, titleBarOverlay, isOwnPage, TITLE_BAR_HEIGHT, RETRY_URL };

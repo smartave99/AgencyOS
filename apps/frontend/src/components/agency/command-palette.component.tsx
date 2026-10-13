@@ -71,10 +71,16 @@ const Palette: FC<{ onClose: () => void }> = ({ onClose }) => {
         'Model, thinking level, local model, Claude Code, Codex, Antigravity, API key',
       ],
       [
-        'Storage and data folder',
-        '/settings?tab=storage',
+        'Telegram bots',
+        '/settings?tab=telegram',
+        'send',
+        'Connect a bot, add another bot, bot token, BotFather',
+      ],
+      [
+        'System and storage',
+        '/settings?tab=system',
         'folder',
-        'Move data, backups',
+        'What is running, local AI, move data folder, restart',
       ],
     ];
     const learn: Array<[string, string, IconName, string]> = [

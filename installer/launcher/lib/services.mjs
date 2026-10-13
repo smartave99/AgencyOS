@@ -314,6 +314,9 @@ export function buildServices(ctx) {
     {
       ...nodeService('frontend', 'AgencyOS app', paths.app.frontendServer, path.dirname(paths.app.frontendServer), {
         PORT: String(ports.frontend),
+        // Lets the app's own System settings talk to the launcher, for a signed-in administrator
+        // only (see app/api/system). It stays on the server side and never reaches the browser.
+        AGENCYOS_STATUS_TOKEN: secrets.adminToken,
       }),
       required: true,
       dependsOn: [],

@@ -40,6 +40,8 @@ export interface BotHandle {
 }
 
 const SERVER_BOT_LABEL = 'Server bot';
+/** What a request says to mean the bot from the server settings, which has no id of its own. */
+export const SERVER_BOT = 'server';
 const SERVER_NAME_TTL_MS = 10 * 60 * 1000;
 
 /**
@@ -64,7 +66,10 @@ export class AgencyTelegramBotsService {
   private secretKey(): Buffer {
     const secret = process.env.JWT_SECRET;
     if (!secret) {
-      throw new HttpException('The server has no secret to protect tokens', 500);
+      throw new HttpException(
+        'The server has no secret to protect tokens',
+        500
+      );
     }
     return Buffer.from(
       hkdfSync(
@@ -138,7 +143,10 @@ export class AgencyTelegramBotsService {
   }
 
   private async serverUsername(): Promise<string | null> {
-    if (this.serverName && Date.now() - this.serverName.at < SERVER_NAME_TTL_MS) {
+    if (
+      this.serverName &&
+      Date.now() - this.serverName.at < SERVER_NAME_TTL_MS
+    ) {
       return this.serverName.username;
     }
     try {
@@ -324,6 +332,12 @@ export class AgencyTelegramBotsService {
       (b) => b.status === TelegramBotStatus.ACTIVE
     );
     const serverOn = !!TelegramGateway.serverToken();
+    if (requested === SERVER_BOT) {
+      if (!serverOn) {
+        throw new NotFoundException('The server bot is not set up.');
+      }
+      return this.serverHandle();
+    }
     if (requested) {
       if (!bots.some((b) => b.id === requested)) {
         throw new NotFoundException('That bot is not connected, or is paused.');
@@ -352,7 +366,9 @@ export class AgencyTelegramBotsService {
       try {
         handles.push(this.openHandle(row));
       } catch (err) {
-        this.logger.warn(`Not listening for "${row.label}": ${(err as Error).message}`);
+        this.logger.warn(
+          `Not listening for "${row.label}": ${(err as Error).message}`
+        );
       }
     }
     return handles;
@@ -375,7 +391,9 @@ export class AgencyTelegramBotsService {
   }
 
   static leaseName(bot: { id: string | null }) {
-    return bot.id ? `agency-telegram-updates:${bot.id}` : 'agency-telegram-updates';
+    return bot.id
+      ? `agency-telegram-updates:${bot.id}`
+      : 'agency-telegram-updates';
   }
 
   // ==========================================
@@ -437,7 +455,9 @@ export class AgencyTelegramBotsService {
   }
 
   private classify(err: unknown) {
-    return err instanceof TelegramGatewayError ? err : this.gateway.classify(err);
+    return err instanceof TelegramGatewayError
+      ? err
+      : this.gateway.classify(err);
   }
 
   /** A person-readable reason a token could not be connected. */

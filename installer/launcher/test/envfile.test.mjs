@@ -6,7 +6,7 @@ import path from 'node:path';
 import { parseEnv, updateEnvText, setEnvKey, loadOrCreateSecrets, readEnvFile } from '../lib/envfile.mjs';
 import { resolvePaths, defaultDataRoot } from '../lib/paths.mjs';
 import { resolvePorts } from '../lib/app.mjs';
-import { DEFAULT_PORTS, buildAppEnv, databaseUrl } from '../lib/services.mjs';
+import { DEFAULT_PORTS, buildAppEnv, buildServices, databaseUrl } from '../lib/services.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'agencyos-env-'));
 
@@ -126,6 +126,14 @@ describe('application environment', () => {
     assert.equal(e.STORAGE_PROVIDER, 'local');
     assert.equal(e.UPLOAD_DIRECTORY, '/d/uploads');
     assert.equal(e.AGENCY_SCHEDULER_ENABLED, 'true');
+  });
+
+  it('gives the launcher token to the app server only, never to the other services', () => {
+    const services = buildServices({ paths: p, ports, secrets });
+    const env = (name) => services.find((s) => s.name === name).spawn().env;
+    assert.equal(env('frontend').AGENCYOS_STATUS_TOKEN, 't');
+    assert.equal(env('backend').AGENCYOS_STATUS_TOKEN, undefined);
+    assert.equal(env('orchestrator').AGENCYOS_STATUS_TOKEN, undefined);
   });
 
   it('url-encodes the database password', () => {

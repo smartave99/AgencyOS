@@ -2,6 +2,33 @@
 
 Every change in every version of AgencyOS, by NextGen OS, newest first. This file is generated from `libraries/helpers/src/changelog/releases.json`: edit that file, then run `node installer/build/changelog.mjs`.
 
+## 1.3.0 — 2026-10-13 · One app: Telegram bots and system settings live inside it
+
+Connect as many Telegram bots as you need, from Settings inside AgencyOS. The separate status page no longer opens as a second app: what it offered (system status, local AI, where your files are kept) is now Settings → System, and the window starts on a plain start-up screen.
+
+### Added
+
+- **Telegram:** Settings → Telegram bots: connect any number of bots by pasting each token from @BotFather. Rename, check, pause or remove each one. Tokens are stored encrypted on your computer and are never shown again.
+- **Telegram:** Every chat is served by exactly one bot, chosen when you connect the chat ("Posts through"). Only that bot hears the chat's /authorize, posts its ads and answers in it, and the chat list shows which bot it uses. A paused or removed bot stops its chats with a clear reason; a chat is never handed to a different bot behind your back.
+- **Interface:** Settings → System shows what is running, the local AI, this computer and where your files are kept, with a safe way to change the data and AI folders (checked and confirmed first) and a Restart everything button.
+
+### Improved
+
+- **Telegram:** A bot Telegram stops accepting is marked Needs attention and no longer listened for; AgencyOS keeps listening for each bot separately, so a slow or silent bot never holds up another.
+- **Interface:** Settings → Storage is now part of Settings → System; old links to it still work.
+
+### Changed
+
+- **Interface:** The window opens on a plain start-up screen that says what is starting, then goes straight into AgencyOS. The launcher's own status page is no longer a second place to go: it appears only if something fails to start or while your data is being moved. The tray icon's "System settings…" opens Settings → System.
+- **Telegram:** The Dashboard's Connect a Telegram bot button and the Telegram page now lead to Settings → Telegram bots inside the app. A chat cannot be registered until a bot is connected, because nothing could authorize it.
+
+### Good to know
+
+- Real Telegram has not been reached from the test machine, so connecting and posting through several bots is tested against a simulated Telegram, as before. Telegram itself decides how many bots one account may create with @BotFather; AgencyOS sets no limit of its own.
+- A bot token that was saved in the settings file by an earlier version keeps working and appears as the Server bot. It cannot be edited in the app.
+- The new window start-up screen, tray entry and folder picker in Settings → System are checked by their logic and in a browser, not on a real Windows desktop.
+- The installer is still not code-signed, so Windows SmartScreen warns on first run.
+
 ## 1.2.0 — 2026-10-13 · An agent that does the work, and a window that feels like an app
 
 The Copilot can now act as an agent: it looks things up, drafts work and proposes changes that you approve. Each AI job can have its own model and thinking level, the tools report their own models, and the desktop window loses its old title bar and heavy scrollbars.

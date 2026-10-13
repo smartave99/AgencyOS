@@ -65,7 +65,8 @@ export class AgencyTelegramController {
     @Param('id') id: string,
     @Body() body: UpdateTelegramBotDto
   ) {
-    if (body.label !== undefined) await this.botsService.rename(actor, id, body);
+    if (body.label !== undefined)
+      await this.botsService.rename(actor, id, body);
     if (body.enabled !== undefined) {
       return this.telegramService.setBotEnabled(actor, id, body.enabled);
     }

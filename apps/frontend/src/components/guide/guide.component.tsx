@@ -207,7 +207,7 @@ export const GuideComponent: FC = () => {
           <WorkflowStep
             n={2}
             title="Connect a Telegram chat"
-            body="Press Connect a Telegram bot on the Dashboard and paste your bot token (from @BotFather) once. Then connect a group or channel and have its administrator send the code with /authorize."
+            body="Connect a bot first: Settings → Telegram bots, paste the token from @BotFather (add as many bots as you like). Then connect a group or channel, choose its bot, and have the chat’s administrator send the code with /authorize."
             href="/agency/telegram"
             cta="Open Telegram"
             done={d ? d.telegramDestinationsCount > 0 : undefined}
@@ -264,8 +264,7 @@ export const GuideComponent: FC = () => {
               it looks at your memory, processor and graphics card and downloads
               a model that fits (a one-time download of roughly 2 to 6 GB).
               Until it finishes, ad copy uses templates and the Copilot says the
-              model is not ready. Progress is under the tray icon →{' '}
-              <em>Status and settings</em>.
+              model is not ready. Progress is under <em>Settings → System</em>.
             </>,
             <>
               <strong>Check that it works.</strong> Open{' '}
@@ -299,9 +298,9 @@ export const GuideComponent: FC = () => {
               in the AI folder shown under{' '}
               <Link
                 className="font-medium text-[color:var(--ag-accent-text)] hover:underline"
-                href="/settings?tab=storage"
+                href="/settings?tab=system"
               >
-                Settings → Storage
+                Settings → System
               </Link>
               , where you can move them to another drive.
             </>,
@@ -500,8 +499,8 @@ export const GuideComponent: FC = () => {
         <Steps
           items={[
             <>
-              <strong>“No Telegram bot is configured”</strong> on the Dashboard:
-              paste your bot token under the tray icon → Status and settings.
+              <strong>“No Telegram bot is connected”</strong> on the Dashboard:
+              open Settings → Telegram bots and paste your bot token.
             </>,
             <>
               <strong>“No publishing dispatcher is running”:</strong> scheduled

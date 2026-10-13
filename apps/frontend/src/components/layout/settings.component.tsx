@@ -20,7 +20,8 @@ import clsx from 'clsx';
 import { TeamsComponent } from '@gitroom/frontend/components/settings/teams.component';
 import { useUser } from '@gitroom/frontend/components/layout/user.context';
 import { LogoutComponent } from '@gitroom/frontend/components/layout/logout.component';
-import StorageComponent from '@gitroom/frontend/components/settings/storage.component';
+import { SystemSettingsComponent } from '@gitroom/frontend/components/settings/system.settings.component';
+import { TelegramBotsComponent } from '@gitroom/frontend/components/settings/telegram.bots.component';
 import { useSearchParams } from 'next/navigation';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { PublicComponent } from '@gitroom/frontend/components/public-api/public.component';
@@ -103,10 +104,15 @@ export const SettingsPopup: FC<{
       label: t('ai_and_copilot', 'AI and Copilot'),
       section: 'personal',
     });
+    arr.push({
+      tab: 'telegram',
+      label: t('telegram_bots', 'Telegram bots'),
+      section: 'personal',
+    });
     if (isLocal) {
       arr.push({
-        tab: 'storage',
-        label: t('storage', 'Storage'),
+        tab: 'system',
+        label: t('system', 'System'),
         section: 'personal',
       });
     }
@@ -169,7 +175,9 @@ export const SettingsPopup: FC<{
   }, [user, isGeneral, isLocal, showLogout, t]);
 
   const [tab, setTab] = useState(() => {
-    const requested = url.get('tab');
+    // "storage" is where the System tab's folders used to be.
+    const asked = url.get('tab');
+    const requested = asked === 'storage' ? 'system' : asked;
     return list.some((p) => p.tab === requested) ? requested! : list[0].tab;
   });
 
@@ -275,11 +283,9 @@ export const SettingsPopup: FC<{
                 </div>
               )}
 
-              {tab === 'storage' && isLocal && (
-                <div>
-                  <StorageComponent />
-                </div>
-              )}
+              {tab === 'telegram' && <TelegramBotsComponent />}
+
+              {tab === 'system' && isLocal && <SystemSettingsComponent />}
 
               {tab === 'integrations' && (
                 <div>

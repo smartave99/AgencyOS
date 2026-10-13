@@ -3,7 +3,7 @@
 import React, { FC } from 'react';
 import { useDashboard } from './agency.hooks';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
-import { Btn, Notice } from './agency.ui';
+import { LinkBtn, Notice } from './agency.ui';
 
 /**
  * Tells the truth about whether anything can actually be sent. Without a dispatcher a
@@ -12,30 +12,23 @@ import { Btn, Notice } from './agency.ui';
  */
 export const SystemBanner: FC = () => {
   const { data } = useDashboard();
-  const { isLocal, agencyStatusUrl } = useVariables();
+  const { isLocal } = useVariables();
   if (!data?.system) return null;
   const { dispatcher, telegram } = data.system;
 
-  // On a person's own computer there is no server to configure: the bot token goes into the
-  // status page, one click away.
+  // Bots are connected inside the app (Settings → Telegram bots), on a person's own computer and on
+  // a server alike.
   const issues: Array<{
     tone: 'bad' | 'warn';
     text: string;
     action?: boolean;
   }> = [];
   if (!telegram.configured) {
-    issues.push(
-      isLocal
-        ? {
-            tone: 'bad',
-            text: 'AgencyOS is not connected to a Telegram bot yet, so no chat can be authorized and nothing can be sent. Add your bot token (from @BotFather) to connect it.',
-            action: !!agencyStatusUrl,
-          }
-        : {
-            tone: 'bad',
-            text: 'No Telegram bot is configured on this server (set AGENCY_TELEGRAM_BOT_TOKEN). Destinations cannot be authorized and nothing can be sent.',
-          }
-    );
+    issues.push({
+      tone: 'bad',
+      text: 'No Telegram bot is connected yet, so no chat can be authorized and nothing can be sent. Add a bot token (from @BotFather) to connect one.',
+      action: true,
+    });
   } else if (!telegram.listening) {
     issues.push({
       tone: 'warn',
@@ -62,14 +55,9 @@ export const SystemBanner: FC = () => {
           tone={issue.tone}
           action={
             issue.action ? (
-              <Btn
-                variant="primary"
-                onClick={() => {
-                  window.location.href = agencyStatusUrl!;
-                }}
-              >
+              <LinkBtn href="/settings?tab=telegram" variant="primary">
                 Connect a Telegram bot
-              </Btn>
+              </LinkBtn>
             ) : undefined
           }
         >

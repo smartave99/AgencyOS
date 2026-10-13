@@ -307,7 +307,7 @@ async function main() {
     const page = await fetch(`${app}/agency/dashboard`, { headers: { cookie: `auth=${auth}` }, redirect: 'manual' });
     assert(page.status === 200, `the app's dashboard page -> ${page.status}`);
     // The unified shell's own pages: guide, features, what's new, and the AI settings behind them.
-    for (const route of ['/guide', '/guide/features', '/guide/changelog', '/settings?tab=ai']) {
+    for (const route of ['/guide', '/guide/features', '/guide/changelog', '/settings?tab=ai', '/settings?tab=telegram', '/settings?tab=system']) {
       const res = await fetch(`${app}${route}`, { headers: { cookie: `auth=${auth}` }, redirect: 'manual' });
       assert(res.status === 200, `${route} -> ${res.status}`);
     }
@@ -329,6 +329,19 @@ async function main() {
     assert((agentMade.status === 201 || agentMade.status === 200) && agentBody.ok === true, `agent act -> ${agentMade.status} ${JSON.stringify(agentBody)?.slice(0, 200)}`);
     const afterAgent = await getJson(`${api}/agency/clients`, h);
     assert(JSON.stringify(afterAgent.json).includes('Smoke Agent Client'), 'the client the agent added is not listed');
+    // Telegram bots are connected inside the app: none yet, and a chat cannot be registered without one.
+    const bots = await getJson(`${api}/agency/telegram/bots`, h);
+    assert(bots.status === 200 && Array.isArray(bots.json?.bots) && bots.json.bots.length === 0 && bots.json.server?.configured === false, `telegram bots -> ${bots.status} ${JSON.stringify(bots.json)?.slice(0, 200)}`);
+    const noBotChat = await fetch(`${api}/agency/telegram/destinations`, { method: 'POST', headers: h, body: JSON.stringify({ chatId: '-1001234567890' }) });
+    assert(noBotChat.status === 400, `a chat must not be registered without a bot -> ${noBotChat.status}`);
+    // The app's own System settings read the launcher through the app (no second page, no second sign-in).
+    const system = await fetch(`${app}/api/system/status`, { headers: { cookie: `auth=${auth}` } });
+    const systemJson = await system.json().catch(() => ({}));
+    assert(system.status === 200 && Array.isArray(systemJson.services) && systemJson.services.some((x) => x.name === 'frontend') && systemJson.storage?.dataRoot, `system status through the app -> ${system.status}`);
+    for (const closed of ['shutdown', 'telegram']) {
+      const res = await fetch(`${app}/api/system/${closed}`, { method: 'POST', headers: { cookie: `auth=${auth}`, 'content-type': 'application/json' }, body: '{}' });
+      assert(res.status === 404, `${closed} must not be reachable through the app -> ${res.status}`);
+    }
     const noApprove = await fetch(`${api}/agency/ai/agent/act`, { method: 'POST', headers: h, body: JSON.stringify({ tool: 'approve_campaign', args: {} }) });
     assert(noApprove.status === 400, `the agent must have no way to approve a campaign -> ${noApprove.status}`);
     return { auth };

@@ -11,6 +11,7 @@ import {
   useCan,
   usePublishingEvents,
   usePublishingQueue,
+  useTelegramBots,
   useTelegramDestinations,
 } from './agency.hooks';
 import {
@@ -18,6 +19,7 @@ import {
   Card,
   Dialog,
   EmptyState,
+  LinkBtn,
   Loading,
   LoadError,
   Menu,
@@ -26,6 +28,7 @@ import {
   PageHeader,
   PageShell,
   Segmented,
+  SelectField,
   StatusBadge,
   TextField,
   TONE_TEXT,
@@ -123,8 +126,8 @@ const InstructionsDialog: FC<{ info: Instructions; onDone: () => void }> = ({
       {!info.botUsername && (
         <Notice tone="warn">
           AgencyOS is not connected to a Telegram bot yet, so nobody can use the
-          code until a bot token is added (tray icon, then Status and settings,
-          or the “Connect a Telegram bot” button on the Dashboard).
+          code until a bot is connected (Settings → Telegram bots, or the
+          “Connect a Telegram bot” button on the Dashboard).
         </Notice>
       )}
       <ol className="flex flex-col gap-3">
@@ -160,8 +163,31 @@ const RegisterPanel: FC<{
   const touched = useTouched();
   const [chatRef, setChatRef] = useState('');
   const [owner, setOwner] = useState('');
+  const [botChoice, setBotChoice] = useState('');
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState<'check' | 'register' | null>(null);
+  const { data: botList } = useTelegramBots();
+
+  // Every bot that can post: the connected ones that are on, plus the server's. A chat is served by
+  // exactly one of them, so with several the person chooses.
+  const choices = [
+    ...(botList?.bots ?? [])
+      .filter((b) => b.status === 'ACTIVE')
+      .map((b) => ({ value: b.id, label: `${b.label} (@${b.username})` })),
+    ...(botList?.server.configured
+      ? [
+          {
+            value: 'server',
+            label: `${botList.server.label}${
+              botList.server.username ? ` (@${botList.server.username})` : ''
+            }`,
+          },
+        ]
+      : []),
+  ];
+  const botId = choices.some((c) => c.value === botChoice)
+    ? botChoice
+    : choices[0]?.value ?? '';
 
   const trimmed = chatRef.trim();
   const refError = !trimmed
@@ -177,7 +203,10 @@ const RegisterPanel: FC<{
     setPreview(null);
     try {
       setPreview(
-        await api.post<Preview>('/agency/telegram/verify', { chatId: trimmed })
+        await api.post<Preview>('/agency/telegram/verify', {
+          chatId: trimmed,
+          botId: botId || undefined,
+        })
       );
     } catch (e) {
       toaster.show((e as Error).message, 'warning');
@@ -199,6 +228,7 @@ const RegisterPanel: FC<{
         steps: string[];
       }>('/agency/telegram/destinations', {
         chatId: trimmed,
+        botId: botId || undefined,
         ownerName: owner.trim() || undefined,
       });
       onInstructions({
@@ -210,6 +240,7 @@ const RegisterPanel: FC<{
       setChatRef('');
       setOwner('');
       setPreview(null);
+      touched.reset();
       onRegistered();
     } catch (err) {
       toaster.show((err as Error).message, 'warning');
@@ -218,12 +249,50 @@ const RegisterPanel: FC<{
     }
   };
 
+  if (botList && choices.length === 0) {
+    return (
+      <Card
+        title="Connect a group or channel"
+        subtitle="Ads are only ever sent to chats whose administrators have authorized you."
+      >
+        <Notice
+          tone="warn"
+          action={
+            <LinkBtn href="/settings?tab=telegram" variant="primary">
+              Connect a Telegram bot
+            </LinkBtn>
+          }
+        >
+          Connect a Telegram bot first. It is the bot that posts your ads and
+          hears a group admin’s authorization.
+        </Notice>
+      </Card>
+    );
+  }
+
   return (
     <Card
       title="Connect a group or channel"
       subtitle="Ads are only ever sent to chats whose administrators have authorized you."
     >
       <form className="flex flex-col gap-4" onSubmit={register} noValidate>
+        {choices.length > 1 && (
+          <SelectField
+            label="Posts through"
+            hint="Each chat is served by one bot. It needs to be added to the chat as an administrator."
+            value={botId}
+            onChange={(e) => {
+              setBotChoice(e.target.value);
+              setPreview(null);
+            }}
+          >
+            {choices.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </SelectField>
+        )}
         <TextField
           label="Chat ID or public @username"
           className="font-mono"
@@ -397,6 +466,9 @@ const DestinationRow: FC<{
         </div>
         <div className="mt-0.5 font-mono text-xs text-textItemBlur">
           {d.chatId}
+          {d.botUsername && (
+            <span className="font-sans"> · via @{d.botUsername}</span>
+          )}
         </div>
         <p className="mt-1.5 text-[13px] text-textItemBlur max-w-lg">
           {statusDetail(d)}
@@ -630,6 +702,7 @@ export const AgencyTelegramComponent: FC = () => {
       <PageHeader
         title="Telegram destinations"
         subtitle="A chat can receive your ads only after one of its administrators authorizes it, and they can withdraw that at any time."
+        actions={<LinkBtn href="/settings?tab=telegram">Manage bots</LinkBtn>}
       />
       <SystemBanner />
 

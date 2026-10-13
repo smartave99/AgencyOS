@@ -198,7 +198,7 @@ begin
   Result := '';
   if Dir = '' then Exit;
   if not IsPlainAscii(Dir) then
-    Result := 'The ' + What + ' folder can use only plain letters, numbers and common symbols here. After setup, AgencyOS can move it to any folder (Status and settings).'
+    Result := 'The ' + What + ' folder can use only plain letters, numbers and common symbols here. After setup, AgencyOS can move it to any folder (Settings, System).'
   else if Length(Dir) < 3 then
     Result := 'Please enter a full folder path on a drive of this computer, for example D:\AgencyOS.'
   else if (Dir[2] <> ':') or (Dir[3] <> '\') then
@@ -273,7 +273,7 @@ begin
   LocationsPage := CreateInputDirPage(wpSelectDir,
     'Where should AgencyOS keep your files?',
     'Your database, uploads and logs are stored in a data folder.',
-    'Choose a folder on a drive with plenty of free space. Your data stays there when AgencyOS is updated, and you can move it later in AgencyOS under Status and settings.',
+    'Choose a folder on a drive with plenty of free space. Your data stays there when AgencyOS is updated, and you can move it later in AgencyOS under Settings, System.',
     False, '');
   LocationsPage.Add('Data folder (database, uploads, logs):');
   LocationsPage.Add('Local AI models folder (optional; models can take several GB). The default keeps them inside your data folder:');

@@ -1,5 +1,6 @@
-// The one page the launcher serves: progress while AgencyOS starts, then a control panel
-// (open the app, local AI status, Telegram bot token, restart, stop). Plain HTML, no external
+// The launcher's own page. The desktop app shows it only when something did not start or while the
+// data is being moved; everything else (Telegram bots, storage, system status) lives inside the app,
+// under Settings. It is also what a browser sees at the status address. Plain HTML, no external
 // resources, light and dark following the system setting. Every dynamic value is written with
 // textContent, never innerHTML, because service errors can contain log text.
 
@@ -79,13 +80,8 @@ html[data-frameless] main{padding-top:64px}
   </section>
 
   <section class="card">
-    <h2>Telegram bot (optional)</h2>
-    <div class="muted" id="tg-line">Paste the token from @BotFather to let AgencyOS post to chats whose admins have authorized it.</div>
-    <form class="field" id="tg-form" autocomplete="off">
-      <input type="password" id="tg-token" placeholder="123456789:AA…" aria-label="Telegram bot token" spellcheck="false">
-      <button class="primary" id="tg-save" type="submit">Save</button>
-    </form>
-    <div class="muted" id="tg-msg" role="status"></div>
+    <h2>Telegram</h2>
+    <div class="muted">Bots are connected inside AgencyOS, under Settings → Telegram bots. You can connect as many as you need.</div>
   </section>
 
   <section class="card" id="storage-card">
@@ -246,17 +242,10 @@ html[data-frameless] main{padding-top:64px}
     }
     renderServices(s.services);
     renderAi(s.ai || {});
-    text($('tg-line'), s.telegram && s.telegram.configured ? 'A bot token is saved. Paste a new one to replace it, or leave the box empty and press Save to remove it.' : 'Paste the token from @BotFather to let AgencyOS post to chats whose admins have authorized it.');
     var hw = s.ai && s.ai.hardware; if(hw){ text($('hw'), [hw.os, hw.cpu, hw.threads ? hw.threads + ' threads' : '', hw.ramGB ? hw.ramGB + ' GB memory' : '', hw.gpu || 'no dedicated GPU'].filter(Boolean).join(' · ')); }
     text($('paths'), 'Your data: ' + s.dataDir);
   }
   function poll(){ fetch('/api/status').then(function(r){ return r.json(); }).then(render).catch(function(){ text($('lead'), 'AgencyOS is not running. Start it from the Start menu.'); }).then(function(){ setTimeout(poll, 1500); }); }
-  $('tg-form').addEventListener('submit', function(ev){
-    ev.preventDefault();
-    var v = $('tg-token').value.trim();
-    text($('tg-msg'), 'Saving…');
-    api('/api/telegram','POST',{token:v}).then(function(r){ $('tg-token').value=''; text($('tg-msg'), r.configured ? 'Saved. The bot is connecting.' : 'Removed.'); }).catch(function(e){ text($('tg-msg'), e.message); });
-  });
   $('st-open').addEventListener('click', openForm);
   $('st-cancel').addEventListener('click', closeForm);
   ['st-data-in','st-ai-in'].forEach(function(id){ $(id).addEventListener('input', scheduleCheck); });

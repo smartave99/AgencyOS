@@ -191,17 +191,28 @@ function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) {
     // Started hidden (at sign-in): the window is created the first time it is asked for.
     mainWindow = createMainWindow();
+    // Not up yet: the window keeps its start-up screen and the poll below opens the app, or the
+    // launcher's page if something failed to start.
     if (latestStatus && policy.windowPhase(latestStatus) === 'ready') {
       appShown = true;
       mainWindow.loadURL(latestStatus.url);
-    } else if (statusPort) {
-      appShown = false;
-      showStatusPage(mainWindow);
     }
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+}
+
+/** What used to be the status page's controls are now part of the app: open them there. */
+function openSystemSettings() {
+  if (latestStatus && policy.windowPhase(latestStatus) === 'ready') {
+    showMainWindow();
+    mainWindow.loadURL(new URL('/settings?tab=system', latestStatus.url).toString());
+    appShown = true;
+    return;
+  }
+  // Not up yet (or something failed): the launcher's own page is the one that can say why.
+  showStatusPage();
 }
 
 function showStatusPage(target = null) {
@@ -251,12 +262,15 @@ async function boot() {
     mainWindow.show();
     return;
   }
+  // The window keeps its start-up screen until the app can open: the launcher's status page is only
+  // for a start that failed or a move of the data, never a second place to go.
   appShown = false;
-  if (mainWindow && !mainWindow.isDestroyed()) showStatusPage(mainWindow);
+  problemShown = false;
   startPolling();
 }
 
 let pollTimer = null;
+let problemShown = false;
 function startPolling() {
   stopPolling();
   const tick = async () => {
@@ -268,13 +282,21 @@ function startPolling() {
       origins = policy.trustedOrigins({ statusPort, frontendPort: status.ports?.frontend, backendPort: status.ports?.backend });
       updateTray();
       const phase = policy.windowPhase(status);
-      if (phase === 'ready' && !appShown && mainWindow && !mainWindow.isDestroyed()) {
+      const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+      if (phase === 'ready' && !appShown && win) {
         appShown = true;
-        mainWindow.loadURL(status.url);
-      } else if (phase === 'moving' && appShown && mainWindow && !mainWindow.isDestroyed()) {
+        problemShown = false;
+        win.loadURL(status.url);
+      } else if (phase === 'moving' && appShown && win) {
         // The app is stopped while its files are copied: show the progress instead of a broken page.
         appShown = false;
-        showStatusPage(mainWindow);
+        showStatusPage(win);
+      } else if (phase === 'attention' && !appShown && !problemShown && win) {
+        // Something did not start: only then is the launcher's page the right thing to look at.
+        problemShown = true;
+        showStatusPage(win);
+      } else if (phase === 'starting' && !appShown && win && !problemShown) {
+        win.webContents.send('agencyos:startup-line', policy.startupLine(status));
       }
     } catch {
       failedPolls += 1;
@@ -341,7 +363,7 @@ function buildTray() {
   const menu = () =>
     Menu.buildFromTemplate([
       { label: 'Open AgencyOS', click: showMainWindow },
-      { label: 'Status and settings…', click: () => showStatusPage() },
+      { label: 'System settings…', click: openSystemSettings },
       { type: 'separator' },
       {
         label: 'Start with Windows',
@@ -363,7 +385,7 @@ function buildMenu() {
     {
       label: 'AgencyOS',
       submenu: [
-        { label: 'Status and settings…', click: () => showStatusPage() },
+        { label: 'System settings…', click: openSystemSettings },
         { label: 'Open logs folder', click: () => shell.openPath(currentLogsDir()) },
         { type: 'separator' },
         { label: 'Quit AgencyOS', accelerator: 'CmdOrCtrl+Q', click: () => quitAgencyOS({ confirm: true }) },
@@ -424,7 +446,9 @@ function notifyOnce(title, body) {
 
 ipcMain.handle('agencyos:pick-folder', async (event, current) => {
   const frameUrl = event.senderFrame && event.senderFrame.url;
-  if (!statusPort || !policy.isStatusPage(frameUrl, statusPort)) return null;
+  const frontendPort = latestStatus && latestStatus.ports ? latestStatus.ports.frontend : null;
+  const allowed = (statusPort && policy.isStatusPage(frameUrl, statusPort)) || policy.isAppSettingsPage(frameUrl, frontendPort);
+  if (!allowed) return null;
   const owner = BrowserWindow.fromWebContents(event.sender) || undefined;
   const defaultPath = typeof current === 'string' && current && fs.existsSync(current) ? current : undefined;
   const { canceled, filePaths } = await dialog.showOpenDialog(owner, { title: 'Choose a folder for AgencyOS', defaultPath, properties: ['openDirectory', 'createDirectory'] });

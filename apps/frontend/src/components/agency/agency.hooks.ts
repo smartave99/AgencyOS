@@ -168,8 +168,28 @@ export interface AiTools {
   tools: AiToolView[];
 }
 
+export interface TelegramBotView {
+  id: string;
+  label: string;
+  username: string;
+  status: 'ACTIVE' | 'DISABLED' | 'INVALID';
+  lastError: string | null;
+  lastCheckedAt: string | null;
+  createdAt: string;
+  destinationCount: number;
+}
+
+/** The connected bots, plus the one from the server settings (read-only), if any. The token never comes back. */
+export interface TelegramBots {
+  bots: TelegramBotView[];
+  server: { configured: boolean; label: string; username: string | null };
+}
+
 export interface DestinationView {
   id: string;
+  /** Which connected bot serves this chat; null is the server's bot. */
+  botId: string | null;
+  botUsername: string | null;
   chatId: string;
   title: string;
   type: string;
@@ -598,6 +618,13 @@ export const useTelegramDestinations = () =>
     ['agency-telegram-destinations'],
     '/agency/telegram/destinations',
     15000
+  );
+
+export const useTelegramBots = (enabled = true) =>
+  useResource<TelegramBots>(
+    enabled ? ['agency-telegram-bots'] : null,
+    '/agency/telegram/bots',
+    20000
   );
 
 export const usePublishingQueue = (status = '') =>

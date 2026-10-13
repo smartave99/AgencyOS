@@ -27,8 +27,14 @@
   <main>
     <img src="assets/icon.png" alt="">
     <h1>AgencyOS</h1>
-    <p>Starting on this computer…</p>
+    <p id="line" aria-live="polite">Starting on this computer…</p>
     <div class="bar" role="progressbar" aria-label="Starting"><i></i></div>
   </main>
+<script>
+  // The shell says what it is starting; the text is set as text, never as markup.
+  if (window.agencyos && window.agencyos.onStartupLine) {
+    window.agencyos.onStartupLine(function (line) { if (line) document.getElementById('line').textContent = line; });
+  }
+</script>
 </body>
 </html>

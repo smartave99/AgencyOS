@@ -87,7 +87,9 @@ export class AgencySchedulerService implements OnModuleInit, OnModuleDestroy {
   private async syncListeners() {
     try {
       const bots = await this.bots.pollable();
-      const wanted = new Set(bots.map((b) => AgencyTelegramBotsService.leaseName(b)));
+      const wanted = new Set(
+        bots.map((b) => AgencyTelegramBotsService.leaseName(b))
+      );
       for (const [name, listener] of this.listeners) {
         if (!wanted.has(name)) {
           listener.stop = true;
@@ -110,7 +112,9 @@ export class AgencySchedulerService implements OnModuleInit, OnModuleDestroy {
         void this.listen(bot, listener);
       }
     } catch (err: any) {
-      this.logger.warn(`Could not update the Telegram listeners: ${err?.message}`);
+      this.logger.warn(
+        `Could not update the Telegram listeners: ${err?.message}`
+      );
     }
   }
 

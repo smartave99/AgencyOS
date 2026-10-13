@@ -33,7 +33,7 @@ Windows 10 (version 1809) or Windows 11, 64-bit (Windows on ARM runs it through 
 2. Windows SmartScreen may say "Windows protected your PC" because this build is **not code-signed**: choose **More info**, then **Run anyway**.
 3. Setup asks where to keep your files (you can keep the defaults).
 4. AgencyOS opens and shows what it is starting. The first start takes a minute or two (it creates the database). It then opens straight into your workspace: there is no account to create and nothing to sign in to.
-5. Optional: paste a Telegram bot token under the tray icon, **Status and settings**, to let AgencyOS post to chats whose administrators have authorized it.
+5. Optional: connect a Telegram bot under **Settings → Telegram bots** (paste the token from @BotFather; you can connect as many bots as you need) to let AgencyOS post to chats whose administrators have authorized it.
 
 ### Honest limits
 

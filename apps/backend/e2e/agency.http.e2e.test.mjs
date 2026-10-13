@@ -634,7 +634,9 @@ describe(
 
     describe('Telegram bots', () => {
       it('lists none at first, refuses a malformed token, and keeps connecting to owners and admins', async () => {
-        const none = await call('GET', '/agency/telegram/bots', { as: 'manager' });
+        const none = await call('GET', '/agency/telegram/bots', {
+          as: 'manager',
+        });
         assert.equal(none.status, 200, none.text);
         assert.deepEqual(none.json.bots, []);
         assert.equal(none.json.server.configured, false);
@@ -685,21 +687,31 @@ describe(
             body: { label: 'Acme Ads', token: tok },
           });
           assert.equal(added.status, 201, added.text);
-          matches(added.json, { label: 'Acme Ads', username: 'acme_ads_bot', status: 'ACTIVE' });
+          matches(added.json, {
+            label: 'Acme Ads',
+            username: 'acme_ads_bot',
+            status: 'ACTIVE',
+          });
           const dupe = await call('POST', '/agency/telegram/bots', {
             as: 'owner',
             body: { label: 'Again', token: tok },
           });
           assert.equal(dupe.status, 409, dupe.text);
 
-          const listed = await call('GET', '/agency/telegram/bots', { as: 'manager' });
+          const listed = await call('GET', '/agency/telegram/bots', {
+            as: 'manager',
+          });
           assert.equal(listed.json.bots.length, 1);
           assert.ok(!listed.text.includes(tok) && !added.text.includes(tok));
           assert.ok(!listed.text.includes('tokenSealed'));
 
           const reg = await call('POST', '/agency/telegram/destinations', {
             as: 'manager',
-            body: { chatId: '-100123456789', title: 'Fruit chat', isAuthorized: true },
+            body: {
+              chatId: '-100123456789',
+              title: 'Fruit chat',
+              isAuthorized: true,
+            },
           });
           assert.equal(reg.status, 201, reg.text);
           matches(reg.json.destination, {
@@ -712,23 +724,38 @@ describe(
           assert.match(reg.json.steps[0], /@acme_ads_bot/);
           assert.ok(!reg.text.includes('verificationCodeHash'));
 
-          const paused = await call('PUT', `/agency/telegram/bots/${added.json.id}`, {
-            as: 'owner',
-            body: { enabled: false },
-          });
+          const paused = await call(
+            'PUT',
+            `/agency/telegram/bots/${added.json.id}`,
+            {
+              as: 'owner',
+              body: { enabled: false },
+            }
+          );
           assert.equal(paused.json.status, 'DISABLED', paused.text);
           assert.equal(
-            (await call('DELETE', `/agency/telegram/bots/${added.json.id}`, { as: 'manager' })).status,
+            (
+              await call('DELETE', `/agency/telegram/bots/${added.json.id}`, {
+                as: 'manager',
+              })
+            ).status,
             403
           );
-          const removed = await call('DELETE', `/agency/telegram/bots/${added.json.id}`, { as: 'owner' });
+          const removed = await call(
+            'DELETE',
+            `/agency/telegram/bots/${added.json.id}`,
+            { as: 'owner' }
+          );
           assert.equal(removed.status, 200, removed.text);
           matches(removed.json, { removed: true, chatsStopped: 1 });
-          const after = await call('GET', '/agency/telegram/destinations', { as: 'manager' });
+          const after = await call('GET', '/agency/telegram/destinations', {
+            as: 'manager',
+          });
           const mine = after.json.find((d) => d.id === reg.json.destination.id);
           assert.equal(mine.authorizationStatus, 'DISCONNECTED');
           assert.equal(
-            (await call('GET', '/agency/telegram/bots', { as: 'manager' })).json.bots.length,
+            (await call('GET', '/agency/telegram/bots', { as: 'manager' })).json
+              .bots.length,
             0
           );
         } finally {
@@ -888,9 +915,15 @@ describe(
         delete process.env.AGENCYOS_LOCAL;
         process.env.OLLAMA_HOST = 'http://127.0.0.1:1'; // nothing listens here
 
-        const view = await call('GET', '/agency/ai/settings', { as: 'manager' });
+        const view = await call('GET', '/agency/ai/settings', {
+          as: 'manager',
+        });
         assert.equal(view.status, 200, view.text);
-        matches(view.json, { activeProvider: 'local', thinking: 'auto', localMode: false });
+        matches(view.json, {
+          activeProvider: 'local',
+          thinking: 'auto',
+          localMode: false,
+        });
         assert.equal(view.json.providers.length, 8);
         assert.equal(
           view.json.providers.find((p) => p.id === 'claude-cli').selectable,
@@ -926,31 +959,51 @@ describe(
           body: {
             activeProvider: 'openai',
             thinking: 'medium',
-            providers: { openai: { apiKey: 'sk-e2e-secret-key', model: 'gpt-5' } },
+            providers: {
+              openai: { apiKey: 'sk-e2e-secret-key', model: 'gpt-5' },
+            },
             smuggled: 'ignored',
           },
         });
         assert.equal(saved.status, 200, saved.text);
-        assert.ok(!saved.text.includes('sk-e2e-secret-key'), 'the key is never sent back');
-        matches(saved.json.providers.find((p) => p.id === 'openai'), {
-          hasKey: true,
-          model: 'gpt-5',
-        });
+        assert.ok(
+          !saved.text.includes('sk-e2e-secret-key'),
+          'the key is never sent back'
+        );
+        matches(
+          saved.json.providers.find((p) => p.id === 'openai'),
+          {
+            hasKey: true,
+            model: 'gpt-5',
+          }
+        );
         const row = await prisma.agencyAiConfig.findFirst({
           where: { orgId: ctx.users.owner.orgId },
         });
-        assert.ok(!JSON.stringify(row).includes('sk-e2e-secret-key'), 'stored sealed, not in clear');
+        assert.ok(
+          !JSON.stringify(row).includes('sk-e2e-secret-key'),
+          'stored sealed, not in clear'
+        );
         assert.match(row.providers.openai.apiKey, /^v1\./);
 
         // Another agency sees none of it.
-        const other = await call('GET', '/agency/ai/settings', { as: 'otherOwner' });
+        const other = await call('GET', '/agency/ai/settings', {
+          as: 'otherOwner',
+        });
         assert.equal(other.json.activeProvider, 'local');
-        assert.equal(other.json.providers.find((p) => p.id === 'openai').hasKey, false);
+        assert.equal(
+          other.json.providers.find((p) => p.id === 'openai').hasKey,
+          false
+        );
 
         // The change is on the audit trail, without the key.
-        const audit = await call('GET', '/agency/audit?entityType=AgencyAiConfig', {
-          as: 'owner',
-        });
+        const audit = await call(
+          'GET',
+          '/agency/audit?entityType=AgencyAiConfig',
+          {
+            as: 'owner',
+          }
+        );
         assert.ok(audit.json.some((e) => e.action === 'ai.settings_updated'));
         assert.ok(!audit.text.includes('sk-e2e-secret-key'));
       });
@@ -975,7 +1028,10 @@ describe(
           view.json.tools.map((t) => t.id),
           ['claude-cli', 'codex-cli', 'antigravity-cli']
         );
-        assert.equal(view.json.tools.find((t) => t.id === 'antigravity-cli').canUpdate, true);
+        assert.equal(
+          view.json.tools.find((t) => t.id === 'antigravity-cli').canUpdate,
+          true
+        );
 
         const put = (as, body) => call('PUT', '/agency/ai/tools', { as, body });
         assert.equal((await put('manager', { autoUpdate: false })).status, 403);
@@ -983,16 +1039,30 @@ describe(
         const off = await put('owner', { autoUpdate: false });
         assert.equal(off.status, 200, off.text);
         assert.equal(off.json.autoUpdate, false);
-        assert.equal((await put('owner', { autoUpdate: true })).json.autoUpdate, true);
+        assert.equal(
+          (await put('owner', { autoUpdate: true })).json.autoUpdate,
+          true
+        );
 
-        const update = await call('POST', '/agency/ai/tools/update', { as: 'owner', body: {} });
+        const update = await call('POST', '/agency/ai/tools/update', {
+          as: 'owner',
+          body: {},
+        });
         assert.equal(update.status, 400);
         assert.match(update.text, /desktop app/);
         assert.equal(
-          (await call('POST', '/agency/ai/tools/update', { as: 'manager', body: {} })).status,
+          (
+            await call('POST', '/agency/ai/tools/update', {
+              as: 'manager',
+              body: {},
+            })
+          ).status,
           403
         );
-        assert.equal((await call('GET', '/agency/ai/tools', { as: 'client' })).status, 403);
+        assert.equal(
+          (await call('GET', '/agency/ai/tools', { as: 'client' })).status,
+          403
+        );
       });
 
       it('a model and thinking level per job survive a real request (the validation pipe keeps them)', async () => {
@@ -1011,7 +1081,9 @@ describe(
           copy: { provider: 'local', model: 'gemma3:1b', thinking: 'off' },
           agent: { provider: null, thinking: 'high' },
         });
-        const read = await call('GET', '/agency/ai/settings', { as: 'manager' });
+        const read = await call('GET', '/agency/ai/settings', {
+          as: 'manager',
+        });
         assert.equal(read.json.tasks.copy.model, 'gemma3:1b');
 
         const bad = await call('PUT', '/agency/ai/settings', {
@@ -1044,7 +1116,12 @@ describe(
         assert.equal(step.status, 502, step.text);
         assert.equal(step.json.code, 'unreachable');
         assert.equal(
-          (await call('POST', '/agency/ai/agent/step', { as: 'manager', body: { messages: [] } })).status,
+          (
+            await call('POST', '/agency/ai/agent/step', {
+              as: 'manager',
+              body: { messages: [] },
+            })
+          ).status,
           400
         );
         assert.equal(
@@ -1060,20 +1137,36 @@ describe(
         const act = (as, tool, args) =>
           call('POST', '/agency/ai/agent/act', { as, body: { tool, args } });
         // Reads, approvals and anything unknown are not changes the agent can make.
-        for (const tool of ['list_clients', 'approve_campaign', 'delete_campaign'])
+        for (const tool of [
+          'list_clients',
+          'approve_campaign',
+          'delete_campaign',
+        ])
           assert.equal((await act('owner', tool, {})).status, 400);
 
-        const made = await act('owner', 'create_client', { name: 'Agent Made Co' });
+        const made = await act('owner', 'create_client', {
+          name: 'Agent Made Co',
+        });
         assert.equal(made.status, 201, made.text);
         assert.equal(made.json.ok, true);
         const clients = await call('GET', '/agency/clients', { as: 'owner' });
         assert.ok(clients.json.some((c) => c.name === 'Agent Made Co'));
-        const audit = await call('GET', '/agency/audit?entityType=AgentAction', { as: 'owner' });
+        const audit = await call(
+          'GET',
+          '/agency/audit?entityType=AgentAction',
+          { as: 'owner' }
+        );
         assert.ok(audit.json.some((e) => e.action === 'ai.agent_action'));
 
         // A role that may not add clients cannot get the agent to do it for them.
-        assert.equal((await act('manager', 'create_client', { name: 'Nope Co' })).status, 403);
-        const bad = await act('owner', 'create_client', { name: 'Bad', email: 'not-an-email' });
+        assert.equal(
+          (await act('manager', 'create_client', { name: 'Nope Co' })).status,
+          403
+        );
+        const bad = await act('owner', 'create_client', {
+          name: 'Bad',
+          email: 'not-an-email',
+        });
         assert.equal(bad.json.ok, false);
       });
 
@@ -1097,19 +1190,30 @@ describe(
         assert.equal(bad.status, 400);
         const chat = await call('POST', '/agency/ai/chat', {
           as: 'manager',
-          body: { messages: [{ role: 'user', content: 'How do I add a client?' }] },
+          body: {
+            messages: [{ role: 'user', content: 'How do I add a client?' }],
+          },
         });
         assert.equal(chat.status, 502, chat.text);
         assert.equal(chat.json.code, 'unreachable');
 
-        const status = await call('GET', '/agency/ai/status', { as: 'manager' });
+        const status = await call('GET', '/agency/ai/status', {
+          as: 'manager',
+        });
         assert.equal(status.status, 200);
         assert.equal(
           status.json.find((s) => s.id === 'claude-cli').detail,
           'Only available in the AgencyOS desktop app.'
         );
-        assert.equal(status.json.find((s) => s.id === 'openai').ready, true, 'the key saved earlier');
-        assert.equal(status.json.find((s) => s.id === 'anthropic').ready, false);
+        assert.equal(
+          status.json.find((s) => s.id === 'openai').ready,
+          true,
+          'the key saved earlier'
+        );
+        assert.equal(
+          status.json.find((s) => s.id === 'anthropic').ready,
+          false
+        );
       });
     });
   }

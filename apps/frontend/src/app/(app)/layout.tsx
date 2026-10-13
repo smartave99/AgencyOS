@@ -91,9 +91,6 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           language={language}
           recaptchaSiteKey={process.env.RECAPTCHA_SITE_KEY || ''}
           isLocal={process.env.AGENCYOS_LOCAL === 'true'}
-          agencyDataFolder={process.env.AGENCYOS_DATA_FOLDER || ''}
-          agencyAiFolder={process.env.AGENCYOS_AI_FOLDER || ''}
-          agencyStatusUrl={process.env.AGENCYOS_STATUS_URL || ''}
           mediaProcessing={
             process.env.STORAGE_PROVIDER === 'cloudflare' &&
             !!process.env.RUNPOD_API_KEY &&

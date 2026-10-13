@@ -113,18 +113,19 @@
       "status": "needs-setup",
       "summary": "The chats and channels AgencyOS may post to. A chat only counts once its administrator has authorized it.",
       "steps": [
-        "Press Connect a Telegram bot on the Dashboard (or use the tray icon, then Status and settings) and paste your bot token from @BotFather.",
-        "Open Telegram in AgencyOS and choose Connect a group or channel. You get a one-time code.",
-        "Add the bot to that chat, then a chat administrator sends /authorize and the code in the chat.",
+        "Open Settings → Telegram bots (or press Connect a Telegram bot on the Dashboard) and paste a bot token from @BotFather. Connect as many bots as you need.",
+        "Open Telegram in AgencyOS and choose Connect a group or channel, and which bot posts there. You get a one-time code.",
+        "Add that bot to the chat, then a chat administrator sends /authorize and the code in the chat.",
         "The destination turns active. Anyone can revoke it with /revoke, and it expires after a year unless renewed.",
         "If the bot is removed or loses permission, the destination is paused and its queued posts wait."
       ],
       "needs": [
-        "A Telegram bot token.",
+        "At least one Telegram bot token (you make bots yourself with @BotFather).",
         "A chat administrator who agrees to authorize."
       ],
       "tips": [
-        "AgencyOS does not join groups, collect members or add people. It only posts where it was invited and authorized."
+        "AgencyOS does not join groups, collect members or add people. It only posts where it was invited and authorized.",
+        "Each chat is served by one bot, and only that bot hears its /authorize. Removing or pausing a bot stops its chats; they are never moved to another bot behind your back."
       ]
     },
     {

@@ -58,8 +58,17 @@ Nothing here has had an external penetration test or audit.
 * Consent can be withdrawn by an admin (`/revoke`) or staff at any time; it expires after 365
   days by default; losing the bot or its right to post disconnects the destination and pauses
   its queue. Authorization is re-checked at send time, not only when scheduling.
-* The bot token is an environment variable only. It is never stored in the database, returned
-  by any API, or sent to the browser.
+* Any number of bots can be connected in the app (Settings → Telegram bots). A bot token is a
+  password for its bot: it is sealed with AES-256-GCM (key derived from the install's
+  `JWT_SECRET` with HKDF, its own context string), never returned by any API, never put in the
+  audit trail or logs, and wiped when the bot is removed. Only owners and admins may connect,
+  pause or remove a bot (`bot:manage`); staff can see names and states. The same token cannot be
+  connected twice. The bot named in the server settings (`AGENCY_TELEGRAM_BOT_TOKEN`) keeps
+  working and is shown read-only as the server bot.
+* Each chat belongs to exactly one bot. Only that bot's listener acts on its `/authorize` (a code
+  heard by another bot does nothing), and only that bot posts. A paused, removed or rejected bot
+  stops its chats with a stated reason; a chat is never switched to another bot. A chat admin's
+  `/revoke` stops every agency's registration of the chat, whichever bot heard it.
 * The webhook requires a secret header (constant-time comparison), accepts nothing if no
   secret is configured, never throws, and always answers 200.
 * No member lists are read, no private messages are sent, and no mechanism exists to add
@@ -105,6 +114,14 @@ Nothing here has had an external penetration test or audit.
   schedule or send anything, delete anything or authorize a chat. What tools return is treated as
   data, never as instructions.
 
+### Desktop app: System settings
+* The desktop app's System settings reach the launcher through the app's own server
+  (`/api/system/...`), never from the browser directly. The launcher's token stays in the app
+  server's environment (not in the backend's or the orchestrator's); a request is answered only
+  if it comes from the app's own page (`Sec-Fetch-Site`, Host check), carries a valid session of
+  an owner or admin, and names one of a short list of actions (status, check/move/clean up
+  storage, retry the local AI, restart). Shutting down and the old token form are not reachable.
+
 ### Operations
 * Jobs are idempotent (unique key per campaign revision and destination), retried with
   backoff, dead-lettered after a limit, and a send that may have happened but cannot be
@@ -118,7 +135,8 @@ Nothing here has had an external penetration test or audit.
 | Gap | Impact | Direction |
 | --- | --- | --- |
 | Social-network OAuth tokens are stored as the platform has always stored them; AgencyOS neither encrypts nor reads them (a test asserts agency code never loads tokens) | A database leak exposes them | Encrypt at rest in the platform core or use a secrets manager |
-| One bot token for the whole server | All agencies share one bot identity | Per-agency bot tokens, stored encrypted |
+| Bot tokens are decryptable by anyone who holds the install's `JWT_SECRET` and the database | A stolen copy of both exposes the bots | A hardware- or OS-backed key store |
+| All bots share one dispatch loop (about one post per second in total) | Many bots do not add sending speed | Per-bot pacing, if the rate ever matters |
 | A client is still a workspace user with a login (restricted by middleware) | A flaw in that allow-list would widen access | A separate portal identity (magic link) |
 | The org-level API key of the public API is not tied to agency roles | Whoever holds the key can use the public API for posts | Scope or disable the key for agency workspaces |
 | The audit trail is not tamper-evident | A database administrator can alter it | Hash-chain or ship to write-once storage |

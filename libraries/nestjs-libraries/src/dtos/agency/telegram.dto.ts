@@ -50,7 +50,9 @@ export class UpdateTelegramBotDto {
   @MaxLength(80)
   label?: string;
 
-  @ApiPropertyOptional({ description: 'false pauses the bot without removing it' })
+  @ApiPropertyOptional({
+    description: 'false pauses the bot without removing it',
+  })
   @IsBoolean()
   @IsOptional()
   enabled?: boolean;

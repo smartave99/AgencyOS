@@ -169,7 +169,8 @@ export async function buildHarness(): Promise<Harness> {
   process.env.AGENCY_JOB_BACKOFF_SECONDS = '60';
   process.env.AGENCY_JOB_MAX_ATTEMPTS = '3';
   // The "server bot": chats registered without choosing one use it, as before bots could be added.
-  process.env.AGENCY_TELEGRAM_BOT_TOKEN = '100000:server-bot-token-for-tests-0123456789';
+  process.env.AGENCY_TELEGRAM_BOT_TOKEN =
+    '100000:server-bot-token-for-tests-0123456789';
   process.env.JWT_SECRET ||= 'test-secret-for-sealing-bot-tokens';
   const prisma = new PrismaService();
   await prisma.$connect();

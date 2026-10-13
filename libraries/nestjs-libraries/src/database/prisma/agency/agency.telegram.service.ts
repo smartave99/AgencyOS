@@ -413,9 +413,9 @@ export class AgencyTelegramService {
    * paused and a reason shown. A chat is never silently handed to a different bot.
    */
   async removeBot(actor: AgencyActor, id: string) {
-    const chats = (await this.repo.getDestinationsOfBot(actor.orgId, id)).filter(
-      (d) => d.authorizationStatus !== DestinationAuthStatus.REVOKED
-    );
+    const chats = (
+      await this.repo.getDestinationsOfBot(actor.orgId, id)
+    ).filter((d) => d.authorizationStatus !== DestinationAuthStatus.REVOKED);
     const result = await this.bots.delete(actor, id);
     for (const d of chats) {
       await this.publishing.handleDestinationUnavailable(
@@ -703,10 +703,15 @@ export class AgencyTelegramService {
         );
       } else {
         this.logger.warn(
-          `Telegram polling for "${bot.label}" failed: ${(err as Error)?.message}`
+          `Telegram polling for "${bot.label}" failed: ${
+            (err as Error)?.message
+          }`
         );
         // Telegram refusing the token is permanent until a new one is given: stop asking.
-        if (err instanceof TelegramGatewayError && err.kind === 'UNCONFIGURED') {
+        if (
+          err instanceof TelegramGatewayError &&
+          err.kind === 'UNCONFIGURED'
+        ) {
           await this.bots.markRejected(bot, err.message).catch(() => undefined);
         }
       }

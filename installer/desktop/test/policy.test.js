@@ -72,6 +72,22 @@ describe('desktop shell policy', () => {
     assert.equal(p.isStatusPage('http://127.0.0.1:4999/', null), false);
   });
 
+  it('lets the app’s Settings page, and no other page of the app, open the folder picker', () => {
+    assert.equal(p.isAppSettingsPage('http://localhost:4200/settings', 4200), true);
+    assert.equal(p.isAppSettingsPage('http://127.0.0.1:4200/settings?tab=system', 4200), true);
+    for (const url of ['http://localhost:4200/', 'http://localhost:4200/settings/x', 'http://localhost:4200/agency/dashboard', 'https://localhost:4200/settings', 'http://localhost:4201/settings', 'http://evil.example:4200/settings', 'http://localhost:4200.evil.com/settings', 'nonsense', undefined]) {
+      assert.equal(p.isAppSettingsPage(url, 4200), false, String(url));
+    }
+    assert.equal(p.isAppSettingsPage('http://localhost:4200/settings', null), false);
+  });
+
+  it('says on the start-up screen what is being started', () => {
+    assert.equal(p.startupLine(undefined), 'Starting on this computer…');
+    assert.equal(p.startupLine({ ready: false, services: [{ label: 'Database', state: 'starting' }, { label: 'Cache', state: 'pending' }] }), 'Starting database…');
+    assert.equal(p.startupLine({ ready: false, services: [{ label: 'Cache', state: 'ready' }] }), 'Almost ready…');
+    assert.equal(p.startupLine({ ready: true, services: [] }), 'Opening AgencyOS…');
+  });
+
   it('draws the window buttons in the app theme, at the height of the top bar', () => {
     assert.deepEqual(p.titleBarOverlay(true), { color: '#1a1919', symbolColor: '#ffffff', height: 56 });
     assert.deepEqual(p.titleBarOverlay(false), { color: '#ffffff', symbolColor: '#0e0e0e', height: 56 });

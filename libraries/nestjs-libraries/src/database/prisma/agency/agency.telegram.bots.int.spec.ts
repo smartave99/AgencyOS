@@ -23,7 +23,8 @@ jest.mock('@gitroom/nestjs-libraries/services/exception.filter', () => ({
 }));
 
 // What @BotFather hands out: digits, a colon, then at least 30 letters, digits, _ or -.
-const token = (n: number) => `${n}:${'x'.repeat(10)}${String(n).padEnd(25, 'q')}`;
+const token = (n: number) =>
+  `${n}:${'x'.repeat(10)}${String(n).padEnd(25, 'q')}`;
 
 const msg = (chat: any, from: any, text: string) => ({
   update_id: Math.floor(Math.random() * 1e9),
@@ -34,8 +35,15 @@ describeDb('Telegram bots (real database, fake Telegram)', () => {
   let h: Harness;
   let t: Tenant;
   const admin = { id: 501, is_bot: false, first_name: 'Ada' };
-  let seed = 700000;
+  // Tokens differ on every run, so bots left in a shared test database never collide with these.
+  let seed = 1_000_000 + Math.floor(Math.random() * 8_000_000);
   const fresh = () => ++seed;
+  const tenants: Tenant[] = [];
+  const tenantNamed = async (name: string) => {
+    const tenant = await seedTenant(h, name);
+    tenants.push(tenant);
+    return tenant;
+  };
 
   beforeAll(async () => {
     h = await buildHarness();
@@ -45,11 +53,24 @@ describeDb('Telegram bots (real database, fake Telegram)', () => {
   });
   beforeEach(async () => {
     await clearQueue(h);
-    t = await seedTenant(h, 'Bot Agency');
+    t = await tenantNamed('Bot Agency');
     h.gateway.sent = [];
     h.gateway.notices = [];
     h.gateway.bots.clear();
     h.gateway.rejectedTokens.clear();
+  });
+
+  // A bot left behind would be listened for by the next test that looks at what is listening.
+  afterEach(async () => {
+    await h.prisma.telegramBot.updateMany({
+      where: { orgId: { in: tenants.map((x) => x.orgId) }, deletedAt: null },
+      data: {
+        deletedAt: new Date(),
+        status: 'DISABLED',
+        tokenSealed: '',
+        tokenHash: '',
+      },
+    });
   });
 
   const connect = async (label = 'Acme Ads') => {
@@ -86,7 +107,9 @@ describeDb('Telegram bots (real database, fake Telegram)', () => {
       const audit = await h.prisma.auditEvent.findMany({
         where: { orgId: t.orgId },
       });
-      expect(audit.some((e) => e.action === 'telegram_bot.connected')).toBe(true);
+      expect(audit.some((e) => e.action === 'telegram_bot.connected')).toBe(
+        true
+      );
       expect(JSON.stringify(audit)).not.toContain(tok);
     });
 
@@ -125,9 +148,9 @@ describeDb('Telegram bots (real database, fake Telegram)', () => {
       await expect(
         h.bots.add(t.manager, { label: 'x', token: token(fresh()) })
       ).rejects.toThrow(ForbiddenException);
-      await expect(
-        h.bots.setEnabled(t.manager, bot.id, false)
-      ).rejects.toThrow(ForbiddenException);
+      await expect(h.bots.setEnabled(t.manager, bot.id, false)).rejects.toThrow(
+        ForbiddenException
+      );
       await expect(h.telegram.removeBot(t.manager, bot.id)).rejects.toThrow(
         ForbiddenException
       );
@@ -137,7 +160,7 @@ describeDb('Telegram bots (real database, fake Telegram)', () => {
 
     it("keeps one workspace's bots out of another's", async () => {
       const { bot } = await connect();
-      const rival = await seedTenant(h, 'Rival Agency');
+      const rival = await tenantNamed('Rival Agency');
       expect((await h.bots.list(rival.owner)).bots).toHaveLength(0);
       await expect(
         h.bots.setEnabled(rival.owner, bot.id, false)
@@ -168,6 +191,13 @@ describeDb('Telegram bots (real database, fake Telegram)', () => {
         botId: bot.id,
       });
       expect((second.destination as any).botId).toBe(bot.id);
+
+      // The server bot can be chosen on purpose, too, even with another bot connected.
+      const third = await h.telegram.registerDestination(t.manager, {
+        chatId: `-100${fresh()}0004`,
+        botId: 'server',
+      });
+      expect((third.destination as any).botId).toBeNull();
       expect((second.destination as any).botUsername).toBe(bot.username);
       expect(second.botUsername).toBe(bot.username);
       expect(second.steps[0]).toContain(`@${bot.username}`);
@@ -175,7 +205,7 @@ describeDb('Telegram bots (real database, fake Telegram)', () => {
 
     it('refuses a bot that is unknown, paused or someone else’s', async () => {
       const { bot } = await connect();
-      const rival = await seedTenant(h, 'Rival Agency');
+      const rival = await tenantNamed('Rival Agency');
       await expect(
         h.telegram.registerDestination(t.manager, {
           chatId: '-1001234567001',
@@ -246,7 +276,9 @@ describeDb('Telegram bots (real database, fake Telegram)', () => {
         handleA
       );
       expect(await status(id)).toBe('ACTIVE');
-      expect(a.fake.notices.some((n) => /now authorized/.test(n.text))).toBe(true);
+      expect(a.fake.notices.some((n) => /now authorized/.test(n.text))).toBe(
+        true
+      );
       expect(b.fake.notices).toHaveLength(0);
     });
 
@@ -272,7 +304,7 @@ describeDb('Telegram bots (real database, fake Telegram)', () => {
     it('losing its place in a chat disconnects only the chats that bot serves', async () => {
       const a = await connect('Bot A');
       const b = await connect('Bot B');
-      const rival = await seedTenant(h, 'Rival Agency');
+      const rival = await tenantNamed('Rival Agency');
       const chatId = '-1002000000009';
       const mine = await activeDestination(h, t.orgId, {
         chatId,

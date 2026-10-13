@@ -90,6 +90,9 @@ const STATUS_TONE: Record<string, Tone> = {
   REVOKED: 'bad',
   EXPIRED: 'bad',
   DISCONNECTED: 'bad',
+  // telegram bots
+  DISABLED: 'neutral',
+  INVALID: 'bad',
   // publishing event
   SUCCESS: 'good',
   SKIPPED: 'neutral',
@@ -253,6 +256,8 @@ export const useTouched = () => {
     blur: (key: string) => () => setTouched((t) => ({ ...t, [key]: true })),
     all: (keys: string[]) =>
       setTouched(Object.fromEntries(keys.map((k) => [k, true]))),
+    /** Back to untouched, e.g. after a form was submitted and emptied. */
+    reset: () => setTouched({}),
   };
 };
 
@@ -874,9 +879,7 @@ export const PageHeader: FC<{
         </p>
       )}
     </div>
-    <div className="flex flex-wrap items-center gap-2">
-      {actions}
-    </div>
+    <div className="flex flex-wrap items-center gap-2">{actions}</div>
   </header>
 );
 

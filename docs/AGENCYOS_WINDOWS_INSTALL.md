@@ -38,8 +38,11 @@ Download `AgencyOS-Setup-<version>.exe` from the repository's **Releases** page 
   icon near the clock) so scheduled campaigns are still sent. Use the tray icon to open it again.
 * **Quit** from the tray icon (or the *AgencyOS → Quit* menu). It asks first, because campaigns
   are not sent while AgencyOS is closed.
-* **Status and settings** (tray icon): what is running, the local AI status, restart, and the
-  place to paste a Telegram bot token.
+* **Settings → System** (also *System settings…* under the tray icon): what is running, the local
+  AI status, restart, and where your files are kept (with a safe way to move them). Telegram bots
+  are connected under **Settings → Telegram bots**: any number, each with its own token.
+  Everything is inside AgencyOS; there is no separate status page to find. (A plain status page
+  only appears if something failed to start, or while your data is being moved.)
 * Links to other websites open in your normal browser. Only AgencyOS itself is shown in the window.
 
 ## Local AI, chosen for your computer
@@ -138,8 +141,9 @@ uninstall keeps it unless you pass `/PURGEDATA=1`).
 ## If something goes wrong
 
 * The window shows an error page with **Try again**. The Help menu has **Open logs folder**.
-* *Status and settings* lists every service and its state; a failed one shows the reason and
-  **Restart everything** tries again.
+* *Settings → System* lists every service and its state; a failed one shows the reason and
+  **Restart everything** tries again. If AgencyOS cannot start at all, the window shows the
+  launcher's status page with the same list.
 * Another program is using a port AgencyOS wants (4200, 3000, …)? AgencyOS moves to the next free
   port by itself.
 * Run `"%LOCALAPPDATA%\Programs\AgencyOS\runtime\node\node.exe" "%LOCALAPPDATA%\Programs\AgencyOS\launcher\agencyos.mjs" doctor`

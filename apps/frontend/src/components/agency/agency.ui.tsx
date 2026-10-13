@@ -93,6 +93,19 @@ const STATUS_TONE: Record<string, Tone> = {
   // telegram bots
   DISABLED: 'neutral',
   INVALID: 'bad',
+  // telegram user accounts
+  RATE_LIMITED: 'warn',
+  RESTRICTED: 'bad',
+  SESSION_INVALID: 'bad',
+  LOGGED_OUT: 'neutral',
+  // communities
+  DISCOVERED: 'neutral',
+  REVIEW_REQUIRED: 'warn',
+  JOIN_REQUEST_PENDING: 'info',
+  JOINED: 'info',
+  ADVERTISING_ALLOWED: 'info',
+  PUBLISHING_AUTHORIZED: 'good',
+  NOT_ELIGIBLE: 'bad',
   // publishing event
   SUCCESS: 'good',
   SKIPPED: 'neutral',
@@ -117,6 +130,12 @@ const LABELS: Record<string, string> = {
   UNCERTAIN: 'Needs check',
   ACTIVE: 'Authorized',
   PROPOSAL_SENT: 'Proposal sent',
+  SESSION_INVALID: 'Sign in again',
+  RATE_LIMITED: 'Waiting (limit)',
+  RESTRICTED: 'Limited by Telegram',
+  JOIN_REQUEST_PENDING: 'Waiting for admins',
+  PUBLISHING_AUTHORIZED: 'Authorized to post',
+  ADVERTISING_ALLOWED: 'Advertising allowed',
 };
 
 export const humanize = (value: string) =>

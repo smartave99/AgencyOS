@@ -68,7 +68,8 @@ export type UserGatewayRelation =
   | 'UNAVAILABLE';
 
 export interface UserGatewayCommunity {
-  telegramId: string;
+  /** Null when Telegram gives none (a preview of an invite link to a community not joined). */
+  telegramId: string | null;
   kind: 'GROUP' | 'SUPERGROUP' | 'CHANNEL' | 'BROADCAST_CHANNEL';
   title: string;
   username: string | null;

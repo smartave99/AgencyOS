@@ -633,7 +633,7 @@ export const useAgencyApi = () => {
 type Api = ReturnType<typeof useAgencyApi>;
 
 /** One cached request. Every resource below is its own named hook. */
-const useResource = <T>(
+export const useResource = <T>(
   key: unknown[] | null,
   path: string,
   refreshMs?: number

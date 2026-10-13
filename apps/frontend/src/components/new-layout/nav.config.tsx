@@ -77,6 +77,20 @@ export const NAV_GROUPS: NavGroup[] = [
         permission: 'destination:read',
       },
       {
+        id: 'telegram-accounts',
+        label: 'Telegram accounts',
+        href: '/agency/telegram/accounts',
+        icon: 'user',
+        permission: 'userAccount:read',
+      },
+      {
+        id: 'communities',
+        label: 'Communities',
+        href: '/agency/communities',
+        icon: 'globe',
+        permission: 'research:read',
+      },
+      {
         id: 'accounts',
         label: 'Connected accounts',
         href: '/agency/accounts',

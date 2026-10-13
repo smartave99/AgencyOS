@@ -53,7 +53,7 @@ const prepare = (over = {}) =>
     ...over,
   });
 
-describe('preparing a new computer', () => {
+describe('preparing a new computer', { skip: process.platform === 'win32' && 'the stand-in programs are shell scripts' }, () => {
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agencyos-prep-'));
     paths = { data: { ollamaApp: path.join(dir, 'ollama', 'app'), ollamaModels: path.join(dir, 'ollama', 'models'), config: path.join(dir, 'config') } };

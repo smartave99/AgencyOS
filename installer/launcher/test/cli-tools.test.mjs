@@ -49,7 +49,7 @@ const until = async (fn, ms = 6000) => {
   throw new Error('timed out waiting');
 };
 
-describe('command-line tools', () => {
+describe('command-line tools', { skip: process.platform === 'win32' && 'the stand-in programs are shell scripts' }, () => {
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agencyos-cli-'));
     bin = path.join(dir, 'bin');

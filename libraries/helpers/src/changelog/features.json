@@ -45,6 +45,7 @@
         "Open Dashboard from the sidebar.",
         "Read “What needs you”: approvals waiting, deliveries that failed, destinations that disconnected. Click a row to go straight to it.",
         "Check the cards for active clients, campaigns in flight and authorized destinations.",
+        "Look at “Live queue” to see which posts are sending, waiting or need someone, and “Bots and chats” to see whether each connected bot is ready and how many chats are authorized, lost or slowed down by Telegram.",
         "If a red or amber banner appears, it names what is not set up yet (for example no Telegram bot token) and how to fix it."
       ],
       "tips": [
@@ -78,6 +79,7 @@
         "Open Campaigns and choose New campaign, then pick the client.",
         "Write the title and body. The preview on the side is the real message that will be sent, and it names any limit you are over.",
         "Optional: press Suggest copy to get three headlines, bodies and calls to action from your AI provider. Edit freely; you decide what is used.",
+        "Optional: press Templates to start from a saved ad, or to save this one so you can use it again. A template holds the text, media and link only.",
         "Add a link and button text if you want tracked clicks.",
         "Choose the authorized Telegram destinations and a start time.",
         "Submit for review. Nothing is sent until it is approved."

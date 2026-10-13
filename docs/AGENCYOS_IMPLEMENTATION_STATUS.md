@@ -39,6 +39,7 @@ limit. **Missing** = not built. **Unverified** = built, but could not be exercis
 | Optional client sign-off that gates agency approval | Done | "client sign-off … gates the agency approval". |
 | Content frozen after approval; fingerprint re-checked at send time | Done | "content edited after approval cannot be sent". |
 | Duplicate campaign, reopen (voids approval), archive, retry failed | Done | Publishing tests. |
+| Ad templates (content only: text, media, link; unique names, per-workspace, audited; composer dialog to save, use and delete with confirmation) | Done | 7 tests in `agency.templates.int.spec.ts`, 1 HTTP end-to-end test |
 | Version history of campaign content (`CampaignVersion`) | Missing | Only `revision` is counted. |
 | Recurring schedules | Missing | One start time per destination; optional end time. |
 
@@ -64,6 +65,7 @@ limit. **Missing** = not built. **Unverified** = built, but could not be exercis
 | Posting windows, minimum interval and daily cap per destination | Done | Window tests. |
 | Per-destination outcome; one failure never marks the campaign complete | Done | Scenario 7. |
 | Truthful system status (dispatcher beating, updates listener) | Done | Dashboard banner; status tests. |
+| Dashboard live queue (sending, needs check, failed, paused, waiting; most urgent first) and bot/chat health (bot states and chat counts; chats ready, lost, slowed by Telegram) | Done (no shadow-ban indicator: Telegram reports none) | 5 tests in `agency.dashboard.int.spec.ts` |
 | Dispatcher is **opt-in** (`AGENCY_SCHEDULER_ENABLED=true`) | Partial | Off by default; the dashboard says when it is off. The queue is database-backed, not Temporal. |
 
 ### Sales, billing, reporting

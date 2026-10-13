@@ -4,9 +4,19 @@
     {
       "version": "1.4.0",
       "date": "2026-10-13",
-      "title": "Antigravity by default, models you manage yourself, and backup bots",
-      "summary": "Antigravity CLI is now the default AI, so a new install downloads nothing; a local model is optional and you can download, try, start, stop and delete models yourself. Closing the window now shuts AgencyOS down (after telling you what that means) while minimizing keeps it working. A chat can also have backup bots, and the build can sign the installer as soon as a certificate is added.",
+      "title": "Antigravity by default, models you manage, templates, and a live dashboard",
+      "summary": "Antigravity CLI is now the default AI, so a new install downloads nothing; a local model is optional and you can download, try, start, stop and delete models yourself. Ads can be saved as templates, and the dashboard shows the live queue and the health of your bots and chats. Closing the window now shuts AgencyOS down (after telling you what that means) while minimizing keeps it working. A chat can also have backup bots, and the build can sign the installer as soon as a certificate is added.",
       "changes": [
+        {
+          "type": "added",
+          "area": "Campaigns",
+          "text": "Ad templates: in the campaign composer, press Templates to save the ad you wrote (text, media and link) or start a new campaign from a saved one. A template never sends anything by itself; the campaign made from it is reviewed like any other."
+        },
+        {
+          "type": "added",
+          "area": "Dashboard",
+          "text": "Live queue and bot health: the dashboard lists the posts that are sending, waiting or need someone (most urgent first), shows each connected bot with its state and chat count, and counts chats that are ready, lost or slowed down by Telegram. There is no shadow-ban indicator because Telegram does not report one."
+        },
         {
           "type": "changed",
           "area": "AI",

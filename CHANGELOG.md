@@ -2,12 +2,14 @@
 
 Every change in every version of AgencyOS, by NextGen OS, newest first. This file is generated from `libraries/helpers/src/changelog/releases.json`: edit that file, then run `node installer/build/changelog.mjs`.
 
-## 1.4.0 — 2026-10-13 · Antigravity by default, models you manage yourself, and backup bots
+## 1.4.0 — 2026-10-13 · Antigravity by default, models you manage, templates, and a live dashboard
 
-Antigravity CLI is now the default AI, so a new install downloads nothing; a local model is optional and you can download, try, start, stop and delete models yourself. Closing the window now shuts AgencyOS down (after telling you what that means) while minimizing keeps it working. A chat can also have backup bots, and the build can sign the installer as soon as a certificate is added.
+Antigravity CLI is now the default AI, so a new install downloads nothing; a local model is optional and you can download, try, start, stop and delete models yourself. Ads can be saved as templates, and the dashboard shows the live queue and the health of your bots and chats. Closing the window now shuts AgencyOS down (after telling you what that means) while minimizing keeps it working. A chat can also have backup bots, and the build can sign the installer as soon as a certificate is added.
 
 ### Added
 
+- **Campaigns:** Ad templates: in the campaign composer, press Templates to save the ad you wrote (text, media and link) or start a new campaign from a saved one. A template never sends anything by itself; the campaign made from it is reviewed like any other.
+- **Dashboard:** Live queue and bot health: the dashboard lists the posts that are sending, waiting or need someone (most urgent first), shows each connected bot with its state and chat count, and counts chats that are ready, lost or slowed down by Telegram. There is no shadow-ban indicator because Telegram does not report one.
 - **AI:** Settings → System → Local AI: download any model by name (with progress and cancel), try it, delete it after a confirmation, and start or stop the local engine. The automatic setup that picks models for your hardware is now a switch that starts off on a new install; an install that already used it keeps it on.
 - **Telegram:** Backup bots: on an authorized chat, choose Backup bots… to let other bots of yours post there too. Each must already be an administrator of the chat with permission to post; AgencyOS checks that live before every send, and nothing in AgencyOS can add a bot to a chat.
 - **Telegram:** How the bots share the work: main bot first (a backup takes over only when AgencyOS cannot use the main bot because it is paused, removed or its token is rejected), take turns, or fewest posts in the last 24 hours first. You can also make a backup the main bot by hand.

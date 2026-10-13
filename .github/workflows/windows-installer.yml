@@ -204,8 +204,8 @@ jobs:
         if: steps.signing.outputs.mode == 'pfx' || steps.signing.outputs.mode == 'selftest'
         shell: pwsh
         run: |
-          $extra = @()
-          if ($env:SIGNING_MODE -eq 'selftest') { $extra += '-NoTimestamp' }
+          $extra = @{}
+          if ($env:SIGNING_MODE -eq 'selftest') { $extra['NoTimestamp'] = $true }
           ./installer/windows/sign.ps1 -Files "$PWD\installer\dist\stage\AgencyOS.exe" -Pfx $env:SIGN_PFX -Password $env:SIGN_PFX_PASSWORD @extra
 
       - name: Size of what will be installed
@@ -243,8 +243,8 @@ jobs:
         if: steps.signing.outputs.mode == 'pfx' || steps.signing.outputs.mode == 'selftest'
         shell: pwsh
         run: |
-          $extra = @()
-          if ($env:SIGNING_MODE -eq 'selftest') { $extra += '-NoTimestamp' }
+          $extra = @{}
+          if ($env:SIGNING_MODE -eq 'selftest') { $extra['NoTimestamp'] = $true }
           $exe = (Get-ChildItem installer/dist/out/*.exe | Select-Object -First 1).FullName
           ./installer/windows/sign.ps1 -Files $exe -Pfx $env:SIGN_PFX -Password $env:SIGN_PFX_PASSWORD @extra
 

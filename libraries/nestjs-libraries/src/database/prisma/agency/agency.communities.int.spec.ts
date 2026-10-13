@@ -407,6 +407,55 @@ describeDb(
       });
     });
 
+    describe('the quiet refresh', () => {
+      const sessionOf = async (accountId: string) => {
+        const { telegramUserId } =
+          await h.prisma.telegramUserAccount.findUniqueOrThrow({
+            where: { id: accountId },
+          });
+        return [...h.userGateway.sessions.keys()].find((k) =>
+          k.endsWith(telegramUserId)
+        )!;
+      };
+
+      it('looks at communities not looked at for a while, through the first research account only', async () => {
+        const first = await researcher();
+        const second = await researcher();
+        const { entry, row } = await saved(first.id);
+        entry.community.title = 'Renamed on Telegram';
+        h.userGateway.calls = [];
+        await h.communities.refreshDue({ olderThanDays: 0, perAgency: 5 });
+        expect((await rows(row.id)).title).toBe('Renamed on Telegram');
+        const sessions = h.userGateway
+          .asked('/v1/communities/refresh')
+          .map((c) => (c.body as any).account.session);
+        expect(sessions).toContain(await sessionOf(first.id));
+        expect(sessions).not.toContain(await sessionOf(second.id));
+      });
+
+      it('ends when that account is limited, and nothing else stands in for it', async () => {
+        const first = await researcher();
+        const second = await researcher();
+        const { entry, row } = await saved(first.id);
+        entry.community.title = 'Changed while the account was limited';
+        await h.users.recordFailure(
+          t.orgId,
+          first.id,
+          h.userGateway.err('ACCOUNT_RESTRICTED', 'peer flood')
+        );
+        h.userGateway.calls = [];
+        await h.communities.refreshDue({ olderThanDays: 0, perAgency: 5 });
+        expect((await rows(row.id)).title).not.toBe(
+          'Changed while the account was limited'
+        );
+        const sessions = h.userGateway
+          .asked('/v1/communities/refresh')
+          .map((c) => (c.body as any).account.session);
+        expect(sessions).not.toContain(await sessionOf(second.id));
+        expect(sessions).not.toContain(await sessionOf(first.id));
+      });
+    });
+
     describe('joining', () => {
       it('is one person’s decision with a reason, through an account allowed to join, and is recorded', async () => {
         const a = await researcher();

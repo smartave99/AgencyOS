@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { AgencyPublishingService } from './agency.publishing.service';
 import { AgencyTelegramService } from './agency.telegram.service';
+import { AgencyCommunitiesService } from './agency.communities.service';
 import {
   AgencyTelegramBotsService,
   BotHandle,
@@ -35,7 +36,8 @@ export class AgencySchedulerService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly publishing: AgencyPublishingService,
     private readonly telegram: AgencyTelegramService,
-    private readonly bots: AgencyTelegramBotsService
+    private readonly bots: AgencyTelegramBotsService,
+    private readonly communities: AgencyCommunitiesService
   ) {}
 
   onModuleInit() {
@@ -75,6 +77,7 @@ export class AgencySchedulerService implements OnModuleInit, OnModuleDestroy {
       const sent = await this.publishing.dispatchDue();
       if (sent > 0) this.logger.log(`Dispatched ${sent} posting job(s).`);
       await this.telegram.expireConsents();
+      await this.refreshCommunities();
     } catch (err: any) {
       this.logger.error(`Dispatch pass failed: ${err?.message}`);
     } finally {
@@ -82,6 +85,28 @@ export class AgencySchedulerService implements OnModuleInit, OnModuleDestroy {
     }
     // Bots can be connected or paused at any time in the app: each pass starts and stops listeners to match.
     await this.syncListeners();
+  }
+
+  private lastCommunityRefresh = 0;
+
+  /**
+   * A quiet, bounded look at saved communities that have not been looked at in a week (public information
+   * only, a few per agency, through the one account connected first for research). Off unless
+   * AGENCY_COMMUNITY_REFRESH=true, at most every six hours, and it simply ends when that account is
+   * limited, paused or signed out: no other account stands in.
+   */
+  private async refreshCommunities() {
+    if (process.env.AGENCY_COMMUNITY_REFRESH !== 'true') return;
+    if (Date.now() - this.lastCommunityRefresh < 6 * 3_600_000) return;
+    this.lastCommunityRefresh = Date.now();
+    try {
+      const refreshed = await this.communities.refreshDue();
+      if (refreshed > 0) {
+        this.logger.log(`Refreshed ${refreshed} saved communit(ies).`);
+      }
+    } catch (err: any) {
+      this.logger.warn(`Community refresh failed: ${err?.message}`);
+    }
   }
 
   private async syncListeners() {

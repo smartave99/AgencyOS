@@ -106,13 +106,16 @@ esac`
       expect(codex.message).toMatch(/codex update/);
     });
 
-    it('never runs an update command it has no documentation for (Antigravity)', async () => {
-      await install('agy', `echo "$*" >> "${log}"; echo "agy 1.0.9"`);
-      await h.aiTools.updateNow(t.owner);
+    it('updates Antigravity with its documented `agy update`', async () => {
+      await updatable('agy');
+      await h.aiTools.updateNow(t.owner, 'antigravity-cli');
       const agy = await tool('antigravity-cli');
-      expect(agy).toMatchObject({ status: 'manual', canUpdate: false });
-      expect(agy.version).toBe('agy 1.0.9');
-      expect((await calls()).every((c) => c === '--version')).toBe(true);
+      expect(agy).toMatchObject({
+        status: 'updated',
+        canUpdate: true,
+        version: '2.0.1',
+      });
+      expect((await calls()).filter((c) => c === 'update')).toHaveLength(1);
     });
 
     it('reports a tool that is not installed instead of failing', async () => {

@@ -2293,6 +2293,8 @@ model AgencyAiConfig {
   activeProvider String   @default("local")
   thinking       String   @default("auto")
   providers      Json     @default("{}")
+  // Per job (copy, improve, copilot, agent): its own provider, model and thinking level.
+  tasks          Json     @default("{}")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

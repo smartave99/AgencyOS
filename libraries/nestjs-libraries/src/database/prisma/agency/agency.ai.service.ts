@@ -59,6 +59,7 @@ export class AgencyAiService {
       // A small model now and then answers with the wrong shape; one more try is cheap.
       for (let attempt = 1; attempt <= 2; attempt += 1) {
         const result = await this.gateway.complete(orgId, {
+          task: 'copy',
           system:
             'You are an expert direct-response copywriter for advertising agencies.',
           messages: [{ role: 'user', content: this.buildPrompt(params) }],
@@ -107,6 +108,7 @@ export class AgencyAiService {
     const tone = params.targetTone || CopyTone.DIRECT_RESPONSE;
     try {
       const result = await this.gateway.complete(orgId, {
+        task: 'improve',
         system:
           'You edit advertising text for Telegram. Keep the meaning and the language of the original, keep any HTML tags valid, and reply with the improved text only.',
         messages: [
@@ -144,6 +146,7 @@ export class AgencyAiService {
       messages.push({ role: 'user', content: 'Please continue.' });
     }
     const result = await this.gateway.complete(orgId, {
+      task: 'copilot',
       system: `${ASSISTANT_PERSONA}${
         dto.page ? `\nThe person is on this page: ${dto.page}.` : ''
       }`,

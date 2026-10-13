@@ -16,6 +16,7 @@ export class AgencyAiRepository {
       activeProvider: string;
       thinking: string;
       providers: Prisma.InputJsonValue;
+      tasks: Prisma.InputJsonValue;
     }
   ) {
     return this.prisma.agencyAiConfig.upsert({

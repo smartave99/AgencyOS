@@ -16,7 +16,9 @@ import {
 } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.access.service';
 import {
   AI_PROVIDER_IDS,
+  AI_TASKS,
   AiProviderId,
+  AiTask,
   MODEL_NAME,
   THINKING_LEVELS,
   ThinkingLevel,
@@ -40,6 +42,8 @@ export interface AiRequest {
   thinkingWhenAuto?: ThinkingLevel;
   /** Ask a specific provider instead of the active one (the Test button). */
   provider?: AiProviderId;
+  /** Which job this is, so it can use the model and thinking level chosen for it. */
+  task?: AiTask;
   timeoutMs?: number;
 }
 
@@ -49,6 +53,30 @@ export interface AiResult {
   model: string | null;
   ms: number;
   notes: string[];
+}
+
+/** One model a provider offers, with the thinking levels it supports when the provider says so. */
+export interface ModelInfo {
+  id: string;
+  label: string;
+  description?: string;
+  /** Levels this model accepts; absent when the provider does not say. */
+  thinkingLevels?: ThinkingLevel[];
+  isDefault?: boolean;
+}
+
+export interface ModelList {
+  models: ModelInfo[];
+  /** True when the list came from the provider itself rather than from AgencyOS's own suggestions. */
+  live: boolean;
+  note?: string;
+}
+
+/** The two ends of a short JSON-lines conversation with one of the tools. */
+export interface ConverseIo {
+  send(message: unknown): void;
+  /** The next message the program sends that satisfies `match`. */
+  next(match: (message: any) => boolean): Promise<any>;
 }
 
 export type AiErrorCode =
@@ -92,6 +120,12 @@ interface StoredEntry {
   apiKey?: string;
 }
 type StoredProviders = Partial<Record<AiProviderId, StoredEntry>>;
+interface StoredTask {
+  provider?: AiProviderId;
+  model?: string;
+  thinking?: ThinkingLevel;
+}
+type StoredTasks = Partial<Record<AiTask, StoredTask>>;
 
 interface Resolved {
   spec: ProviderSpec;
@@ -128,6 +162,15 @@ export interface AiSettingsView {
   activeProvider: AiProviderId;
   thinking: ThinkingLevel;
   providers: ProviderView[];
+  /** What each job uses instead of the default; a missing field means "same as the default". */
+  tasks: Record<
+    AiTask,
+    {
+      provider: AiProviderId | null;
+      model: string | null;
+      thinking: ThinkingLevel | null;
+    }
+  >;
 }
 
 export interface ProviderStatus {
@@ -219,7 +262,7 @@ export class AgencyAiGatewayService {
           'Install Claude Code, open a terminal, run “claude” once and sign in. AgencyOS then uses that sign-in.',
         binary: 'claude',
         needsKey: false,
-        thinking: ['auto', 'off', 'low', 'medium', 'high', 'max'],
+        thinking: ['auto', 'off', 'low', 'medium', 'high', 'xhigh', 'max'],
         models: ['sonnet', 'opus', 'haiku'],
       },
       {
@@ -232,7 +275,7 @@ export class AgencyAiGatewayService {
           'Install the Codex CLI, run “codex” once in a terminal and sign in. Leave the model empty to use Codex’s own default.',
         binary: 'codex',
         needsKey: false,
-        thinking: ['auto', 'low', 'medium', 'high'],
+        thinking: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
         models: [],
       },
       {
@@ -258,7 +301,7 @@ export class AgencyAiGatewayService {
         setup: 'Create an API key in the Anthropic Console and paste it here.',
         needsKey: true,
         baseUrl: { value: 'https://api.anthropic.com', editable: false },
-        thinking: ['auto', 'off', 'low', 'medium', 'high', 'max'],
+        thinking: ['auto', 'off', 'low', 'medium', 'high', 'xhigh', 'max'],
         models: ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5'],
       },
       {
@@ -375,7 +418,10 @@ export class AgencyAiGatewayService {
     const thinking = THINKING_LEVELS.includes(row?.thinking as ThinkingLevel)
       ? (row!.thinking as ThinkingLevel)
       : 'auto';
-    return { exists: !!row, active, thinking, providers };
+    const rawTasks = (
+      row?.tasks && typeof row.tasks === 'object' ? row.tasks : {}
+    ) as StoredTasks;
+    return { exists: !!row, active, thinking, providers, tasks: rawTasks };
   }
 
   private envKey(id: AiProviderId): string | null {
@@ -416,6 +462,16 @@ export class AgencyAiGatewayService {
       localMode: this.isLocalMode,
       activeProvider: cfg.active,
       thinking: cfg.thinking,
+      tasks: Object.fromEntries(
+        AI_TASKS.map((task) => [
+          task,
+          {
+            provider: cfg.tasks[task]?.provider ?? null,
+            model: cfg.tasks[task]?.model ?? null,
+            thinking: cfg.tasks[task]?.thinking ?? null,
+          },
+        ])
+      ) as AiSettingsView['tasks'],
       providers: this.catalog().map((spec) => {
         const entry = cfg.providers[spec.id];
         const { key, source } = this.keyFor(spec.id, entry);
@@ -502,10 +558,13 @@ export class AgencyAiGatewayService {
       );
     }
 
+    const tasks = this.mergeTasks(cfg.tasks, dto.tasks);
+
     await this.repo.save(actor.orgId, {
       activeProvider: active,
       thinking,
       providers: providers as any,
+      tasks: tasks as any,
     });
     await this.access.audit(actor, {
       action: 'ai.settings_updated',
@@ -515,9 +574,66 @@ export class AgencyAiGatewayService {
         activeProvider: active,
         thinking,
         providersChanged: Object.keys(dto.providers ?? {}),
+        tasksChanged: Object.keys(dto.tasks ?? {}),
       },
     });
     return this.getSettings(actor);
+  }
+
+  /** Applies the per-job choices from a settings update, refusing anything that cannot work. */
+  private mergeTasks(
+    current: StoredTasks,
+    input: UpdateAiSettingsDto['tasks']
+  ): StoredTasks {
+    const out: StoredTasks = { ...current };
+    for (const [rawTask, value] of Object.entries(input ?? {})) {
+      if (!AI_TASKS.includes(rawTask as AiTask)) {
+        throw new HttpException(`Unknown job “${rawTask}”`, 400);
+      }
+      const task = rawTask as AiTask;
+      if (value === null) {
+        delete out[task];
+        continue;
+      }
+      const next: StoredTask = { ...(out[task] ?? {}) };
+      if (value.provider !== undefined) {
+        const provider = String(value.provider);
+        if (!provider) {
+          delete next.provider;
+        } else {
+          if (!AI_PROVIDER_IDS.includes(provider as AiProviderId)) {
+            throw new HttpException(`Unknown AI provider “${provider}”`, 400);
+          }
+          const blocked = this.unavailable(this.spec(provider as AiProviderId));
+          if (blocked) throw new HttpException(blocked, 400);
+          next.provider = provider as AiProviderId;
+        }
+      }
+      if (value.model !== undefined) {
+        const model = String(value.model).trim();
+        if (model && !MODEL_NAME.test(model)) {
+          throw new HttpException(
+            'Model names use letters, digits and . _ : / - only',
+            400
+          );
+        }
+        if (model) next.model = model;
+        else delete next.model;
+      }
+      if (value.thinking !== undefined) {
+        const thinking = String(value.thinking);
+        if (!thinking) {
+          delete next.thinking;
+        } else if (!THINKING_LEVELS.includes(thinking as ThinkingLevel)) {
+          throw new HttpException(`Unknown thinking level “${thinking}”`, 400);
+        } else {
+          next.thinking = thinking as ThinkingLevel;
+        }
+      }
+      if (Object.keys(next).length) out[task] = next;
+      else delete out[task];
+    }
+    return out;
   }
 
   private checkUrl(value: string): string {
@@ -533,26 +649,31 @@ export class AgencyAiGatewayService {
     return value.replace(/\/+$/, '');
   }
 
+  /**
+   * Which provider, model and thinking level answers. An explicit provider (the Test button) wins;
+   * otherwise the job's own choice; otherwise the default. Whatever a job does not set follows
+   * the provider it ends up using.
+   */
   private async resolve(
     orgId: string,
-    override?: AiProviderId
+    override?: AiProviderId,
+    task?: AiTask
   ): Promise<Resolved> {
     const cfg = await this.load(orgId);
-    const id = override ?? cfg.active;
+    const own = task && !override ? cfg.tasks[task] : undefined;
+    const id = override ?? own?.provider ?? cfg.active;
     const spec = this.spec(id);
     const blocked = this.unavailable(spec);
     if (blocked) throw new AiProviderError('unavailable', blocked);
     const entry = cfg.providers[id];
     const { key } = this.keyFor(id, entry);
-    const thinking = spec.thinking.includes(cfg.thinking)
-      ? cfg.thinking
-      : 'auto';
+    const wanted = own?.thinking ?? (id === cfg.active ? cfg.thinking : 'auto');
     return {
       spec,
-      model: entry?.model || this.defaultModel(id),
+      model: own?.model || entry?.model || this.defaultModel(id),
       baseUrl: entry?.baseUrl || spec.baseUrl?.value || '',
       apiKey: key,
-      thinking,
+      thinking: spec.thinking.includes(wanted) ? wanted : 'auto',
     };
   }
 
@@ -561,7 +682,7 @@ export class AgencyAiGatewayService {
   // ==========================================
   async complete(orgId: string, req: AiRequest): Promise<AiResult> {
     const started = Date.now();
-    const resolved = await this.resolve(orgId, req.provider);
+    const resolved = await this.resolve(orgId, req.provider, req.task);
     const notes: string[] = [];
     const thinking =
       resolved.thinking === 'auto' && req.thinkingWhenAuto
@@ -587,12 +708,13 @@ export class AgencyAiGatewayService {
   }
 
   /** The Test button: one tiny question, with the failure reason spelled out. */
-  async test(actor: AgencyActor, provider?: AiProviderId) {
+  async test(actor: AgencyActor, provider?: AiProviderId, task?: AiTask) {
     this.access.assert(actor, 'ai:use');
     const started = Date.now();
     try {
       const result = await this.complete(actor.orgId, {
         provider,
+        task,
         system: 'You are a connection test. Answer in one short sentence.',
         messages: [
           { role: 'user', content: 'Reply with the single word: ready' },
@@ -752,9 +874,13 @@ export class AgencyAiGatewayService {
   }
 
   private budgetFor(level: ThinkingLevel) {
-    return { low: 2048, medium: 8192, high: 16384, max: 32000 }[
-      level as 'low' | 'medium' | 'high' | 'max'
-    ];
+    return {
+      low: 2048,
+      medium: 8192,
+      high: 16384,
+      xhigh: 24576,
+      max: 32000,
+    }[level as 'low' | 'medium' | 'high' | 'xhigh' | 'max'];
   }
 
   private async askOllama(
@@ -866,9 +992,13 @@ export class AgencyAiGatewayService {
     const budget =
       thinking === 'off'
         ? 0
-        : { low: 1024, medium: 8192, high: 24576 }[
-            thinking as 'low' | 'medium' | 'high'
-          ];
+        : {
+            low: 1024,
+            medium: 8192,
+            high: 24576,
+            xhigh: 24576,
+            max: 32768,
+          }[thinking as 'low' | 'medium' | 'high' | 'xhigh' | 'max'];
     const body: Record<string, unknown> = {
       contents: req.messages.map((m) => ({
         role: m.role === 'assistant' ? 'model' : 'user',
@@ -939,7 +1069,7 @@ export class AgencyAiGatewayService {
     if (id === 'claude-cli') {
       args.push('-p', '--output-format', 'text', '--no-session-persistence');
       args.push('--tools', '');
-      if (model) args.push('--model', model);
+      if (model && model !== 'default') args.push('--model', model);
       if (thinking === 'off') env.MAX_THINKING_TOKENS = '0';
       else if (thinking !== 'auto') args.push('--effort', thinking);
       return { args, env, stdin: prompt };
@@ -1069,19 +1199,16 @@ export class AgencyAiGatewayService {
     }
   }
 
-  private async runCli(
+  /**
+   * Everything that has to be right before one of the tools is started: the program is found by
+   * its fixed name, every argument is checked, it runs in an empty scratch folder, and the
+   * secrets AgencyOS itself holds are removed from its environment.
+   */
+  private async prepareLaunch(
     spec: ProviderSpec,
     args: string[],
-    options: {
-      stdin?: string;
-      /** One free-text argument appended after the checked ones. */
-      promptArg?: string;
-      /** Accept a clean exit with no output (an updater that says nothing). */
-      acceptEmpty?: boolean;
-      env?: Record<string, string>;
-      timeoutMs: number;
-    }
-  ): Promise<string> {
+    options: { promptArg?: string; env?: Record<string, string> }
+  ) {
     const binary = await this.findBinary(spec.binary!);
     if (!binary) {
       throw new AiProviderError(
@@ -1126,17 +1253,51 @@ export class AgencyAiGatewayService {
           false,
         ];
 
+    return {
+      file: file as string,
+      fileArgs: fileArgs as string[],
+      verbatim: verbatim as boolean,
+      env,
+      scratch,
+    };
+  }
+
+  private startProcess(launch: {
+    file: string;
+    fileArgs: string[];
+    verbatim: boolean;
+    env: NodeJS.ProcessEnv;
+    scratch: string;
+  }) {
+    return spawn(launch.file, launch.fileArgs, {
+      cwd: launch.scratch,
+      env: launch.env,
+      windowsHide: true,
+      windowsVerbatimArguments: launch.verbatim,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      // Its own process group, so a timeout can stop the program and anything it started.
+      detached: process.platform !== 'win32',
+    });
+  }
+
+  private async runCli(
+    spec: ProviderSpec,
+    args: string[],
+    options: {
+      stdin?: string;
+      /** One free-text argument appended after the checked ones. */
+      promptArg?: string;
+      /** Accept a clean exit with no output (an updater that says nothing). */
+      acceptEmpty?: boolean;
+      env?: Record<string, string>;
+      timeoutMs: number;
+    }
+  ): Promise<string> {
+    const launch = await this.prepareLaunch(spec, args, options);
+
     const started = Date.now();
     return new Promise<string>((resolve, reject) => {
-      const child = spawn(file as string, fileArgs as string[], {
-        cwd: scratch,
-        env,
-        windowsHide: true,
-        windowsVerbatimArguments: verbatim as boolean,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        // Its own process group, so a timeout can stop the program and anything it started.
-        detached: process.platform !== 'win32',
-      });
+      const child = this.startProcess(launch);
       let stdout = '';
       let stderr = '';
       let done = false;
@@ -1248,6 +1409,106 @@ export class AgencyAiGatewayService {
     return this.runCli(this.spec(id), args, { timeoutMs, acceptEmpty: true });
   }
 
+  /**
+   * A short two-way conversation (JSON lines in, JSON lines out) with one of the tools' own
+   * programs, used to ask it which models it offers. The program is started under the same rules
+   * as every other run and is always stopped afterwards.
+   */
+  async converse<T>(
+    id: AiProviderId,
+    args: string[],
+    timeoutMs: number,
+    talk: (io: ConverseIo) => Promise<T>
+  ): Promise<T> {
+    const spec = this.spec(id);
+    const launch = await this.prepareLaunch(spec, args, {});
+    const child = this.startProcess(launch);
+    type Waiter = {
+      match: (m: any) => boolean;
+      resolve: (m: any) => void;
+      reject: (e: Error) => void;
+    };
+    const waiting: Waiter[] = [];
+    const early: any[] = [];
+    let failure: Error | null = null;
+    const fail = (error: Error) => {
+      failure = failure ?? error;
+      for (const w of waiting.splice(0)) w.reject(failure);
+    };
+    let buffer = '';
+    child.stdout.on('data', (chunk) => {
+      buffer += chunk;
+      let end: number;
+      while ((end = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, end).trim();
+        buffer = buffer.slice(end + 1);
+        if (!line) continue;
+        let message: any;
+        try {
+          message = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        const at = waiting.findIndex((w) => w.match(message));
+        if (at >= 0) waiting.splice(at, 1)[0].resolve(message);
+        else if (early.length < 200) early.push(message);
+      }
+    });
+    child.stdin.on('error', () => undefined);
+    child.on('error', (error) =>
+      fail(
+        new AiProviderError(
+          'unavailable',
+          `${spec.label} could not be started: ${error.message}`
+        )
+      )
+    );
+    child.on('close', () =>
+      fail(
+        new AiProviderError(
+          'bad_reply',
+          `${spec.label} stopped before it answered.`
+        )
+      )
+    );
+    const timer = setTimeout(() => {
+      this.stopTree(child.pid);
+      fail(
+        new AiProviderError(
+          'timeout',
+          `${spec.label} did not answer within ${Math.round(
+            timeoutMs / 1000
+          )} seconds.`
+        )
+      );
+    }, timeoutMs);
+
+    const io: ConverseIo = {
+      send: (message) => {
+        if (!failure) child.stdin.write(`${JSON.stringify(message)}\n`);
+      },
+      next: (match) => {
+        const at = early.findIndex(match);
+        if (at >= 0) return Promise.resolve(early.splice(at, 1)[0]);
+        if (failure) return Promise.reject(failure);
+        return new Promise((resolve, reject) =>
+          waiting.push({ match, resolve, reject })
+        );
+      },
+    };
+    try {
+      return await talk(io);
+    } finally {
+      clearTimeout(timer);
+      try {
+        child.stdin.end();
+      } catch {
+        /* already closed */
+      }
+      this.stopTree(child.pid);
+    }
+  }
+
   /** The first line of `--version`, or undefined when the tool is missing or silent. */
   async toolVersion(id: AiProviderId): Promise<string | undefined> {
     return this.runTool(id, ['--version'], 8000).then(
@@ -1334,17 +1595,54 @@ export class AgencyAiGatewayService {
     }
   }
 
-  /** Live model names for a provider, so the list never goes stale. */
-  async listModels(
-    actor: AgencyActor,
-    id: AiProviderId
-  ): Promise<{ models: string[]; live: boolean; note?: string }> {
+  /** Whether an installed model can think, as Ollama itself reports it. Unknown stays undefined. */
+  private async localThinkingLevels(
+    baseUrl: string,
+    model: string
+  ): Promise<ThinkingLevel[] | undefined> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    try {
+      const res = await fetch(`${baseUrl}/api/show`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
+        signal: controller.signal,
+      });
+      if (!res.ok) return undefined;
+      const data = await res.json();
+      if (!Array.isArray(data?.capabilities)) return undefined;
+      if (!data.capabilities.includes('thinking')) return ['auto'];
+      return /gpt-oss/i.test(model)
+        ? ['auto', 'low', 'medium', 'high']
+        : ['auto', 'off', 'low', 'medium', 'high'];
+    } catch {
+      return undefined;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private asInfo(ids: string[], levels?: ThinkingLevel[]): ModelInfo[] {
+    return ids.map((id) => ({ id, label: id, thinkingLevels: levels }));
+  }
+
+  /** Live models for a provider (installed models, the API account's models), so lists never go stale. */
+  async listModels(actor: AgencyActor, id: AiProviderId): Promise<ModelList> {
     this.access.assert(actor, 'ai:use');
     const r = await this.resolve(actor.orgId, id);
-    const fallback = { models: r.spec.models, live: false };
+    const fallback = { models: this.asInfo(r.spec.models), live: false };
     try {
       if (r.spec.id === 'local') {
-        return { models: await this.listLocalModels(r.baseUrl), live: true };
+        const names = await this.listLocalModels(r.baseUrl);
+        const models = await Promise.all(
+          names.slice(0, 40).map(async (name) => ({
+            id: name,
+            label: name,
+            thinkingLevels: await this.localThinkingLevels(r.baseUrl, name),
+          }))
+        );
+        return { models, live: true };
       }
       if (r.spec.kind !== 'api') return fallback;
       if (r.spec.needsKey && !r.apiKey) {
@@ -1363,7 +1661,13 @@ export class AgencyAiGatewayService {
           },
           15_000
         );
-        return { models: (data?.data ?? []).map((m: any) => m.id), live: true };
+        return {
+          models: (data?.data ?? []).map((m: any) => ({
+            id: m.id,
+            label: m.display_name || m.id,
+          })),
+          live: true,
+        };
       }
       if (r.spec.id === 'gemini') {
         const data = await this.http(
@@ -1377,7 +1681,15 @@ export class AgencyAiGatewayService {
             .filter((m: any) =>
               (m.supportedGenerationMethods ?? []).includes('generateContent')
             )
-            .map((m: any) => String(m.name).replace(/^models\//, '')),
+            .map((m: any) => ({
+              id: String(m.name).replace(/^models\//, ''),
+              label: m.displayName || String(m.name).replace(/^models\//, ''),
+              // Gemini says which models think; those that do not have no level to choose.
+              thinkingLevels:
+                m.thinking === false
+                  ? (['auto'] as ThinkingLevel[])
+                  : undefined,
+            })),
           live: true,
         };
       }
@@ -1390,7 +1702,10 @@ export class AgencyAiGatewayService {
         },
         15_000
       );
-      return { models: (data?.data ?? []).map((m: any) => m.id), live: true };
+      return {
+        models: this.asInfo((data?.data ?? []).map((m: any) => m.id)),
+        live: true,
+      };
     } catch (error) {
       return {
         ...fallback,

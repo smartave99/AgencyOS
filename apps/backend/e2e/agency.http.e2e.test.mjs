@@ -880,7 +880,7 @@ describe(
           view.json.tools.map((t) => t.id),
           ['claude-cli', 'codex-cli', 'antigravity-cli']
         );
-        assert.equal(view.json.tools.find((t) => t.id === 'antigravity-cli').canUpdate, false);
+        assert.equal(view.json.tools.find((t) => t.id === 'antigravity-cli').canUpdate, true);
 
         const put = (as, body) => call('PUT', '/agency/ai/tools', { as, body });
         assert.equal((await put('manager', { autoUpdate: false })).status, 403);

@@ -25,7 +25,17 @@ export type AiProviderId =
   | 'gemini'
   | 'openai-compatible';
 
-export type ThinkingLevel = 'auto' | 'off' | 'low' | 'medium' | 'high' | 'max';
+export type ThinkingLevel =
+  | 'auto'
+  | 'off'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max';
+
+/** The jobs that can each use their own model and thinking level. */
+export type AiTask = 'copy' | 'improve' | 'copilot' | 'agent';
 
 export interface AiProviderView {
   id: AiProviderId;
@@ -52,6 +62,14 @@ export interface AiSettings {
   activeProvider: AiProviderId;
   thinking: ThinkingLevel;
   providers: AiProviderView[];
+  tasks: Record<
+    AiTask,
+    {
+      provider: AiProviderId | null;
+      model: string | null;
+      thinking: ThinkingLevel | null;
+    }
+  >;
 }
 
 export interface AiProviderStatus {
@@ -62,8 +80,16 @@ export interface AiProviderStatus {
   models?: string[];
 }
 
+export interface AiModelInfo {
+  id: string;
+  label: string;
+  description?: string;
+  thinkingLevels?: ThinkingLevel[];
+  isDefault?: boolean;
+}
+
 export interface AiModels {
-  models: string[];
+  models: AiModelInfo[];
   live: boolean;
   note?: string;
 }

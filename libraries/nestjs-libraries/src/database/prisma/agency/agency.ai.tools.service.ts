@@ -37,13 +37,14 @@ export interface ToolView {
 }
 
 /**
- * Only each tool's own updater is ever run: fixed arguments, no downloads and no package
- * manager of ours. Antigravity has no documented update command, so it is shown, not
- * touched (running an unknown word through it could start a chat instead).
+ * Only each tool's own updater is ever run: fixed arguments, no downloads and no package manager
+ * of ours. Claude Code and Codex CLI have `update`; Google documents `agy update` for Antigravity
+ * (which also updates itself in the background).
  */
 const UPDATERS: Partial<Record<AiProviderId, string[]>> = {
   'claude-cli': ['update'],
   'codex-cli': ['update'],
+  'antigravity-cli': ['update'],
 };
 
 const MANUAL_HINT: Partial<Record<AiProviderId, string>> = {
@@ -51,7 +52,7 @@ const MANUAL_HINT: Partial<Record<AiProviderId, string>> = {
   'codex-cli':
     'Run “codex update” in a terminal, or update it the way you installed it (npm, Homebrew or winget).',
   'antigravity-cli':
-    'AgencyOS has no documented update command for it. Update it the way you installed it, for example by running its installer again.',
+    'Run “agy update” in a terminal, or run the Antigravity installer again.',
 };
 
 const UPDATE_TIMEOUT_MS = 5 * 60_000;

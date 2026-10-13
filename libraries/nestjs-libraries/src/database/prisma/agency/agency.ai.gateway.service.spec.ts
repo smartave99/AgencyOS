@@ -341,6 +341,119 @@ describe('AgencyAiGatewayService - API providers', () => {
   });
 });
 
+describe('AgencyAiGatewayService - a model and thinking level for each job', () => {
+  const setup = async () => {
+    const { gateway } = build();
+    await gateway.updateSettings(ACTOR, {
+      activeProvider: 'anthropic',
+      thinking: 'medium',
+      providers: {
+        anthropic: { apiKey: 'sk-ant', model: 'claude-sonnet-5-5' },
+        local: { model: 'qwen2.5:3b' },
+      },
+      tasks: {
+        copy: { provider: 'local', model: 'gemma3:1b', thinking: 'off' },
+        agent: { thinking: 'high' },
+      },
+    });
+    return gateway;
+  };
+  const claudeBody = (calls: any[]) => JSON.parse(calls[0][1].body);
+
+  it('each job uses its own provider, model and thinking; the rest follow the default', async () => {
+    const gateway = await setup();
+
+    let fetchMock = jest
+      .fn()
+      .mockResolvedValue(json({ message: { content: 'ok' } }));
+    global.fetch = fetchMock as any;
+    await gateway.complete('org-1', {
+      task: 'copy',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    expect(fetchMock.mock.calls[0][0]).toContain('/api/chat');
+    expect(claudeBody(fetchMock.mock.calls)).toMatchObject({
+      model: 'gemma3:1b',
+      think: false,
+    });
+
+    // Same provider as the default, a different thinking level for this job.
+    fetchMock = jest
+      .fn()
+      .mockResolvedValue(json({ content: [{ type: 'text', text: 'ok' }] }));
+    global.fetch = fetchMock as any;
+    await gateway.complete('org-1', {
+      task: 'agent',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    expect(claudeBody(fetchMock.mock.calls)).toMatchObject({
+      model: 'claude-sonnet-5-5',
+      thinking: { type: 'enabled', budget_tokens: 16384 },
+    });
+
+    // A job with no choice of its own uses the default.
+    fetchMock = jest
+      .fn()
+      .mockResolvedValue(json({ content: [{ type: 'text', text: 'ok' }] }));
+    global.fetch = fetchMock as any;
+    await gateway.complete('org-1', {
+      task: 'copilot',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    expect(claudeBody(fetchMock.mock.calls).thinking.budget_tokens).toBe(8192);
+  });
+
+  it('shows what each job is set to, and clears a job back to the default', async () => {
+    const gateway = await setup();
+    const view = await gateway.getSettings(ACTOR);
+    expect(view.tasks.copy).toEqual({
+      provider: 'local',
+      model: 'gemma3:1b',
+      thinking: 'off',
+    });
+    expect(view.tasks.agent).toEqual({
+      provider: null,
+      model: null,
+      thinking: 'high',
+    });
+    expect(view.tasks.improve).toEqual({
+      provider: null,
+      model: null,
+      thinking: null,
+    });
+    const cleared = await gateway.updateSettings(ACTOR, {
+      tasks: { copy: null, agent: { thinking: '' } },
+    });
+    expect(cleared.tasks.copy.provider).toBeNull();
+    expect(cleared.tasks.agent.thinking).toBeNull();
+  });
+
+  it('refuses a job setting that cannot work', async () => {
+    const { gateway } = build();
+    process.env.AGENCYOS_LOCAL = 'false';
+    const rejects = (tasks: any) =>
+      expect(gateway.updateSettings(ACTOR, { tasks })).rejects.toThrow();
+    await rejects({ nonsense: { thinking: 'low' } });
+    await rejects({ copy: { thinking: 'galaxy' } });
+    await rejects({ copy: { model: 'a; b' } });
+    await rejects({ copy: { provider: 'robot' } });
+    await rejects({ copy: { provider: 'claude-cli' } }); // desktop app only
+  });
+
+  it('the Test button can try a job the way it is set up', async () => {
+    const gateway = await setup();
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(json({ message: { content: 'ready' } })) as any;
+    const result = await gateway.test(ACTOR, undefined, 'copy');
+    expect(result).toMatchObject({
+      ok: true,
+      provider: 'local',
+      model: 'gemma3:1b',
+    });
+  });
+});
+
 describe('AgencyAiGatewayService - command-line providers', () => {
   const gateway = () => build().gateway;
 

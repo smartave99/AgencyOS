@@ -30,9 +30,14 @@ export const THINKING_LEVELS = [
   'low',
   'medium',
   'high',
+  'xhigh',
   'max',
 ] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+
+/** The jobs that can each use their own model and thinking level. */
+export const AI_TASKS = ['copy', 'improve', 'copilot', 'agent'] as const;
+export type AiTask = (typeof AI_TASKS)[number];
 
 /** What a person may type as a model name: letters, digits and . _ : / - only. */
 export const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$/;
@@ -62,6 +67,11 @@ export class AiProviderRefDto {
   @IsOptional()
   @IsIn(AI_PROVIDER_IDS as unknown as string[])
   provider?: AiProviderId;
+
+  /** Test the way a particular job is set up. */
+  @IsOptional()
+  @IsIn(AI_TASKS as unknown as string[])
+  task?: AiTask;
 }
 
 export class AiChatMessageDto {

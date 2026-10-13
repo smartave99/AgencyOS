@@ -1,13 +1,15 @@
 'use client';
 
-import React, { FC, useMemo, useState } from 'react';
+import React, { FC, useState } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import {
   AiProviderId,
+  AiModels,
   AiProviderView,
   AiSettings,
+  AiTask,
   AiTestResult,
   AiToolView,
   AiTools,
@@ -28,6 +30,7 @@ import {
   LoadError,
   Notice,
   Segmented,
+  SelectField,
   TextField,
   TONE_CLASS,
   timeAgo,
@@ -47,6 +50,7 @@ const THINKING_LABEL: Record<ThinkingLevel, string> = {
   low: 'Low',
   medium: 'Medium',
   high: 'High',
+  xhigh: 'Extra high',
   max: 'Max',
 };
 
@@ -56,6 +60,7 @@ const THINKING_HELP: Record<ThinkingLevel, string> = {
   low: 'A little reasoning before answering.',
   medium: 'Balanced: noticeably more careful, a bit slower.',
   high: 'Careful reasoning for hard questions. Slower, and costs more on an API.',
+  xhigh: 'Even more reasoning than High, for the hardest questions.',
   max: 'The most reasoning the provider allows. Slowest and the most expensive.',
 };
 
@@ -163,6 +168,318 @@ const TestResult: FC<{ result: AiTestResult }> = ({ result }) => (
   </div>
 );
 
+const CUSTOM = '__custom__';
+
+/** The levels a model accepts: what it reports itself, narrowed to what the provider supports. */
+const levelsFor = (
+  view: AiProviderView,
+  models: AiModels | undefined,
+  modelId: string
+): ThinkingLevel[] => {
+  const info =
+    models?.models.find((m) => m.id === modelId) ??
+    (modelId ? undefined : models?.models.find((m) => m.isDefault));
+  const allowed = info?.thinkingLevels?.filter((l) =>
+    view.thinkingLevels.includes(l)
+  );
+  return allowed?.length ? allowed : view.thinkingLevels;
+};
+
+/** Models come from the provider itself, with a way to type one it does not list. */
+const ModelPicker: FC<{
+  provider: AiProviderView;
+  value: string;
+  onChange: (model: string) => void;
+  disabled?: boolean;
+}> = ({ provider, value, onChange, disabled }) => {
+  const api = useAgencyApi();
+  const models = useAiModels(provider.id);
+  const [typing, setTyping] = useState(false);
+  const list = models.data?.models ?? [];
+  const known = !value || list.some((m) => m.id === value);
+  const custom = typing || !known;
+  const chosen = list.find((m) => m.id === value);
+
+  const refresh = async () => {
+    try {
+      models.mutate(
+        await api.get<AiModels>(`/agency/ai/models/${provider.id}?refresh=1`),
+        { revalidate: false }
+      );
+    } catch {
+      /* the note under the list already says what is wrong */
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <SelectField
+        label="Model"
+        disabled={disabled}
+        value={custom ? CUSTOM : value}
+        onChange={(e) => {
+          if (e.target.value === CUSTOM) {
+            setTyping(true);
+            return;
+          }
+          setTyping(false);
+          onChange(e.target.value);
+        }}
+      >
+        <option value="">Default (the provider’s own choice)</option>
+        {list.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.label === m.id ? m.id : `${m.label} (${m.id})`}
+          </option>
+        ))}
+        <option value={CUSTOM}>Another model name…</option>
+      </SelectField>
+      {custom && (
+        <TextField
+          label="Model name"
+          value={value}
+          disabled={disabled}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="Type the model name exactly"
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+      {chosen?.description && (
+        <p className="text-[12px] leading-relaxed text-textItemBlur">
+          {chosen.description}
+        </p>
+      )}
+      <p className="flex flex-wrap items-center gap-x-2 text-[12px] text-textItemBlur">
+        <span>
+          {models.data?.note ??
+            (models.data?.live
+              ? `${list.length} model${
+                  list.length === 1 ? '' : 's'
+                } reported by ${provider.label}.`
+              : models.isLoading
+              ? 'Asking for the model list…'
+              : 'Suggestions only.')}
+        </span>
+        <button
+          type="button"
+          onClick={refresh}
+          className="font-medium text-[color:var(--ag-accent-text)] hover:underline"
+        >
+          Refresh the list
+        </button>
+      </p>
+    </div>
+  );
+};
+
+const ThinkingPicker: FC<{
+  levels: ThinkingLevel[];
+  value: ThinkingLevel;
+  onChange: (level: ThinkingLevel) => void;
+  disabled?: boolean;
+}> = ({ levels, value, onChange, disabled }) => (
+  <div className="flex flex-col gap-1.5">
+    <span className="block text-xs font-medium text-textItemBlur">
+      Thinking level
+    </span>
+    <Segmented<ThinkingLevel>
+      ariaLabel="Thinking level"
+      value={levels.includes(value) ? value : 'auto'}
+      onChange={(level) => !disabled && onChange(level)}
+      options={levels.map((level) => ({
+        value: level,
+        label: THINKING_LABEL[level],
+      }))}
+    />
+    <p className="text-[12px] leading-relaxed text-textItemBlur">
+      {levels.length === 1
+        ? 'This model has no thinking setting.'
+        : THINKING_HELP[levels.includes(value) ? value : 'auto']}
+    </p>
+  </div>
+);
+
+const TASKS: Array<{ id: AiTask; title: string; hint: string }> = [
+  {
+    id: 'copy',
+    title: 'Ad copy',
+    hint: 'Headlines, bodies and calls to action in the campaign form.',
+  },
+  {
+    id: 'improve',
+    title: 'Text improvement',
+    hint: 'Rewriting an ad’s text in a chosen tone.',
+  },
+  {
+    id: 'copilot',
+    title: 'Copilot chat',
+    hint: 'Questions and drafts in the side panel.',
+  },
+  {
+    id: 'agent',
+    title: 'Agent',
+    hint: 'The Copilot when it does the work: several steps over your data.',
+  },
+];
+
+type TaskDraft = {
+  provider: '' | AiProviderId;
+  model: string;
+  thinking: '' | ThinkingLevel;
+};
+type TaskDrafts = Partial<Record<AiTask, TaskDraft | null>>;
+
+const draftOf = (saved: AiSettings['tasks'][AiTask]): TaskDraft => ({
+  provider: saved.provider ?? '',
+  model: saved.model ?? '',
+  thinking: saved.thinking ?? '',
+});
+
+const TaskRow: FC<{
+  task: (typeof TASKS)[number];
+  settings: AiSettings;
+  draft: TaskDraft | null | undefined;
+  canEdit: boolean;
+  busy: boolean;
+  result?: AiTestResult;
+  onChange: (draft: TaskDraft | null) => void;
+  onTest: () => void;
+}> = ({ task, settings, draft, canEdit, busy, result, onChange, onTest }) => {
+  const [open, setOpen] = useState(false);
+  const current: TaskDraft =
+    draft === null
+      ? { provider: '', model: '', thinking: '' }
+      : draft ?? draftOf(settings.tasks[task.id]);
+  const usingProvider = current.provider || settings.activeProvider;
+  const view = settings.providers.find((p) => p.id === usingProvider)!;
+  const models = useAiModels(view.id);
+  const levels = levelsFor(
+    view,
+    models.data,
+    current.model || view.model || ''
+  );
+  const custom = !!(current.provider || current.model || current.thinking);
+
+  const summary = custom
+    ? [
+        view.label,
+        current.model || 'default model',
+        current.thinking
+          ? `thinking ${THINKING_LABEL[current.thinking].toLowerCase()}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : 'Uses the default above';
+
+  return (
+    <li className="flex flex-col gap-3 py-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-[14px] font-medium">{task.title}</div>
+          <p className="text-[12px] text-textItemBlur">{task.hint}</p>
+          <p
+            className={clsx(
+              'mt-0.5 text-[12px]',
+              custom
+                ? 'text-[color:var(--ag-accent-text)]'
+                : 'text-textItemBlur'
+            )}
+          >
+            {summary}
+          </p>
+        </div>
+        {canEdit && (
+          <div className="flex items-center gap-2">
+            {custom && (
+              <Btn onClick={() => onChange(null)}>Use the default</Btn>
+            )}
+            <Btn onClick={() => setOpen((o) => !o)}>
+              {open ? 'Done' : custom ? 'Change' : 'Choose'}
+            </Btn>
+          </div>
+        )}
+      </div>
+
+      {open && canEdit && (
+        <div className="flex flex-col gap-4 rounded-xl bg-[var(--ag-neutral-bg)] p-4">
+          <SelectField
+            label="Provider"
+            value={current.provider}
+            onChange={(e) =>
+              onChange({
+                ...current,
+                provider: e.target.value as TaskDraft['provider'],
+                model: '',
+                thinking: '',
+              })
+            }
+          >
+            <option value="">
+              Default (
+              {
+                settings.providers.find((p) => p.id === settings.activeProvider)
+                  ?.label
+              }
+              )
+            </option>
+            {settings.providers
+              .filter((p) => p.selectable)
+              .map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+          </SelectField>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <ModelPicker
+              provider={view}
+              value={current.model}
+              onChange={(model) =>
+                onChange({
+                  ...current,
+                  model,
+                  thinking: levelsFor(
+                    view,
+                    models.data,
+                    model || view.model || ''
+                  ).includes((current.thinking || 'auto') as ThinkingLevel)
+                    ? current.thinking
+                    : '',
+                })
+              }
+            />
+            <div className="flex flex-col gap-1.5">
+              <span className="block text-xs font-medium text-textItemBlur">
+                Thinking level
+              </span>
+              <Segmented<'' | ThinkingLevel>
+                ariaLabel={`Thinking level for ${task.title}`}
+                value={current.thinking}
+                onChange={(thinking) => onChange({ ...current, thinking })}
+                options={[
+                  { value: '', label: 'Default' },
+                  ...levels.map((level) => ({
+                    value: level as '' | ThinkingLevel,
+                    label: THINKING_LABEL[level],
+                  })),
+                ]}
+              />
+            </div>
+          </div>
+          <div>
+            <Btn onClick={onTest} busy={busy}>
+              Test this job
+            </Btn>
+          </div>
+        </div>
+      )}
+      {result && <TestResult result={result} />}
+    </li>
+  );
+};
+
 const Editor: FC<{
   settings: AiSettings;
   canEdit: boolean;
@@ -177,7 +494,12 @@ const Editor: FC<{
   );
   const [thinking, setThinking] = useState<ThinkingLevel>(settings.thinking);
   const [edits, setEdits] = useState<Partial<Record<AiProviderId, Edit>>>({});
+  const [taskDrafts, setTaskDrafts] = useState<TaskDrafts>({});
   const [result, setResult] = useState<AiTestResult | null>(null);
+  const [taskResults, setTaskResults] = useState<
+    Partial<Record<AiTask, AiTestResult>>
+  >({});
+  const [testing, setTesting] = useState<AiTask | null>(null);
   const models = useAiModels(provider);
 
   const view = settings.providers.find((p) => p.id === provider)!;
@@ -185,10 +507,12 @@ const Editor: FC<{
   const model = edit.model ?? view.model ?? '';
   const baseUrl = edit.baseUrl ?? view.baseUrl;
   const removingKey = edit.apiKey === '';
+  const levels = levelsFor(view, models.data, model);
   const dirty =
     provider !== settings.activeProvider ||
     thinking !== settings.thinking ||
-    Object.keys(edits).length > 0;
+    Object.keys(edits).length > 0 ||
+    Object.keys(taskDrafts).length > 0;
 
   const choose = (id: AiProviderId) => {
     setProvider(id);
@@ -203,24 +527,35 @@ const Editor: FC<{
       ...current,
       [provider]: { ...current[provider], ...patch },
     }));
+    // A different model may not offer the chosen thinking level.
+    if (patch.model !== undefined) {
+      const allowed = levelsFor(view, models.data, patch.model);
+      if (!allowed.includes(thinking)) setThinking('auto');
+    }
   };
-
-  const options = useMemo(() => {
-    const names = new Set([
-      ...(models.data?.models ?? []),
-      ...view.suggestedModels,
-    ]);
-    return [...names];
-  }, [models.data, view.suggestedModels]);
 
   const save = () =>
     run(async () => {
+      const tasks = Object.fromEntries(
+        Object.entries(taskDrafts).map(([task, draft]) => [
+          task,
+          draft === null || draft === undefined
+            ? null
+            : {
+                provider: draft.provider,
+                model: draft.model,
+                thinking: draft.thinking,
+              },
+        ])
+      );
       const saved = await api.put<AiSettings>('/agency/ai/settings', {
         activeProvider: provider,
         thinking,
         providers: edits,
+        tasks,
       });
       setEdits({});
+      setTaskDrafts({});
       setThinking(saved.thinking);
       onSaved(saved);
       await status.mutate();
@@ -253,6 +588,29 @@ const Editor: FC<{
     }
   };
 
+  const testTask = async (task: AiTask) => {
+    setTesting(task);
+    try {
+      if (dirty) await save();
+      const outcome = await api.post<AiTestResult>('/agency/ai/test', {
+        task,
+      });
+      setTaskResults((current) => ({ ...current, [task]: outcome }));
+    } catch (error) {
+      setTaskResults((current) => ({
+        ...current,
+        [task]: {
+          ok: false,
+          provider,
+          ms: 0,
+          error: (error as Error).message,
+        },
+      }));
+    } finally {
+      setTesting(null);
+    }
+  };
+
   const ready = (id: AiProviderId) => status.data?.find((s) => s.id === id);
   const keyHint =
     view.keySource === 'environment' && !edit.apiKey
@@ -276,7 +634,7 @@ const Editor: FC<{
 
       <Card
         title="Which AI answers"
-        subtitle="Used for ad-copy suggestions, text improvement and the Copilot."
+        subtitle="The default for ad copy, text improvement, the Copilot and the agent."
       >
         <div
           role="radiogroup"
@@ -325,65 +683,25 @@ const Editor: FC<{
       </Card>
 
       <Card
-        title="Model and thinking"
-        subtitle={`For ${view.label}. Leave the model empty to use the default.`}
+        title="Default model and thinking"
+        subtitle={`For ${view.label}. Every job below follows this unless you choose otherwise.`}
       >
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="flex flex-col gap-1.5">
-            <TextField
-              label="Model"
-              list="agency-ai-models"
-              value={model}
-              disabled={!canEdit}
-              autoComplete="off"
-              spellCheck={false}
-              placeholder={
-                view.kind === 'cli'
-                  ? 'The program’s own default'
-                  : view.id === 'openai-compatible'
-                  ? 'The service’s model name'
-                  : 'Choose or type a model'
-              }
-              onChange={(e) => change({ model: e.target.value })}
-              hint={
-                models.data?.note ??
-                (models.data?.live
-                  ? `${models.data.models.length} available from ${view.label}.`
-                  : view.suggestedModels.length
-                  ? 'Suggestions shown; you can type any model name.'
-                  : undefined)
-              }
-            />
-            <datalist id="agency-ai-models">
-              {options.map((name) => (
-                <option key={name} value={name} />
-              ))}
-            </datalist>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <span className="block text-xs font-medium text-textItemBlur">
-              Thinking level
-            </span>
-            <Segmented<ThinkingLevel>
-              ariaLabel="Thinking level"
-              value={thinking}
-              onChange={(value) => {
-                if (!canEdit) return;
-                setResult(null);
-                setThinking(value);
-              }}
-              options={view.thinkingLevels.map((level) => ({
-                value: level,
-                label: THINKING_LABEL[level],
-              }))}
-            />
-            <p className="text-[12px] leading-relaxed text-textItemBlur">
-              {view.thinkingLevels.length === 1
-                ? 'This provider has no thinking setting.'
-                : THINKING_HELP[thinking]}
-            </p>
-          </div>
+          <ModelPicker
+            provider={view}
+            value={model}
+            disabled={!canEdit}
+            onChange={(next) => change({ model: next })}
+          />
+          <ThinkingPicker
+            levels={levels}
+            value={thinking}
+            disabled={!canEdit}
+            onChange={(level) => {
+              setResult(null);
+              setThinking(level);
+            }}
+          />
         </div>
 
         {(view.needsKey || view.keyOptional) && (
@@ -441,9 +759,36 @@ const Editor: FC<{
 
       {result && <TestResult result={result} />}
 
+      <Card
+        title="A different model for each job"
+        subtitle="Use a quick local model for ad copy and a stronger one for the agent, for example. Anything you leave on the default follows the settings above."
+      >
+        <ul className="-my-4 divide-y divide-[color:var(--ag-hairline)]">
+          {TASKS.map((task) => (
+            <TaskRow
+              key={task.id}
+              task={task}
+              settings={settings}
+              draft={taskDrafts[task.id]}
+              canEdit={canEdit}
+              busy={testing === task.id}
+              result={taskResults[task.id]}
+              onChange={(draft) => {
+                setTaskResults((current) => ({
+                  ...current,
+                  [task.id]: undefined,
+                }));
+                setTaskDrafts((current) => ({ ...current, [task.id]: draft }));
+              }}
+              onTest={() => testTask(task.id)}
+            />
+          ))}
+        </ul>
+      </Card>
+
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Btn onClick={testClicked} busy={busy}>
-          {dirty && canEdit ? 'Save and test' : 'Test'}
+          {dirty && canEdit ? 'Save and test default' : 'Test default'}
         </Btn>
         <Btn
           variant="primary"

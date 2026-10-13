@@ -6,11 +6,13 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UseGuards,
   UsePipes,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AgencyAiService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.service';
+import { AgencyAiDiscoveryService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.discovery.service';
 import { AgencyAiToolsService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.tools.service';
 import {
   AgencyAiGatewayService,
@@ -47,6 +49,7 @@ export class AgencyAiController {
     private readonly aiService: AgencyAiService,
     private readonly gateway: AgencyAiGatewayService,
     private readonly tools: AgencyAiToolsService,
+    private readonly discovery: AgencyAiDiscoveryService,
     private readonly access: AgencyAccessService
   ) {}
 
@@ -109,12 +112,17 @@ export class AgencyAiController {
   @Get('/models/:provider')
   models(
     @AgencyActorFromRequest() actor: AgencyActor,
-    @Param('provider') provider: string
+    @Param('provider') provider: string,
+    @Query('refresh') refresh?: string
   ) {
     if (!AI_PROVIDER_IDS.includes(provider as AiProviderId)) {
       throw new HttpException('Unknown AI provider', 400);
     }
-    return this.gateway.listModels(actor, provider as AiProviderId);
+    return this.discovery.models(
+      actor,
+      provider as AiProviderId,
+      refresh === '1'
+    );
   }
 
   @Post('/test')
@@ -122,7 +130,7 @@ export class AgencyAiController {
     @AgencyActorFromRequest() actor: AgencyActor,
     @Body() body: AiProviderRefDto
   ) {
-    return this.gateway.test(actor, body.provider);
+    return this.gateway.test(actor, body.provider, body.task);
   }
 
   @Get('/tools')

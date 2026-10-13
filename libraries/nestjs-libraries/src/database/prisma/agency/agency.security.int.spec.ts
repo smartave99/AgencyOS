@@ -42,6 +42,36 @@ describe('permission matrix (no database needed)', () => {
     expect(holders('campaign:write')).toContain(AgencyRole.SALES_EXECUTIVE);
   });
 
+  it('WhatsApp: all staff may read, those who contact customers may work, fewer may erase, only admins configure, clients get nothing', () => {
+    expect(holders('whatsapp:read')).toEqual(
+      expect.arrayContaining([AgencyRole.ANALYST, AgencyRole.SALES_EXECUTIVE])
+    );
+    expect(holders('whatsapp:write')).toEqual(
+      expect.arrayContaining([
+        AgencyRole.SALES_EXECUTIVE,
+        AgencyRole.SALES_MANAGER,
+        AgencyRole.CAMPAIGN_MANAGER,
+      ])
+    );
+    expect(holders('whatsapp:write')).not.toContain(AgencyRole.ANALYST);
+    expect(holders('whatsapp:delete')).toEqual([
+      AgencyRole.AGENCY_OWNER,
+      AgencyRole.AGENCY_ADMIN,
+      AgencyRole.SALES_MANAGER,
+    ]);
+    expect(holders('whatsapp:manage')).toEqual([
+      AgencyRole.AGENCY_OWNER,
+      AgencyRole.AGENCY_ADMIN,
+    ]);
+    for (const p of Object.keys(AGENCY_PERMISSIONS)) {
+      if (p.startsWith('whatsapp:')) {
+        expect(
+          AGENCY_PERMISSIONS[p as keyof typeof AGENCY_PERMISSIONS]
+        ).not.toContain(AgencyRole.CLIENT);
+      }
+    }
+  });
+
   it('analysts are read-only', () => {
     for (const [perm, allowed] of Object.entries(AGENCY_PERMISSIONS)) {
       if (allowed.includes(AgencyRole.ANALYST)) {

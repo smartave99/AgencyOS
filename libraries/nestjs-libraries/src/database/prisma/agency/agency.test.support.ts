@@ -19,6 +19,10 @@ import { AgencyCrmRepository } from './agency.crm.repository';
 import { AgencyCrmService } from './agency.crm.service';
 import { AgencyLeadsRepository } from './agency.leads.repository';
 import { AgencyLeadsService } from './agency.leads.service';
+import { AgencyWhatsappRepository } from './agency.whatsapp.repository';
+import { AgencyWhatsappService } from './agency.whatsapp.service';
+import { AgencyWhatsappOutreachService } from './agency.whatsapp.outreach.service';
+import { DisabledWhatsappBusinessProvider } from '@gitroom/nestjs-libraries/integrations/whatsapp/whatsapp.business.provider';
 import { AgencyPlatformsService } from './agency.platforms.service';
 import { AgencyAiRepository } from './agency.ai.repository';
 import { AgencyAiGatewayService } from './agency.ai.gateway.service';
@@ -158,6 +162,8 @@ export interface Harness {
   portal: AgencyPortalService;
   crm: AgencyCrmService;
   leads: AgencyLeadsService;
+  whatsapp: AgencyWhatsappService;
+  whatsappOutreach: AgencyWhatsappOutreachService;
   platforms: AgencyPlatformsService;
   aiGateway: AgencyAiGatewayService;
   ai: AgencyAiService;
@@ -205,6 +211,12 @@ export async function buildHarness(): Promise<Harness> {
     access,
     bots
   );
+  const whatsappRepo = new AgencyWhatsappRepository(prisma);
+  const whatsapp = new AgencyWhatsappService(
+    whatsappRepo,
+    access,
+    new DisabledWhatsappBusinessProvider()
+  );
   const telegram = new AgencyTelegramService(
     agencyRepo,
     jobsRepo,
@@ -226,6 +238,12 @@ export async function buildHarness(): Promise<Harness> {
     access
   );
   const ai = new AgencyAiService(aiGateway);
+  const whatsappOutreach = new AgencyWhatsappOutreachService(
+    whatsappRepo,
+    agencyRepo,
+    access,
+    aiGateway
+  );
   const aiTools = new AgencyAiToolsService(
     new AgencyAiRepository(prisma),
     aiGateway,
@@ -256,6 +274,8 @@ export async function buildHarness(): Promise<Harness> {
     platforms,
     crm,
     leads,
+    whatsapp,
+    whatsappOutreach,
     aiGateway,
     ai,
     aiTools,

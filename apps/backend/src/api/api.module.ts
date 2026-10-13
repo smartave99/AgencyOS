@@ -53,6 +53,7 @@ import { AgencyClientsController } from '@gitroom/backend/api/routes/agency.clie
 import { AgencyCampaignsController } from '@gitroom/backend/api/routes/agency.campaigns.controller';
 import { AgencyTemplatesController } from '@gitroom/backend/api/routes/agency.templates.controller';
 import { AgencyLeadsController } from '@gitroom/backend/api/routes/agency.leads.controller';
+import { AgencyWhatsappController } from '@gitroom/backend/api/routes/agency.whatsapp.controller';
 import { AgencyApprovalsController } from '@gitroom/backend/api/routes/agency.approvals.controller';
 import {
   AgencyTelegramController,
@@ -102,6 +103,7 @@ const authenticatedController = [
   AgencyCampaignsController,
   AgencyTemplatesController,
   AgencyLeadsController,
+  AgencyWhatsappController,
   AgencyApprovalsController,
   AgencyTelegramController,
   AgencyDashboardController,

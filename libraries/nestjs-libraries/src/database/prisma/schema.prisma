@@ -51,6 +51,13 @@ model Organization {
   adTemplates          AdTemplate[]
   leadLinks            LeadLink[]
   leads               LeadCapture[]
+  whatsappContacts    WhatsappContact[]
+  whatsappImports     WhatsappImport[]
+  whatsappSegments    WhatsappSegment[]
+  whatsappTemplates   WhatsappTemplate[]
+  whatsappTasks       WhatsappTask[]
+  whatsappUnsubscribes WhatsappUnsubscribe[]
+  whatsappSettings    WhatsappSettings?
   agencyInvoices      AgencyInvoice[]
   agencyKnowledge     AgencyKnowledgeDocument[]
   agencyMembers       AgencyMember[]
@@ -2505,4 +2512,188 @@ model Deal {
   @@index([orgId, stage])
   @@index([ownerUserId])
   @@index([customerId])
+}
+
+// ---------------------------------------------------------------------------------------------
+// WhatsApp local workspace: people who agreed to be contacted on WhatsApp, and the work a person
+// does by hand. AgencyOS prepares the message and a click-to-chat link; the person presses send
+// in WhatsApp. Nothing here sends anything, and nothing records a delivery AgencyOS cannot see.
+// ---------------------------------------------------------------------------------------------
+enum WhatsappConsentStatus {
+  OPTED_IN
+  OPTED_OUT
+}
+
+// What a person marked a task as. There is deliberately no "delivered" or "read": AgencyOS
+// cannot observe either, so it never claims them.
+enum WhatsappTaskStatus {
+  PENDING
+  SENT_BY_USER
+  REPLIED
+  SKIPPED
+}
+
+// A person who agreed to be contacted on WhatsApp. Consent is recorded when the contact is made
+// and cannot be left out. The number is personal data: lists show it masked.
+model WhatsappContact {
+  id                  String                @id @default(cuid())
+  orgId               String
+  name                String
+  // E.164 with the leading "+".
+  phone               String
+  // Keyed hash of the number, so the unsubscribe ledger can recognise it without storing it.
+  phoneHash           String
+  company             String?
+  language            String?
+  tags                String[]
+  notes               String?
+  consentStatus       WhatsappConsentStatus @default(OPTED_IN)
+  // How they agreed ("web form", "in person", ...), what proves it, and when they agreed.
+  consentSource       String
+  consentEvidence     String?
+  consentedAt         DateTime
+  consentRecordedById String
+  importId            String?
+  optedOutAt          DateTime?
+  optOutMethod        String?
+  optOutReason        String?
+  createdById         String
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  organization        Organization          @relation(fields: [orgId], references: [id])
+  import              WhatsappImport?       @relation(fields: [importId], references: [id], onDelete: SetNull)
+  tasks               WhatsappTask[]
+
+  @@unique([orgId, phone])
+  @@index([orgId, consentStatus])
+  @@index([orgId, phoneHash])
+  @@index([importId])
+}
+
+// One consent-recorded import: what the file held, what was kept, and the operator's attestation.
+model WhatsappImport {
+  id                 String            @id @default(cuid())
+  orgId              String
+  fileName           String?
+  totalRows          Int
+  importedRows       Int
+  duplicateRows      Int
+  invalidRows        Int
+  missingConsentRows Int
+  withdrawnRows      Int
+  attestation        String
+  attestedById       String
+  createdAt          DateTime          @default(now())
+
+  organization       Organization      @relation(fields: [orgId], references: [id])
+  contacts           WhatsappContact[]
+
+  @@index([orgId, createdAt])
+}
+
+// A saved filter over the people who are opted in. Opted-out contacts are never members.
+model WhatsappSegment {
+  id             String         @id @default(cuid())
+  orgId          String
+  name           String
+  tags           String[]
+  languages      String[]
+  consentSources String[]
+  createdById    String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization   Organization   @relation(fields: [orgId], references: [id])
+  tasks          WhatsappTask[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+}
+
+// Wording for a message, with {{placeholders}} from a fixed list. The opt-out line is added to
+// every message made from it; an empty one is allowed but the screens warn about it.
+model WhatsappTemplate {
+  id          String         @id @default(cuid())
+  orgId       String
+  name        String
+  body        String
+  language    String?
+  link        String?
+  optOutLine  String         @default("")
+  createdById String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  organization Organization   @relation(fields: [orgId], references: [id])
+  tasks        WhatsappTask[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+}
+
+// One message to prepare for one person. A human opens the chat, reads it and sends it; the status
+// only says what that person marked. It goes with the contact when the contact is erased.
+model WhatsappTask {
+  id          String             @id @default(cuid())
+  orgId       String
+  contactId   String
+  templateId  String?
+  segmentId   String?
+  label       String
+  // The finished text as it was prepared, including the link and opt-out line.
+  message     String
+  status      WhatsappTaskStatus @default(PENDING)
+  skipReason  String?
+  note        String?
+  followUpAt  DateTime?
+  openedAt    DateTime?
+  sentAt      DateTime?
+  repliedAt   DateTime?
+  createdById String
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  organization Organization      @relation(fields: [orgId], references: [id])
+  contact      WhatsappContact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  template     WhatsappTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  segment      WhatsappSegment?  @relation(fields: [segmentId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, status])
+  @@index([orgId, followUpAt])
+  @@index([contactId])
+  @@index([templateId])
+  @@index([segmentId])
+}
+
+// Everyone who withdrew, kept even after their details are erased. Only a keyed hash of the number
+// is stored, so a withdrawn person can be recognised and refused if a list brings them back.
+// Rows are only ever added.
+model WhatsappUnsubscribe {
+  id           String       @id @default(cuid())
+  orgId        String
+  phoneHash    String
+  receivedAt   DateTime
+  method       String
+  recordedById String
+  createdAt    DateTime     @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, phoneHash])
+  @@index([orgId, receivedAt])
+}
+
+// One row per agency. The Business API switch exists so the screens can say where it will go; it
+// cannot be turned on in this version.
+model WhatsappSettings {
+  id                 String       @id @default(cuid())
+  orgId              String       @unique
+  businessApiEnabled Boolean      @default(false)
+  defaultOptOutLine  String       @default("Reply STOP to opt out.")
+  updatedById        String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  organization       Organization @relation(fields: [orgId], references: [id])
 }

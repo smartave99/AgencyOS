@@ -29,6 +29,10 @@ export type AgencyPermission =
   | 'crm:read'
   | 'crm:write'
   | 'crm:delete'
+  | 'whatsapp:read'
+  | 'whatsapp:write'
+  | 'whatsapp:delete'
+  | 'whatsapp:manage'
   | 'billing:read'
   | 'billing:write'
   | 'analytics:read'
@@ -102,6 +106,19 @@ export const AGENCY_PERMISSIONS: Record<AgencyPermission, AgencyRole[]> = {
   'crm:read': [OWNER, ADMIN, SALES_MANAGER, SALES_EXEC],
   'crm:write': [OWNER, ADMIN, SALES_MANAGER, SALES_EXEC],
   'crm:delete': [OWNER, ADMIN, SALES_MANAGER],
+  // WhatsApp is worked by hand by sales and marketing staff. Everyone on the staff can see the lists
+  // (numbers masked); only those who work the contacts see a full number or get a chat link.
+  'whatsapp:read': ALL_STAFF,
+  'whatsapp:write': [
+    OWNER,
+    ADMIN,
+    SALES_MANAGER,
+    SALES_EXEC,
+    CAMPAIGN_MANAGER,
+    EDITOR,
+  ],
+  'whatsapp:delete': [OWNER, ADMIN, SALES_MANAGER],
+  'whatsapp:manage': [OWNER, ADMIN],
   'billing:read': [OWNER, ADMIN, SALES_MANAGER],
   'billing:write': [OWNER, ADMIN, SALES_MANAGER],
   'analytics:read': ALL_STAFF,

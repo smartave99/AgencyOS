@@ -1948,6 +1948,18 @@ model Campaign {
   @@index([createdAt])
 }
 
+// Which of a chat's bots posts. Only ever among bots whose agency the chat's administrator made an
+// administrator of the chat; a chat's own decisions are never worked around.
+enum TelegramBotStrategy {
+  // The main bot posts; a backup takes over only when the main bot cannot on AgencyOS's side
+  // (paused, removed, token rejected).
+  FAILOVER
+  // Posts take turns across the usable bots.
+  ROUND_ROBIN
+  // Each post goes to the usable bot that sent the fewest in the last 24 hours.
+  LEAST_USED
+}
+
 enum TelegramBotStatus {
   ACTIVE
   DISABLED
@@ -1991,6 +2003,12 @@ model TelegramDestination {
   // server settings (AGENCY_TELEGRAM_BOT_TOKEN), which is how every chat worked before bots could
   // be added in the app. A removed bot keeps its id, so its chats stop instead of switching bots.
   botId                 String?
+  // Other bots of the same agency that may post here too (ids of connected bots, or "server").
+  // Each must itself be a live administrator of the chat; see TelegramBotStrategy.
+  backupBotIds          String[]              @default([])
+  botStrategy           TelegramBotStrategy   @default(FAILOVER)
+  // The bot that sent the last post ("server" for the server's bot): a change of bot is a logged switch.
+  lastBotId             String?
   // DEPRECATED mirror of (authorizationStatus === ACTIVE). Kept so older readers
   // keep working; written only by AgencyTelegramService.setAuthorization().
   isAuthorized          Boolean               @default(false)
@@ -2096,6 +2114,8 @@ model PublishingEvent {
   idempotencyKey        String?
   postingJobId          String?
   attempt               Int?
+  // The bot that sent it, so receipts show which of a chat's bots posted.
+  botUsername           String?
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 

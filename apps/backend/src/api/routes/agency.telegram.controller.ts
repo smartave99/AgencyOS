@@ -22,6 +22,8 @@ import { AgencyActor } from '@gitroom/nestjs-libraries/database/prisma/agency/ag
 import { TelegramInboundUpdate } from '@gitroom/nestjs-libraries/integrations/telegram/telegram.gateway';
 import {
   AddTelegramBotDto,
+  MakeMainBotDto,
+  UpdateChatBotsDto,
   UpdateTelegramBotDto,
   DestinationReasonDto,
   RegisterTelegramDestinationDto,
@@ -119,6 +121,26 @@ export class AgencyTelegramController {
     @Body() body: UpdateTelegramDestinationDto
   ) {
     return this.telegramService.updateSettings(actor, id, body);
+  }
+
+  /** Backup bots for a chat and how its bots share the work. */
+  @Put('/destinations/:id/bots')
+  async updateChatBots(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Param('id') id: string,
+    @Body() body: UpdateChatBotsDto
+  ) {
+    return this.telegramService.updateChatBots(actor, id, body);
+  }
+
+  /** The manual switch of a chat's main bot. */
+  @Post('/destinations/:id/main-bot')
+  async makeMainBot(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Param('id') id: string,
+    @Body() body: MakeMainBotDto
+  ) {
+    return this.telegramService.makeMainBot(actor, id, body.botId);
   }
 
   /** New one-time code, e.g. after revoke/expiry/disconnect or a lost code. */

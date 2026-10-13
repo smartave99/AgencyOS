@@ -13,8 +13,9 @@ import {
   hkdfSync,
   randomBytes,
 } from 'crypto';
-import { TelegramBotStatus } from '@prisma/client';
+import { TelegramBotStatus, TelegramBotStrategy } from '@prisma/client';
 import { AgencyRepository } from './agency.repository';
+import { AgencyPublishingRepository } from './agency.publishing.repository';
 import { AgencyAccessService, AgencyActor } from './agency.access.service';
 import {
   TelegramGateway,
@@ -39,6 +40,24 @@ export interface BotHandle {
   gateway: TelegramGateway;
 }
 
+/** Why a bot was chosen for a post, in the words the audit trail uses. */
+export interface BotPick {
+  bot: BotHandle;
+  /** The bot's identity in a chat's lists: its id, or "server" for the server's bot. */
+  key: string;
+  reason: 'MAIN' | 'MAIN_UNAVAILABLE' | 'ROUND_ROBIN' | 'LEAST_USED';
+  /** Why the main bot was not used, when it was not. */
+  detail?: string;
+}
+
+interface ChatBots {
+  id: string;
+  botId: string | null;
+  backupBotIds: string[];
+  botStrategy: TelegramBotStrategy;
+  lastBotId: string | null;
+}
+
 const SERVER_BOT_LABEL = 'Server bot';
 /** What a request says to mean the bot from the server settings, which has no id of its own. */
 export const SERVER_BOT = 'server';
@@ -56,6 +75,7 @@ export class AgencyTelegramBotsService {
 
   constructor(
     private readonly repo: AgencyRepository,
+    private readonly jobs: AgencyPublishingRepository,
     private readonly access: AgencyAccessService,
     private readonly gateway: TelegramGateway
   ) {}
@@ -356,6 +376,79 @@ export class AgencyTelegramBotsService {
     return bots.length === 1
       ? this.handleFor(orgId, bots[0].id)
       : this.serverHandle();
+  }
+
+  /** A bot's identity in a chat's lists: its id, or "server" for the bot from the server settings. */
+  static keyOf(botId: string | null) {
+    return botId ?? SERVER_BOT;
+  }
+
+  /**
+   * Which of a chat's bots posts this time. The main bot is the chat's own consent anchor; backups
+   * are other bots of the same agency that the chat's administrator has made administrators too
+   * (checked live by the sender). Switching happens only because AgencyOS cannot use a bot
+   * (paused, removed, rejected token) or because the agency asked for turns; never because a chat
+   * removed a bot or because Telegram asked us to slow down. `skip` holds bots already ruled out
+   * during this send.
+   */
+  async pick(
+    orgId: string,
+    chat: ChatBots,
+    skip: ReadonlySet<string> = new Set()
+  ): Promise<BotPick> {
+    const mainKey = AgencyTelegramBotsService.keyOf(chat.botId);
+    const order = [mainKey, ...chat.backupBotIds.filter((k) => k !== mainKey)];
+    const usable: Array<{ key: string; bot: BotHandle }> = [];
+    let mainProblem: Error | null = null;
+    let firstProblem: Error | null = null;
+    for (const key of order) {
+      if (skip.has(key)) continue;
+      try {
+        usable.push({
+          key,
+          bot: await this.handleFor(orgId, key === SERVER_BOT ? null : key),
+        });
+      } catch (err) {
+        firstProblem ??= err as Error;
+        if (key === mainKey) mainProblem = err as Error;
+      }
+    }
+    if (usable.length === 0) {
+      throw (
+        firstProblem ??
+        new TelegramGatewayError(
+          'UNCONFIGURED',
+          'No Telegram bot can post to this chat right now.'
+        )
+      );
+    }
+    const detail = mainProblem?.message;
+    const pickOf = (
+      chosen: { key: string; bot: BotHandle },
+      reason: BotPick['reason']
+    ): BotPick => ({
+      bot: chosen.bot,
+      key: chosen.key,
+      reason: chosen.key === mainKey ? 'MAIN' : reason,
+      ...(chosen.key !== mainKey && detail ? { detail } : {}),
+    });
+
+    if (chat.botStrategy === TelegramBotStrategy.ROUND_ROBIN) {
+      const last = usable.findIndex((u) => u.key === chat.lastBotId);
+      return pickOf(usable[(last + 1) % usable.length], 'ROUND_ROBIN');
+    }
+    if (chat.botStrategy === TelegramBotStrategy.LEAST_USED) {
+      const counts = await this.jobs.countSendsByBot(
+        chat.id,
+        new Date(Date.now() - 24 * 3600 * 1000)
+      );
+      const least = usable.reduce((best, u) =>
+        (counts.get(u.key) ?? 0) < (counts.get(best.key) ?? 0) ? u : best
+      );
+      return pickOf(least, 'LEAST_USED');
+    }
+    // FAILOVER: the main bot, or the first usable backup when it cannot be used.
+    return pickOf(usable[0], 'MAIN_UNAVAILABLE');
   }
 
   /** Every bot that should be listening for /authorize and /revoke: the server's, plus each active one. */

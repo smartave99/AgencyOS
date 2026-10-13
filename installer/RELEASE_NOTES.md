@@ -30,14 +30,14 @@ Windows 10 (version 1809) or Windows 11, 64-bit (Windows on ARM runs it through 
 ### First start
 
 1. Run the installer. It does not ask for administrator rights.
-2. Windows SmartScreen may say "Windows protected your PC" because this build is **not code-signed**: choose **More info**, then **Run anyway**.
+2. {{SIGNING_FIRST_START}}
 3. Setup asks where to keep your files (you can keep the defaults).
 4. AgencyOS opens and shows what it is starting. The first start takes a minute or two (it creates the database). It then opens straight into your workspace: there is no account to create and nothing to sign in to.
 5. Optional: connect a Telegram bot under **Settings → Telegram bots** (paste the token from @BotFather; you can connect as many bots as you need) to let AgencyOS post to chats whose administrators have authorized it.
 
 ### Honest limits
 
-- Not code-signed (no certificate), so SmartScreen warns as above. The SHA-256 above lets you check the file.
+- {{SIGNING_LIMIT}} The SHA-256 above lets you check the file.
 - Social-network accounts that need a web sign-in (Google, Facebook, …) open in your default browser for the sign-in step, as the providers require; everything else stays in the AgencyOS window.
 - Tested on a clean Windows Server 2025 build machine with 16 GB of memory, 4 processor threads and no GPU. Other hardware (including NVIDIA GPUs and Windows on ARM) is covered by the selection rules and their unit tests but has not been run on real devices.
 - There is no automatic update yet: install a newer setup file over the old one; your data is kept.

@@ -1,5 +1,8 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
+  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -40,6 +43,39 @@ export class AddTelegramBotDto {
       'That does not look like a bot token. It looks like 123456789:AAH… and comes from @BotFather.',
   })
   token: string;
+}
+
+export const BOT_STRATEGIES = [
+  'FAILOVER',
+  'ROUND_ROBIN',
+  'LEAST_USED',
+] as const;
+
+/** Which other bots may post in a chat, and how they share the work. */
+export class UpdateChatBotsDto {
+  @ApiProperty({
+    description:
+      'Backup bots: ids of connected bots, or "server". Each must already be an administrator of the chat.',
+  })
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  @MaxLength(64, { each: true })
+  backupBotIds: string[];
+
+  @ApiProperty({ enum: BOT_STRATEGIES })
+  @IsIn(BOT_STRATEGIES as unknown as string[])
+  strategy: (typeof BOT_STRATEGIES)[number];
+}
+
+export class MakeMainBotDto {
+  @ApiProperty({
+    description: 'A backup bot of this chat (an id, or "server")',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  botId: string;
 }
 
 export class UpdateTelegramBotDto {

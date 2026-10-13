@@ -7,6 +7,7 @@ import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
 import {
   DestinationView,
   PostingJob,
+  TelegramBots,
   useAgencyApi,
   useCan,
   usePublishingEvents,
@@ -368,6 +369,8 @@ const DestinationRow: FC<{
   const api = useAgencyApi();
   const toaster = useToaster();
   const { busy, run: runBusy } = useBusy();
+  const { data: botList } = useTelegramBots();
+  const [editingBots, setEditingBots] = useState(false);
 
   const run = (fn: () => Promise<void>, done?: string) =>
     runBusy(async () => {
@@ -414,6 +417,10 @@ const DestinationRow: FC<{
   const menu: MenuItem[] = [];
   if (status === 'ACTIVE') {
     menu.push(
+      {
+        label: 'Backup bots…',
+        onClick: () => setEditingBots(true),
+      },
       {
         label: 'Check health',
         onClick: () => void run(post('refresh'), 'Checked just now'),
@@ -473,6 +480,13 @@ const DestinationRow: FC<{
         <p className="mt-1.5 text-[13px] text-textItemBlur max-w-lg">
           {statusDetail(d)}
         </p>
+        {d.backupBotIds.length > 0 && (
+          <p className="mt-1 text-xs text-textItemBlur">
+            Backup bots:{' '}
+            {d.backupBotIds.map((key) => botName(botList, key)).join(', ')} ·{' '}
+            {STRATEGY[d.botStrategy].short}
+          </p>
+        )}
         {d.lastError && status === 'ACTIVE' && (
           <p className={`mt-1 text-xs ${TONE_TEXT.warn}`}>
             Last problem: {d.lastError}
@@ -486,6 +500,15 @@ const DestinationRow: FC<{
           {d._count.campaignDestinations === 1 ? '' : 's'}
         </p>
       </div>
+
+      {editingBots && botList && (
+        <BackupBotsDialog
+          d={d}
+          bots={botList}
+          onClose={() => setEditingBots(false)}
+          onChanged={onChanged}
+        />
+      )}
 
       {canManage && (
         <div className="flex items-center gap-2 shrink-0">
@@ -510,6 +533,195 @@ const DestinationRow: FC<{
         </div>
       )}
     </li>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// A chat's backup bots: other bots of yours that the chat's administrator has also made administrators
+// ---------------------------------------------------------------------------
+const STRATEGY: Record<
+  DestinationView['botStrategy'],
+  { label: string; short: string; help: string }
+> = {
+  FAILOVER: {
+    label: 'Main bot first',
+    short: 'main bot first',
+    help: 'The main bot posts. A backup takes over only when AgencyOS cannot use the main bot: it is paused, removed, or Telegram no longer accepts its token.',
+  },
+  ROUND_ROBIN: {
+    label: 'Take turns',
+    short: 'taking turns',
+    help: 'Posts take turns across the main bot and the backups.',
+  },
+  LEAST_USED: {
+    label: 'Fewest posts first',
+    short: 'fewest posts first',
+    help: 'Each post goes to the bot that sent the fewest in the last 24 hours.',
+  },
+};
+
+const botName = (bots: TelegramBots | undefined, key: string) => {
+  if (key === 'server') return bots?.server.label ?? 'Server bot';
+  const bot = bots?.bots.find((b) => b.id === key);
+  return bot ? `${bot.label} (@${bot.username})` : 'A removed bot';
+};
+
+const BackupBotsDialog: FC<{
+  d: DestinationView;
+  bots: TelegramBots;
+  onClose: () => void;
+  onChanged: () => void;
+}> = ({ d, bots, onClose, onChanged }) => {
+  const api = useAgencyApi();
+  const toaster = useToaster();
+  const { busy, run } = useBusy();
+  const mainKey = d.botId ?? 'server';
+  const [chosen, setChosen] = useState<string[]>(d.backupBotIds);
+  const [strategy, setStrategy] = useState(d.botStrategy);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  // Every bot that could help: the connected ones that are on, and the server's, except the main one.
+  const options = [
+    ...bots.bots
+      .filter((b) => b.status === 'ACTIVE')
+      .map((b) => ({ key: b.id, label: `${b.label} (@${b.username})` })),
+    ...(bots.server.configured
+      ? [{ key: 'server', label: bots.server.label }]
+      : []),
+  ].filter((o) => o.key !== mainKey);
+
+  const toggle = (key: string) =>
+    setChosen((now) =>
+      now.includes(key) ? now.filter((k) => k !== key) : [...now, key]
+    );
+
+  const save = () =>
+    run(async () => {
+      setProblem(null);
+      try {
+        await api.put(`/agency/telegram/destinations/${d.id}/bots`, {
+          backupBotIds: chosen,
+          strategy,
+        });
+        toaster.show('Saved', 'success');
+        onChanged();
+        onClose();
+      } catch (e) {
+        setProblem((e as Error).message);
+      }
+    });
+
+  const makeMain = async (key: string) => {
+    if (
+      !(await deleteDialog(
+        `Make ${botName(bots, key)} the main bot of "${
+          d.title
+        }"? The current main bot becomes a backup.`,
+        'Yes, switch',
+        undefined,
+        undefined,
+        true
+      ))
+    ) {
+      return;
+    }
+    await run(async () => {
+      setProblem(null);
+      try {
+        await api.post(`/agency/telegram/destinations/${d.id}/main-bot`, {
+          botId: key,
+        });
+        toaster.show('The main bot was changed', 'success');
+        onChanged();
+        onClose();
+      } catch (e) {
+        setProblem((e as Error).message);
+      }
+    });
+  };
+
+  return (
+    <Dialog
+      title={`Backup bots for ${d.title}`}
+      description="Other bots of yours that may post in this chat too."
+      busy={busy}
+      onClose={onClose}
+      footer={
+        <>
+          <Btn onClick={onClose} disabled={busy}>
+            Cancel
+          </Btn>
+          <Btn variant="primary" busy={busy} onClick={() => void save()}>
+            Save
+          </Btn>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <p className="text-[13px] text-textItemBlur">
+          Main bot:{' '}
+          <b className="text-newTextColor">{botName(bots, mainKey)}</b>
+        </p>
+        {options.length === 0 ? (
+          <Notice
+            tone="info"
+            action={
+              <LinkBtn href="/settings?tab=telegram">Connect a bot</LinkBtn>
+            }
+          >
+            There is no other bot to use yet.
+          </Notice>
+        ) : (
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-1 text-xs font-medium text-textItemBlur">
+              Backups
+            </legend>
+            {options.map((o) => (
+              <div key={o.key} className="flex items-center gap-3">
+                <label className="flex flex-1 items-center gap-2 text-[14px]">
+                  <input
+                    type="checkbox"
+                    checked={chosen.includes(o.key)}
+                    onChange={() => toggle(o.key)}
+                  />
+                  {o.label}
+                </label>
+                {d.backupBotIds.includes(o.key) && chosen.includes(o.key) && (
+                  <Btn onClick={() => void makeMain(o.key)} disabled={busy}>
+                    Make main
+                  </Btn>
+                )}
+              </div>
+            ))}
+          </fieldset>
+        )}
+        <SelectField
+          label="How they share the work"
+          hint={STRATEGY[strategy].help}
+          value={strategy}
+          onChange={(e) =>
+            setStrategy(e.target.value as DestinationView['botStrategy'])
+          }
+        >
+          {(Object.keys(STRATEGY) as Array<keyof typeof STRATEGY>).map(
+            (key) => (
+              <option key={key} value={key}>
+                {STRATEGY[key].label}
+              </option>
+            )
+          )}
+        </SelectField>
+        <p className="rounded-xl bg-[var(--ag-neutral-bg)] p-3 text-xs leading-relaxed text-textItemBlur">
+          A backup posts only if this chat’s administrator has already made it
+          an administrator with permission to post; nothing here adds a bot to a
+          chat. AgencyOS never switches bots because the chat removed one or
+          because Telegram asked a bot to slow down: it stops, or waits. Every
+          change of bot is recorded in the audit trail with the reason and the
+          campaign.
+        </p>
+        {problem && <Notice tone="bad">{problem}</Notice>}
+      </div>
+    </Dialog>
   );
 };
 
@@ -639,6 +851,7 @@ const ReceiptsPanel: FC = () => {
                 <th className={tableClass.th}>When</th>
                 <th className={tableClass.th}>Campaign</th>
                 <th className={tableClass.th}>Destination</th>
+                <th className={tableClass.th}>Bot</th>
                 <th className={tableClass.th}>Message ID</th>
                 <th className={tableClass.th}>Result</th>
                 <th className={tableClass.th}>Detail</th>
@@ -657,6 +870,9 @@ const ReceiptsPanel: FC = () => {
                   </td>
                   <td className={`${tableClass.td} text-textItemBlur`}>
                     {evt.telegramDestination?.title ?? '—'}
+                  </td>
+                  <td className={`${tableClass.td} text-textItemBlur`}>
+                    {evt.botUsername ? `@${evt.botUsername}` : '—'}
                   </td>
                   <td
                     className={`${tableClass.td} font-mono text-xs text-textItemBlur`}

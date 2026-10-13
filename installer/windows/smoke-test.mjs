@@ -2,7 +2,7 @@
 // Installs the built installer on THIS Windows machine the way a person would, starts the
 // desktop app, and checks that the product really works. Run in CI after the installer is built:
 //
-//   node installer/windows/smoke-test.mjs --installer AgencyOS-Setup-1.0.0.exe --artifacts out [--skip-ai]
+//   node installer/windows/smoke-test.mjs --installer AgencyOS-Setup-1.0.0.exe --artifacts out [--skip-ai] [--signing none|azure|pfx|selftest]
 //
 // Every step either passes or fails the whole run; nothing is skipped silently.
 
@@ -20,6 +20,8 @@ const installer = path.resolve(option('--installer', ''));
 const artifacts = path.resolve(option('--artifacts', 'smoke-artifacts'));
 const installDir = path.resolve(option('--dir', path.join(process.env.RUNNER_TEMP || process.env.TEMP || '.', 'AgencyOS-install')));
 const skipAi = args.includes('--skip-ai');
+// How the build was signed: none (unsigned), azure, pfx, or selftest (a throwaway certificate that proves the steps).
+const signingMode = option('--signing', 'none');
 const aiMinutes = Number(option('--ai-minutes', '30'));
 const cdpPort = 9222;
 
@@ -234,6 +236,30 @@ async function main() {
     assert(run.status === 0 && /--hidden/.test(run.stdout), 'start-at-sign-in entry was not created');
     report.facts.manifest = readJson(path.join(installDir, 'runtime-manifest.json')).runtimes;
     console.log(`   installed in ${report.facts.installSeconds}s`);
+  });
+
+  await step('the installer and the app carry a signature Windows accepts, or this build says plainly that it is unsigned', async () => {
+    const signatureOf = (file) => {
+      const quoted = file.replace(/'/g, "''");
+      const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', `$s = Get-AuthenticodeSignature -LiteralPath '${quoted}'; @{ status = $s.Status.ToString(); subject = if ($s.SignerCertificate) { $s.SignerCertificate.Subject } else { '' }; timestamped = [bool]$s.TimeStamperCertificate } | ConvertTo-Json -Compress`], { encoding: 'utf8' });
+      assert(r.status === 0, `could not read the signature of ${file}: ${r.stderr}`);
+      return JSON.parse(r.stdout.trim());
+    };
+    const installerSignature = signatureOf(installer);
+    const appSignature = signatureOf(exe);
+    report.facts.signature = { mode: signingMode, installer: installerSignature, app: appSignature };
+    if (signingMode === 'none') {
+      assert(installerSignature.status === 'NotSigned', `the installer was expected to be unsigned but is ${installerSignature.status}`);
+      console.log('   unsigned build: Windows SmartScreen will warn on first run');
+      return;
+    }
+    assert(installerSignature.status === 'Valid', `the installer's signature is ${installerSignature.status}`);
+    assert(appSignature.status === 'Valid', `AgencyOS.exe's signature is ${appSignature.status}`);
+    // Without a timestamp a signature dies with its certificate; only the self-test goes without.
+    if (signingMode !== 'selftest') {
+      assert(installerSignature.timestamped && appSignature.timestamped, 'the signatures are not timestamped');
+    }
+    console.log(`   signed (${signingMode}) by ${installerSignature.subject}`);
   });
 
   await step('start the desktop app: services come up on a machine that has nothing installed', async () => {

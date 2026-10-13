@@ -4,6 +4,10 @@ name: windows-installer
 # desktop app, and checks that the product and its local AI really work. A release is only
 # published from a run that passed that test, and only when asked for (workflow_dispatch with
 # publish = true).
+#
+# Code signing: the installer and the app are signed when a certificate is configured (see
+# docs/AGENCYOS_SIGNING.md), and the smoke test then checks that Windows accepts the signature.
+# Without one the build is unsigned, says so, and still passes.
 
 on:
   push:
@@ -25,6 +29,10 @@ on:
         description: 'Skip the local AI part of the smoke test (faster; do not publish from such a run)'
         type: boolean
         default: false
+      sign_selftest:
+        description: 'Prove the signing steps with a throwaway certificate made on the runner (never published)'
+        type: boolean
+        default: false
 
 concurrency:
   group: windows-installer-${{ github.ref }}
@@ -37,6 +45,10 @@ jobs:
   build-and-test:
     runs-on: windows-latest
     timeout-minutes: 170
+    permissions:
+      contents: read
+      # Only used to sign in to Azure Artifact Signing without a stored secret, when it is set up.
+      id-token: write
     outputs:
       version: ${{ steps.version.outputs.version }}
     env:
@@ -56,6 +68,71 @@ jobs:
           "version=$v" >> $env:GITHUB_OUTPUT
           "VERSION=$v" >> $env:GITHUB_ENV
           "Building AgencyOS $v from $env:GITHUB_SHA"
+
+      - name: Signing mode
+        id: signing
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARTIFACT_SIGNING_ENDPOINT: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          ARTIFACT_SIGNING_ACCOUNT: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          ARTIFACT_SIGNING_PROFILE: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+        run: |
+          # none: unsigned. azure: Azure Artifact Signing. pfx: a certificate file. selftest: proves
+          # the steps with a throwaway certificate (never published).
+          $mode = 'none'
+          if ('${{ inputs.sign_selftest }}' -eq 'true') {
+            $mode = 'selftest'
+            if ('${{ inputs.publish }}' -eq 'true') { throw 'A self-test signature is not a real one: do not publish from it.' }
+          } elseif ($env:AZURE_CLIENT_ID -and $env:AZURE_TENANT_ID -and $env:AZURE_SUBSCRIPTION_ID -and $env:ARTIFACT_SIGNING_ENDPOINT -and $env:ARTIFACT_SIGNING_ACCOUNT -and $env:ARTIFACT_SIGNING_PROFILE) {
+            $mode = 'azure'
+          } elseif ($env:WINDOWS_PFX_BASE64) {
+            $mode = 'pfx'
+          }
+          "mode=$mode" >> $env:GITHUB_OUTPUT
+          "SIGNING_MODE=$mode" >> $env:GITHUB_ENV
+          "Code signing: $mode"
+
+      - name: Throwaway certificate (self-test only)
+        if: steps.signing.outputs.mode == 'selftest'
+        shell: powershell
+        run: |
+          # Windows PowerShell: the certificate cmdlets live there. The certificate is trusted on
+          # this runner only, so the check below can say Valid; it means nothing anywhere else.
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=AgencyOS pipeline self-test (not a real signature)' -CertStoreLocation Cert:\CurrentUser\My -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(2)
+          $password = [guid]::NewGuid().ToString('N')
+          "::add-mask::$password"
+          $pfx = Join-Path $env:RUNNER_TEMP 'selftest.pfx'
+          $cer = Join-Path $env:RUNNER_TEMP 'selftest.cer'
+          Export-PfxCertificate -Cert $cert -FilePath $pfx -Password (ConvertTo-SecureString $password -AsPlainText -Force) | Out-Null
+          Export-Certificate -Cert $cert -FilePath $cer | Out-Null
+          Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+          Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\TrustedPublisher | Out-Null
+          # Windows PowerShell's > and >> write UTF-16, which the runner cannot read.
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "SIGN_PFX=$pfx`nSIGN_PFX_PASSWORD=$password`n")
+
+      - name: Certificate file
+        if: steps.signing.outputs.mode == 'pfx'
+        shell: pwsh
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_PFX_BASE64))
+          "SIGN_PFX=$pfx" >> $env:GITHUB_ENV
+          "SIGN_PFX_PASSWORD=$env:WINDOWS_PFX_PASSWORD" >> $env:GITHUB_ENV
+
+      - name: Sign in to Azure (code signing)
+        if: steps.signing.outputs.mode == 'azure'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Changelog covers this version
         shell: pwsh
@@ -111,6 +188,26 @@ jobs:
           Copy-Item "installer/dist/desktop/AgencyOS-win32-x64/*" installer/dist/stage -Recurse -Force
           Get-ChildItem installer/dist/stage | Select-Object -First 40 | ForEach-Object { $_.Name }
 
+      - name: Sign the app (Azure Artifact Signing)
+        if: steps.signing.outputs.mode == 'azure'
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\installer\dist\stage\AgencyOS.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Sign the app (certificate file)
+        if: steps.signing.outputs.mode == 'pfx' || steps.signing.outputs.mode == 'selftest'
+        shell: pwsh
+        run: |
+          $extra = @()
+          if ($env:SIGNING_MODE -eq 'selftest') { $extra += '-NoTimestamp' }
+          ./installer/windows/sign.ps1 -Files "$PWD\installer\dist\stage\AgencyOS.exe" -Pfx $env:SIGN_PFX -Password $env:SIGN_PFX_PASSWORD @extra
+
       - name: Size of what will be installed
         shell: pwsh
         run: |
@@ -128,6 +225,32 @@ jobs:
           & $iscc /Qp "/DAppVersion=$env:VERSION" "/DNumericVersion=$env:VERSION.0" "/DCompression=$compression" "/DStageDir=$PWD\installer\dist\stage" "/DOutDir=$PWD\installer\dist\out" "/DIconFile=$PWD\installer\desktop\assets\icon.ico" installer\windows\agencyos.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-ChildItem installer/dist/out | ForEach-Object { '{0}  {1:N0} MB' -f $_.Name, ($_.Length / 1MB) }
+
+      - name: Sign the installer (Azure Artifact Signing)
+        if: steps.signing.outputs.mode == 'azure'
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\installer\dist\out
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Sign the installer (certificate file)
+        if: steps.signing.outputs.mode == 'pfx' || steps.signing.outputs.mode == 'selftest'
+        shell: pwsh
+        run: |
+          $extra = @()
+          if ($env:SIGNING_MODE -eq 'selftest') { $extra += '-NoTimestamp' }
+          $exe = (Get-ChildItem installer/dist/out/*.exe | Select-Object -First 1).FullName
+          ./installer/windows/sign.ps1 -Files $exe -Pfx $env:SIGN_PFX -Password $env:SIGN_PFX_PASSWORD @extra
+
+      - name: Checksum (of the file people will download, after signing)
+        shell: pwsh
+        run: |
           $exe = Get-ChildItem installer/dist/out/*.exe | Select-Object -First 1
           $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()
           "$hash  $($exe.Name)" | Set-Content -Encoding ascii "installer/dist/out/$($exe.Name).sha256"
@@ -149,7 +272,7 @@ jobs:
           $exe = (Get-ChildItem installer/dist/out/*.exe | Select-Object -First 1).FullName
           $flags = @()
           if ('${{ inputs.skip_ai }}' -eq 'true') { $flags += '--skip-ai' }
-          node installer/windows/smoke-test.mjs --installer $exe --artifacts smoke-artifacts @flags
+          node installer/windows/smoke-test.mjs --installer $exe --artifacts smoke-artifacts --signing $env:SIGNING_MODE @flags
 
       - name: Upload smoke test evidence
         if: always()

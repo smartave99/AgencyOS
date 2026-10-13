@@ -2,6 +2,31 @@
 
 Every change in every version of AgencyOS, by NextGen OS, newest first. This file is generated from `libraries/helpers/src/changelog/releases.json`: edit that file, then run `node installer/build/changelog.mjs`.
 
+## 1.4.0 — 2026-10-13 · Backup bots that take turns, and an installer ready to be signed
+
+A chat can have backup bots that take over or take turns with its main bot, but only bots its administrator has already made administrators, and never to get around a chat or Telegram. The build can now sign the installer as soon as a signing certificate is added.
+
+### Added
+
+- **Telegram:** Backup bots: on an authorized chat, choose Backup bots… to let other bots of yours post there too. Each must already be an administrator of the chat with permission to post; AgencyOS checks that live before every send, and nothing in AgencyOS can add a bot to a chat.
+- **Telegram:** How the bots share the work: main bot first (a backup takes over only when AgencyOS cannot use the main bot because it is paused, removed or its token is rejected), take turns, or fewest posts in the last 24 hours first. You can also make a backup the main bot by hand.
+- **Telegram:** Every change of bot is written to the audit trail with the time, the reason and the campaign, and delivery receipts show which bot sent each post.
+- **Installer:** The Windows build can sign the installer and AgencyOS.exe (Azure Artifact Signing, or a certificate file) as soon as a certificate is configured, and the test run checks that Windows accepts the signature. Setup steps are in docs/AGENCYOS_SIGNING.md.
+
+### Improved
+
+- **Telegram:** A backup that its chat stops letting post is taken off the list automatically, and that is logged.
+
+### Changed
+
+- **Telegram:** A chat whose main bot is removed from it, or loses the right to post, is disconnected whatever backups it has, and a post that Telegram asks to slow down waits for its own bot. AgencyOS never switches bots to get around a chat's or Telegram's decision.
+
+### Good to know
+
+- Telegram has still not been reached from the test machine: bots, backups and taking turns are tested against a simulated Telegram.
+- The installer is still not code-signed in this release: signing needs a certificate that only the owner can obtain (docs/AGENCYOS_SIGNING.md). Even after that, Windows SmartScreen can warn for a while about a new publisher.
+- Auto-join, scraping members and bulk-adding people are still not built, and are not planned: see docs/AGENCYOS_RULES_CONFLICT.md.
+
 ## 1.3.0 — 2026-10-13 · One app: Telegram bots and system settings live inside it
 
 Connect as many Telegram bots as you need, from Settings inside AgencyOS. The separate status page no longer opens as a second app: what it offered (system status, local AI, where your files are kept) is now Settings → System, and the window starts on a plain start-up screen.

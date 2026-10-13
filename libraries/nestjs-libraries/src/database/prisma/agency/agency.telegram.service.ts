@@ -15,6 +15,7 @@ import { AgencyAccessService, AgencyActor } from './agency.access.service';
 import {
   AgencyTelegramBotsService,
   BotHandle,
+  SERVER_BOT,
 } from './agency.telegram.bots.service';
 import {
   TelegramGatewayError,
@@ -22,6 +23,7 @@ import {
 } from '@gitroom/nestjs-libraries/integrations/telegram/telegram.gateway';
 import {
   RegisterTelegramDestinationDto,
+  UpdateChatBotsDto,
   UpdateTelegramDestinationDto,
 } from '@gitroom/nestjs-libraries/dtos/agency/telegram.dto';
 
@@ -409,6 +411,100 @@ export class AgencyTelegramService {
   }
 
   /**
+   * Which other bots may post in a chat, and how they share the work. A backup must already be an
+   * administrator of the chat with the right to post: the chat's administrator made it one, which is
+   * what lets it post. Nothing here can add a bot to a chat or get around one being removed from it.
+   */
+  async updateChatBots(actor: AgencyActor, id: string, dto: UpdateChatBotsDto) {
+    this.access.assert(actor, 'destination:manage');
+    const dest = await this.requireDestination(actor.orgId, id);
+    const mainKey = AgencyTelegramBotsService.keyOf(dest.botId);
+    const keys = [...new Set(dto.backupBotIds)];
+    if (keys.includes(mainKey)) {
+      throw new BadRequestException('The main bot cannot also be a backup.');
+    }
+    const already = new Set(dest.backupBotIds);
+    const names: string[] = [];
+    for (const key of keys) {
+      const bot = await this.usableBot(actor.orgId, key);
+      names.push(bot.label);
+      if (already.has(key)) continue;
+      await this.assertCanPostIn(bot, dest.chatId);
+    }
+    const updated = await this.repo.updateDestinationBots(actor.orgId, id, {
+      backupBotIds: keys,
+      botStrategy: dto.strategy,
+    });
+    await this.access.audit(actor, {
+      action: 'destination.bots_changed',
+      entityType: 'TelegramDestination',
+      entityId: id,
+      summary: `Backup bots: ${
+        names.length ? names.join(', ') : 'none'
+      }; sharing: ${dto.strategy}`,
+    });
+    return this.toView(updated!);
+  }
+
+  /** The manual switch: a backup becomes the main bot, and the old main bot becomes a backup. */
+  async makeMainBot(actor: AgencyActor, id: string, botKey: string) {
+    this.access.assert(actor, 'destination:manage');
+    const dest = await this.requireDestination(actor.orgId, id);
+    if (dest.authorizationStatus !== DestinationAuthStatus.ACTIVE) {
+      throw new BadRequestException(
+        'Only an authorized chat can change its main bot.'
+      );
+    }
+    if (!dest.backupBotIds.includes(botKey)) {
+      throw new BadRequestException('Choose one of this chat’s backup bots.');
+    }
+    const next = await this.usableBot(actor.orgId, botKey);
+    await this.assertCanPostIn(next, dest.chatId);
+    const oldKey = AgencyTelegramBotsService.keyOf(dest.botId);
+    const updated = await this.repo.updateDestinationBots(actor.orgId, id, {
+      botId: next.id,
+      botUsername: (await this.usernameOf(next)) ?? null,
+      backupBotIds: [oldKey, ...dest.backupBotIds.filter((k) => k !== botKey)],
+    });
+    await this.access.audit(actor, {
+      action: 'destination.bot_switched',
+      entityType: 'TelegramDestination',
+      entityId: id,
+      summary: `Main bot changed to ${next.label} by hand`,
+      metadata: {
+        reason: 'MANUAL',
+        from: oldKey,
+        to: botKey,
+      } as Prisma.InputJsonValue,
+    });
+    return this.toView(updated!);
+  }
+
+  private async usableBot(orgId: string, key: string) {
+    try {
+      return await this.bots.handleFor(orgId, key === SERVER_BOT ? null : key);
+    } catch (err) {
+      throw new BadRequestException(this.describeError(err));
+    }
+  }
+
+  private async assertCanPostIn(bot: BotHandle, chatId: string) {
+    const name = (await this.usernameOf(bot)) || bot.label;
+    const perms = await bot.gateway.getBotPermissions(chatId).catch((err) => {
+      throw new BadRequestException(
+        `Telegram would not say what @${name} can do in this chat: ${this.describeError(
+          err
+        )}`
+      );
+    });
+    if (!perms.isAdmin || !perms.canPostMessages) {
+      throw new BadRequestException(
+        `Add @${name} to the chat as an administrator with permission to post messages first, then try again.`
+      );
+    }
+  }
+
+  /**
    * Removing a bot wipes its token and takes every chat it served out of service, with queued posts
    * paused and a reason shown. A chat is never silently handed to a different bot.
    */
@@ -417,6 +513,7 @@ export class AgencyTelegramService {
       await this.repo.getDestinationsOfBot(actor.orgId, id)
     ).filter((d) => d.authorizationStatus !== DestinationAuthStatus.REVOKED);
     const result = await this.bots.delete(actor, id);
+    await this.repo.removeBotFromBackups(actor.orgId, id);
     for (const d of chats) {
       await this.publishing.handleDestinationUnavailable(
         actor.orgId,

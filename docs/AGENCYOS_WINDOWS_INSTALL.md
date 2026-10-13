@@ -19,7 +19,7 @@ Download `AgencyOS-Setup-<version>.exe` from the repository's **Releases** page 
 ## Install
 
 1. Run the setup file. If Windows SmartScreen says *"Windows protected your PC"*, the build is not
-   code-signed: choose **More info → Run anyway**. (The SHA-256 on the release page lets you
+   code-signed (signing is set up in the build and needs a certificate: see `AGENCYOS_SIGNING.md`): choose **More info → Run anyway**. (The SHA-256 on the release page lets you
    verify the file.)
 2. On a first install, setup asks **where to keep your files**: a data folder (database, uploads,
    logs) and, optionally, a separate folder for the local AI models, which can take several GB. The

@@ -724,6 +724,50 @@ describe(
           assert.match(reg.json.steps[0], /@acme_ads_bot/);
           assert.ok(!reg.text.includes('verificationCodeHash'));
 
+          // Backup bots: the request is validated and guarded before Telegram is ever asked.
+          const dest = reg.json.destination.id;
+          const badStrategy = await call(
+            'PUT',
+            `/agency/telegram/destinations/${dest}/bots`,
+            {
+              as: 'manager',
+              body: { backupBotIds: [], strategy: 'WHENEVER' },
+            }
+          );
+          assert.equal(badStrategy.status, 400, badStrategy.text);
+          assert.equal(
+            (
+              await call('PUT', `/agency/telegram/destinations/${dest}/bots`, {
+                as: 'client',
+                body: { backupBotIds: [], strategy: 'FAILOVER' },
+              })
+            ).status,
+            403
+          );
+          assert.equal(
+            (
+              await call(
+                'PUT',
+                `/agency/telegram/destinations/does-not-exist/bots`,
+                {
+                  as: 'manager',
+                  body: { backupBotIds: [], strategy: 'FAILOVER' },
+                }
+              )
+            ).status,
+            404
+          );
+          assert.equal(
+            (
+              await call(
+                'POST',
+                `/agency/telegram/destinations/${dest}/main-bot`,
+                { as: 'manager', body: { botId: 'nope' } }
+              )
+            ).status,
+            400
+          );
+
           const paused = await call(
             'PUT',
             `/agency/telegram/bots/${added.json.id}`,

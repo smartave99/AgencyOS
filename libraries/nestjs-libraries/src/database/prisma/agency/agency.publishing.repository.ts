@@ -120,6 +120,7 @@ export class AgencyPublishingRepository {
           select: {
             id: true,
             orgId: true,
+            name: true,
             status: true,
             deletedAt: true,
             endDate: true,
@@ -596,6 +597,24 @@ export class AgencyPublishingRepository {
       // Someone else created or still holds the lease.
       return false;
     }
+  }
+
+  /** How many posts each bot delivered to a chat since `since`, for sharing the load fairly. */
+  async countSendsByBot(destinationId: string, since: Date) {
+    const rows = await this.prisma.postingJob.findMany({
+      where: {
+        telegramDestinationId: destinationId,
+        status: PostingJobStatus.SUCCEEDED,
+        completedAt: { gte: since },
+      },
+      select: { receipt: true },
+    });
+    const counts = new Map<string, number>();
+    for (const { receipt } of rows) {
+      const key = (receipt as { bot?: { key?: string } } | null)?.bot?.key;
+      if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
   }
 
   /** Liveness signal: any process may renew it; "online" means the lease has not lapsed. */

@@ -5,6 +5,7 @@ import {
   DestinationAuthStatus,
   Prisma,
   TelegramBotStatus,
+  TelegramBotStrategy,
 } from '@prisma/client';
 
 export interface CreateClientParams {
@@ -724,11 +725,53 @@ export class AgencyRepository {
     });
   }
 
-  async recordDestinationSuccess(orgId: string, id: string, at: Date) {
+  /** `botKey` is the bot that sent it ("server" for the server's bot), so a change of bot can be told. */
+  async recordDestinationSuccess(
+    orgId: string,
+    id: string,
+    at: Date,
+    botKey?: string
+  ) {
     await this.prisma.telegramDestination.updateMany({
       where: { id, orgId },
-      data: { lastSuccessfulPostAt: at, lastError: null },
+      data: {
+        lastSuccessfulPostAt: at,
+        lastError: null,
+        ...(botKey ? { lastBotId: botKey } : {}),
+      },
     });
+  }
+
+  async updateDestinationBots(
+    orgId: string,
+    id: string,
+    data: {
+      botId?: string | null;
+      botUsername?: string | null;
+      backupBotIds?: string[];
+      botStrategy?: TelegramBotStrategy;
+    }
+  ) {
+    await this.prisma.telegramDestination.updateMany({
+      where: { id, orgId, deletedAt: null },
+      data,
+    });
+    return this.getTelegramDestinationById(orgId, id);
+  }
+
+  /** A bot that is gone must not stay on any chat's list of backups. */
+  async removeBotFromBackups(orgId: string, botId: string) {
+    const rows = await this.prisma.telegramDestination.findMany({
+      where: { orgId, deletedAt: null, backupBotIds: { has: botId } },
+      select: { id: true, backupBotIds: true },
+    });
+    for (const row of rows) {
+      await this.prisma.telegramDestination.update({
+        where: { id: row.id },
+        data: { backupBotIds: row.backupBotIds.filter((x) => x !== botId) },
+      });
+    }
+    return rows.length;
   }
 
   async recordDestinationError(orgId: string, id: string, message: string) {
@@ -890,6 +933,7 @@ export class AgencyRepository {
     idempotencyKey?: string;
     postingJobId?: string;
     attempt?: number;
+    botUsername?: string;
   }) {
     return this.prisma.publishingEvent.create({
       data: {
@@ -903,6 +947,7 @@ export class AgencyRepository {
         idempotencyKey: params.idempotencyKey,
         postingJobId: params.postingJobId,
         attempt: params.attempt,
+        botUsername: params.botUsername,
         executedAt: new Date(),
       },
     });

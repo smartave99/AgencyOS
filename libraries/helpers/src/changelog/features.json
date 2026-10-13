@@ -125,7 +125,8 @@
       ],
       "tips": [
         "AgencyOS does not join groups, collect members or add people. It only posts where it was invited and authorized.",
-        "Each chat is served by one bot, and only that bot hears its /authorize. Removing or pausing a bot stops its chats; they are never moved to another bot behind your back."
+        "Each chat is served by one bot, and only that bot hears its /authorize. Removing or pausing a bot stops its chats; they are never moved to another bot behind your back.",
+        "Backup bots (a chat's menu, Backup bots…): other bots of yours that the chat's administrator has already made administrators can take over when the main bot is paused or removed, or take turns with it. A chat that removes the main bot, or Telegram asking a bot to slow down, is never worked around. Every change of bot is in the audit trail."
       ]
     },
     {

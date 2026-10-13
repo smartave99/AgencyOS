@@ -182,7 +182,12 @@ export async function buildHarness(): Promise<Harness> {
   const accessRepo = new AgencyAccessRepository(prisma);
   const jobsRepo = new AgencyPublishingRepository(prisma);
   const access = new AgencyAccessService(accessRepo, agencyRepo);
-  const bots = new AgencyTelegramBotsService(agencyRepo, access, gateway);
+  const bots = new AgencyTelegramBotsService(
+    agencyRepo,
+    jobsRepo,
+    access,
+    gateway
+  );
   const publishing = new AgencyPublishingService(
     agencyRepo,
     jobsRepo,

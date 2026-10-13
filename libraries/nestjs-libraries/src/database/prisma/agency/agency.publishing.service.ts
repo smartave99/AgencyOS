@@ -15,7 +15,10 @@ import {
 import { AgencyRepository } from './agency.repository';
 import { AgencyPublishingRepository } from './agency.publishing.repository';
 import { AgencyAccessService, AgencyActor } from './agency.access.service';
-import { AgencyTelegramBotsService } from './agency.telegram.bots.service';
+import {
+  AgencyTelegramBotsService,
+  BotPick,
+} from './agency.telegram.bots.service';
 import { NotificationService } from '@gitroom/nestjs-libraries/database/prisma/notifications/notification.service';
 import {
   CAPTION_LIMIT,
@@ -534,51 +537,63 @@ export class AgencyPublishingService {
       return;
     }
 
-    // --- The bot must still be able to post right now.
-    let bot: Awaited<ReturnType<AgencyTelegramBotsService['handleFor']>>;
-    try {
-      bot = await this.bots.handleFor(orgId, dest.botId);
-      const perms = await bot.gateway.getBotPermissions(dest.chatId);
-      if (!perms.isAdmin || !perms.canPostMessages) {
-        await this.handleDestinationUnavailable(
-          orgId,
-          dest.id,
-          DestinationAuthStatus.DISCONNECTED,
-          'Bot is no longer an administrator with permission to post'
-        );
-        await this.jobs.markTerminal(
-          jobId,
-          'BLOCKED',
-          'PERMISSION_LOST',
-          'Bot lost posting permission'
-        );
-        await this.recordEvent(
-          job,
-          'FAILED',
-          'Bot lost posting permission',
-          attempt
-        );
+    // --- Which bot posts, and it must still be able to post right now. A chat's backup bots only
+    // count while the chat's administrator keeps them as administrators; the main bot losing its
+    // right ends posting for the chat, whatever backups it has.
+    const skipped = new Set<string>();
+    const mainKey = AgencyTelegramBotsService.keyOf(dest.botId);
+    let pick: BotPick;
+    for (;;) {
+      try {
+        pick = await this.bots.pick(orgId, dest, skipped);
+        const perms = await pick.bot.gateway.getBotPermissions(dest.chatId);
+        if (perms.isAdmin && perms.canPostMessages) break;
+        if (pick.key === mainKey) {
+          await this.handleDestinationUnavailable(
+            orgId,
+            dest.id,
+            DestinationAuthStatus.DISCONNECTED,
+            'Bot is no longer an administrator with permission to post'
+          );
+          await this.jobs.markTerminal(
+            jobId,
+            'BLOCKED',
+            'PERMISSION_LOST',
+            'Bot lost posting permission'
+          );
+          await this.recordEvent(
+            job,
+            'FAILED',
+            'Bot lost posting permission',
+            attempt
+          );
+          await finishReconcile();
+          return;
+        }
+        // A backup that is no longer an administrator simply leaves the rotation.
+        skipped.add(pick.key);
+        await this.dropBackup(orgId, dest, pick);
+      } catch (err) {
+        await this.handleSendError(job, attempt, err);
         await finishReconcile();
         return;
       }
-    } catch (err) {
-      await this.handleSendError(job, attempt, err);
-      await finishReconcile();
-      return;
     }
 
     // --- Send.
     try {
-      const result = await bot.gateway.sendAd(
+      const result = await pick.bot.gateway.sendAd(
         dest.chatId,
         this.buildAd(campaign)
       );
+      const botName = pick.bot.username || pick.bot.label;
       const stored = await this.jobs.markSucceeded(jobId, {
         externalMessageId: result.primaryMessageId,
         releaseUrl: result.releaseUrl,
         receipt: {
           messageIds: result.messageIds,
           sentAt: new Date().toISOString(),
+          bot: { key: pick.key, username: botName },
         },
       });
       if (!stored) {
@@ -592,17 +607,74 @@ export class AgencyPublishingService {
         undefined,
         attempt,
         result.primaryMessageId,
-        result.releaseUrl
+        result.releaseUrl,
+        botName
       );
       await this.agencyRepo.recordDestinationSuccess(
         orgId,
         dest.id,
-        new Date()
+        new Date(),
+        pick.key
       );
+      await this.logBotSwitch(orgId, dest, pick, campaign, jobId);
     } catch (err) {
       await this.handleSendError(job, attempt, err);
     }
     await finishReconcile();
+  }
+
+  /** Every change of the bot that posts in a chat is recorded: when, why, and for which campaign. */
+  private async logBotSwitch(
+    orgId: string,
+    dest: { id: string; botId: string | null; lastBotId: string | null },
+    pick: BotPick,
+    campaign: { id: string; name: string },
+    jobId: string
+  ) {
+    const before =
+      dest.lastBotId ?? AgencyTelegramBotsService.keyOf(dest.botId);
+    if (pick.key === before) return;
+    const why: Record<BotPick['reason'], string> = {
+      MAIN: 'back to the main bot',
+      MAIN_UNAVAILABLE: `the main bot cannot be used (${
+        pick.detail ?? 'unavailable'
+      })`,
+      ROUND_ROBIN: 'the chat’s bots take turns',
+      LEAST_USED: 'it sent the fewest posts in the last 24 hours',
+    };
+    await this.access.audit(null, {
+      orgId,
+      action: 'destination.bot_switched',
+      entityType: 'TelegramDestination',
+      entityId: dest.id,
+      summary: `Posted through ${pick.bot.label} (was ${before}): ${
+        why[pick.reason]
+      }; campaign “${campaign.name}”`,
+      metadata: {
+        reason: pick.reason,
+        from: before,
+        to: pick.key,
+        campaignId: campaign.id,
+        jobId,
+      } as Prisma.InputJsonValue,
+    });
+  }
+
+  private async dropBackup(
+    orgId: string,
+    dest: { id: string; backupBotIds: string[] },
+    pick: BotPick
+  ) {
+    await this.agencyRepo.updateDestinationBots(orgId, dest.id, {
+      backupBotIds: dest.backupBotIds.filter((k) => k !== pick.key),
+    });
+    await this.access.audit(null, {
+      orgId,
+      action: 'destination.backup_bot_dropped',
+      entityType: 'TelegramDestination',
+      entityId: dest.id,
+      summary: `${pick.bot.label} is no longer an administrator of the chat and was taken off its backup list`,
+    });
   }
 
   private async handleSendError(
@@ -1181,13 +1253,15 @@ export class AgencyPublishingService {
     errorMessage: string | undefined,
     attempt: number,
     externalMessageId?: string,
-    releaseUrl?: string
+    releaseUrl?: string,
+    botUsername?: string
   ) {
     await this.agencyRepo.recordPublishingEvent({
       campaignId: job.campaignId,
       telegramDestinationId: job.telegramDestinationId ?? undefined,
       externalMessageId,
       releaseUrl,
+      botUsername,
       status,
       errorMessage,
       idempotencyKey: job.idempotencyKey,

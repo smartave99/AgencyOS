@@ -190,6 +190,10 @@ export interface DestinationView {
   /** Which connected bot serves this chat; null is the server's bot. */
   botId: string | null;
   botUsername: string | null;
+  /** Other bots allowed to post here (ids of connected bots, or "server"), and how they share the work. */
+  backupBotIds: string[];
+  botStrategy: 'FAILOVER' | 'ROUND_ROBIN' | 'LEAST_USED';
+  lastBotId: string | null;
   chatId: string;
   title: string;
   type: string;

@@ -45,6 +45,23 @@ function verification() {
   return lines.join('\n');
 }
 
+// What the notes may say about signing: only what the smoke test saw Windows accept.
+function signing() {
+  const sig = report?.facts?.signature;
+  const signed = sig && ['azure', 'pfx'].includes(sig.mode) && sig.installer?.status === 'Valid' && sig.app?.status === 'Valid';
+  if (!signed) {
+    return {
+      firstStart: 'Windows SmartScreen may say "Windows protected your PC" because this build is **not code-signed**: choose **More info**, then **Run anyway**.',
+      limit: 'Not code-signed (no certificate), so SmartScreen warns as above.',
+    };
+  }
+  const who = String(sig.installer.subject || '').replace(/[`|]/g, '');
+  return {
+    firstStart: `The installer is code-signed (${who}), and the smoke test saw Windows accept the signature. SmartScreen can still show a warning for a while after a new publisher's first downloads: it learns from how many people install the file. If it does, choose **More info**, then **Run anyway**.`,
+    limit: `Code-signed (${who}); Windows accepted the signature in the test. A new publisher may still see a SmartScreen warning at first.`,
+  };
+}
+
 // What changed in this version, from the same file as CHANGELOG.md and the in-app What's new.
 function changes() {
   const release = loadReleases().find((r) => r.version === opt('--version'));
@@ -56,6 +73,8 @@ const out = template
   .replaceAll('{{VERSION}}', opt('--version'))
   .replaceAll('{{SHA256}}', opt('--sha256'))
   .replaceAll('{{COMMIT}}', opt('--commit').slice(0, 12))
+  .replace('{{SIGNING_FIRST_START}}', signing().firstStart)
+  .replace('{{SIGNING_LIMIT}}', signing().limit)
   .replace('{{CHANGES}}', changes())
   .replace('{{VERIFICATION}}', verification());
 process.stdout.write(out);

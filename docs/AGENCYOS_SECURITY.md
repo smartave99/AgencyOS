@@ -71,8 +71,13 @@ Nothing here has had an external penetration test or audit.
   `/revoke` stops every agency's registration of the chat, whichever bot heard it.
 * The webhook requires a secret header (constant-time comparison), accepts nothing if no
   secret is configured, never throws, and always answers 200.
+* A chat can have backup bots of the same agency and the bots can take turns, but only among
+  bots the chat's administrator has made administrators (checked live at every send). Switching
+  never happens because a chat removed the main bot or because Telegram asked for a slowdown, the
+  chat's posting windows and caps apply whichever bot sends, and every change of bot is audited
+  with time, reason and campaign.
 * No member lists are read, no private messages are sent, and no mechanism exists to add
-  people to chats or rotate identities.
+  people to chats or to take over a chat that removed the agency.
 
 ### Content and output safety
 * The ad is rendered by one server function that escapes everything and restores a fixed

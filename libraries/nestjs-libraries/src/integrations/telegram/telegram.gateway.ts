@@ -417,6 +417,11 @@ export class TelegramGateway {
     return url;
   }
 
+  /** The file on this computer behind an uploaded-media reference, or null for anything else. */
+  resolveLocalMedia(ref: string): string | null {
+    return this.localUploadPath(ref);
+  }
+
   private localUploadPath(ref: string): string | null {
     const uploadDir = process.env.UPLOAD_DIRECTORY;
     if (!uploadDir) return null;

@@ -56,7 +56,7 @@ not edited; the conflict is explained in `docs/AGENCYOS_RULES_CONFLICT.md`.
 | Campaign builder: name, budget, destinations, schedule | TESTED | `agency.service.ts`, `campaign.dto.ts` | Budget is recorded, not spent: AgencyOS buys no ads |
 | Account rotation inside a campaign | PARTIAL | Backup bots: failover, round robin, least used, manual (`agency.telegram.backup.int.spec.ts`, 14 tests) | User accounts: manual assignment and permitted load distribution only (section 8) |
 | Template library | TESTED | `AdTemplate`, `agency.templates.int.spec.ts` (7) + 1 HTTP test | |
-| A/B variants per campaign | IMPLEMENTED | Migration `10_agency_variants_schedule`, `agency.publishing.*` (labels A–D rotated across destinations, covered by the approval fingerprint) | Tests, composer tabs and per-variant report are the next task |
+| A/B variants per campaign | IMPLEMENTED | Migration `a1_agency_variants_schedule`, `agency.publishing.*` (labels A–D rotated across destinations, covered by the approval fingerprint) | Tests, composer tabs and per-variant report are the next task |
 | Lifecycle Draft → Scheduled → Running → Paused → Completed | TESTED | Publishing scenarios 1–13 | |
 | Revision history of content | PARTIAL | `revision` counted; no stored versions | `CampaignVersion` table is planned (section 7) |
 

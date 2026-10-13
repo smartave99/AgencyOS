@@ -24,6 +24,11 @@ export type AgencyPermission =
   | 'destination:read'
   | 'destination:manage'
   | 'bot:manage'
+  | 'userAccount:read'
+  | 'userAccount:manage'
+  | 'research:read'
+  | 'research:run'
+  | 'community:manage'
   | 'accounts:read'
   | 'accounts:manage'
   | 'crm:read'
@@ -97,6 +102,16 @@ export const AGENCY_PERMISSIONS: Record<AgencyPermission, AgencyRole[]> = {
   'destination:manage': [OWNER, ADMIN, CAMPAIGN_MANAGER],
   // A bot's token is a password for it, so only owners and admins connect or remove bots.
   'bot:manage': [OWNER, ADMIN],
+  // A Telegram user account's login is a password for a person's own account, so connecting,
+  // permitting and signing one out is for owners and admins, like bots.
+  'userAccount:read': ALL_STAFF,
+  'userAccount:manage': [OWNER, ADMIN],
+  // Public community research: anyone on the team can read the directory; running a search or a
+  // refresh spends the account's Telegram allowance, so it is for the people who do outreach.
+  'research:read': ALL_STAFF,
+  'research:run': [OWNER, ADMIN, SALES_MANAGER, SALES_EXEC, CAMPAIGN_MANAGER],
+  // Joining, creating, reviewing advertising rules and authorizing a community for posting.
+  'community:manage': [OWNER, ADMIN, CAMPAIGN_MANAGER],
   'accounts:read': ALL_STAFF,
   'accounts:manage': [OWNER, ADMIN, CAMPAIGN_MANAGER],
   'crm:read': [OWNER, ADMIN, SALES_MANAGER, SALES_EXEC],

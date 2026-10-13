@@ -65,7 +65,12 @@ import { AgencyPublishingRepository } from '@gitroom/nestjs-libraries/database/p
 import { AgencyPublishingService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.publishing.service';
 import { AgencyTelegramService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.telegram.service';
 import { AgencyTelegramBotsService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.telegram.bots.service';
+import { AgencyTelegramUsersRepository } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.telegram.users.repository';
+import { AgencyTelegramUsersService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.telegram.users.service';
+import { AgencyCommunitiesRepository } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.communities.repository';
+import { AgencyCommunitiesService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.communities.service';
 import { TelegramGateway } from '@gitroom/nestjs-libraries/integrations/telegram/telegram.gateway';
+import { TelegramUserGateway } from '@gitroom/nestjs-libraries/integrations/telegram/telegram.user.gateway';
 import { AgencyService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.service';
 import { AgencyAiRepository } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.repository';
 import { AgencyAiGatewayService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.gateway.service';
@@ -148,6 +153,11 @@ import { AgencyPortalService } from '@gitroom/nestjs-libraries/database/prisma/a
     AgencyTelegramService,
     AgencyTelegramBotsService,
     TelegramGateway,
+    TelegramUserGateway,
+    AgencyTelegramUsersRepository,
+    AgencyTelegramUsersService,
+    AgencyCommunitiesRepository,
+    AgencyCommunitiesService,
     AgencyService,
     AgencyAiRepository,
     AgencyAiGatewayService,

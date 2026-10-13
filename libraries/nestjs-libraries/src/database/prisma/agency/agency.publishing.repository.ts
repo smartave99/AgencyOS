@@ -574,6 +574,44 @@ export class AgencyPublishingRepository {
     };
   }
 
+  /** What a send through a user account needs to know about the community behind its destination. */
+  async getCommunityForSend(id: string) {
+    return this.prisma.community.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        stage: true,
+        adReview: true,
+        username: true,
+        title: true,
+        operatingAccountId: true,
+      },
+    });
+  }
+
+  /** Telegram refused the account here: the community stops being a place to post until a person reopens it. */
+  async blockCommunity(orgId: string, id: string, reason: string) {
+    const community = await this.prisma.community.findFirst({
+      where: { id, orgId },
+      select: { stage: true },
+    });
+    if (!community || community.stage === 'BLOCKED') return;
+    await this.prisma.community.updateMany({
+      where: { id, orgId },
+      data: { stage: 'BLOCKED', stageReason: reason.slice(0, 300) },
+    });
+    await this.prisma.communityHistory.create({
+      data: {
+        orgId,
+        communityId: id,
+        kind: 'STAGE',
+        summary: reason.slice(0, 500),
+        fromStage: community.stage,
+        toStage: 'BLOCKED',
+      },
+    });
+  }
+
   async listJobs(
     orgId: string,
     filters: { campaignId?: string; status?: PostingJobStatus; limit?: number }

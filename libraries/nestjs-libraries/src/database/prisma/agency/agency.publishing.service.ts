@@ -22,7 +22,15 @@ import {
   AgencyTelegramBotsService,
   BotPick,
 } from './agency.telegram.bots.service';
+import {
+  AgencyTelegramUsersService,
+  TelegramAccountUnusableException,
+} from './agency.telegram.users.service';
 import { NotificationService } from '@gitroom/nestjs-libraries/database/prisma/notifications/notification.service';
+import {
+  TelegramUserGateway,
+  TelegramUserGatewayError,
+} from '@gitroom/nestjs-libraries/integrations/telegram/telegram.user.gateway';
 import {
   CAPTION_LIMIT,
   MESSAGE_LIMIT,
@@ -114,7 +122,9 @@ export class AgencyPublishingService {
     private readonly gateway: TelegramGateway,
     private readonly access: AgencyAccessService,
     private readonly notifications: NotificationService,
-    private readonly bots: AgencyTelegramBotsService
+    private readonly bots: AgencyTelegramBotsService,
+    private readonly users: AgencyTelegramUsersService,
+    private readonly userGateway: TelegramUserGateway
   ) {}
 
   private get leaseMs() {
@@ -668,6 +678,14 @@ export class AgencyPublishingService {
       return;
     }
 
+    // --- A chat served by a Telegram user account has its own checks and its own error handling. A bot
+    // is never swapped in for it, and another account never takes over.
+    if (dest.senderKind === 'USER_ACCOUNT') {
+      await this.sendViaUserAccount(job, attempt);
+      await finishReconcile();
+      return;
+    }
+
     // --- Which bot posts, and it must still be able to post right now. A chat's backup bots only
     // count while the chat's administrator keeps them as administrators; the main bot losing its
     // right ends posting for the chat, whatever backups it has.
@@ -752,6 +770,264 @@ export class AgencyPublishingService {
       await this.handleSendError(job, attempt, err);
     }
     await finishReconcile();
+  }
+
+  /**
+   * One post through a Telegram user account. Before anything is sent: the community must still be
+   * authorized for advertising by a person, and the account must be in good standing and allowed to
+   * publish. Whatever goes wrong afterwards stops this chat; nothing is rerouted or retried as
+   * another identity, and a send whose outcome is unknown is never repeated by itself.
+   */
+  private async sendViaUserAccount(
+    job: NonNullable<
+      Awaited<ReturnType<AgencyPublishingRepository['getJobForExecution']>>
+    >,
+    attempt: number
+  ) {
+    const { campaign } = job;
+    const orgId = job.orgId;
+    const dest = job.telegramDestination!;
+
+    const community = dest.communityId
+      ? await this.jobs.getCommunityForSend(dest.communityId)
+      : null;
+    if (
+      !community ||
+      community.stage !== 'PUBLISHING_AUTHORIZED' ||
+      community.adReview !== 'ALLOWED' ||
+      !community.username
+    ) {
+      await this.stopUserDestination(
+        job,
+        attempt,
+        'COMMUNITY_NOT_AUTHORIZED',
+        'This community is no longer authorized for advertising'
+      );
+      return;
+    }
+    if (!dest.userAccountId) {
+      await this.stopUserDestination(
+        job,
+        attempt,
+        'ACCOUNT_MISSING',
+        'No account is assigned to post here'
+      );
+      return;
+    }
+
+    let creds;
+    let accountLabel: string;
+    try {
+      const got = await this.users.credentialsFor(
+        orgId,
+        dest.userAccountId,
+        'canPublish'
+      );
+      creds = got.creds;
+      accountLabel = got.account.label;
+    } catch (err) {
+      if (err instanceof TelegramAccountUnusableException) {
+        if (err.reason === 'RATE_LIMITED' || err.reason === 'PAUSED') {
+          // Not a failure: wait for the limit to pass, or for a person to resume the account.
+          await this.jobs.deferWithoutAttempt(
+            job.id,
+            err.retryAt ?? new Date(Date.now() + 5 * 60_000),
+            err.message
+          );
+          return;
+        }
+        await this.stopUserDestination(
+          job,
+          attempt,
+          `ACCOUNT_${err.reason}`,
+          err.message
+        );
+        return;
+      }
+      throw err;
+    }
+
+    let workerAd;
+    try {
+      workerAd = this.userGateway.buildWorkerAd(
+        this.buildAd(this.contentFor(campaign, job.variantLabel)),
+        this.gateway
+      );
+    } catch (err) {
+      const message =
+        (err as Error).message || 'The ad cannot be sent from a user account';
+      await this.jobs.markTerminal(job.id, 'DEAD', 'BAD_REQUEST', message);
+      await this.recordEvent(job, 'FAILED', message, attempt);
+      return;
+    }
+
+    try {
+      const result = await this.userGateway.sendMessage(
+        creds,
+        `@${community.username}`,
+        workerAd
+      );
+      await this.jobs.markSucceeded(job.id, {
+        externalMessageId: result.primaryMessageId,
+        releaseUrl: result.releaseUrl ?? undefined,
+        receipt: {
+          messageIds: result.messageIds,
+          sentAt: new Date().toISOString(),
+          account: { id: dest.userAccountId, label: accountLabel },
+        },
+      });
+      await this.recordEvent(
+        job,
+        'SUCCESS',
+        undefined,
+        attempt,
+        result.primaryMessageId,
+        result.releaseUrl ?? undefined,
+        accountLabel
+      );
+      await this.agencyRepo.recordDestinationSuccess(
+        orgId,
+        dest.id,
+        new Date()
+      );
+    } catch (err) {
+      await this.handleUserSendError(job, attempt, err, accountLabel);
+    }
+  }
+
+  /** The chat stops, its queued posts pause with the reason, and a person decides what happens next. */
+  private async stopUserDestination(
+    job: NonNullable<
+      Awaited<ReturnType<AgencyPublishingRepository['getJobForExecution']>>
+    >,
+    attempt: number,
+    code: string,
+    message: string
+  ) {
+    await this.jobs.markTerminal(job.id, 'BLOCKED', code, message);
+    await this.recordEvent(job, 'SKIPPED', message, attempt);
+    await this.handleDestinationUnavailable(
+      job.orgId,
+      job.telegramDestination!.id,
+      'DISCONNECTED',
+      message
+    );
+  }
+
+  private async handleUserSendError(
+    job: NonNullable<
+      Awaited<ReturnType<AgencyPublishingRepository['getJobForExecution']>>
+    >,
+    attempt: number,
+    rawErr: unknown,
+    accountLabel: string
+  ) {
+    const orgId = job.orgId;
+    const dest = job.telegramDestination!;
+    const err =
+      rawErr instanceof TelegramUserGatewayError
+        ? rawErr
+        : new TelegramUserGatewayError(
+            'UNKNOWN',
+            (rawErr as Error)?.message ?? 'Unknown error'
+          );
+    await this.recordEvent(
+      job,
+      'FAILED',
+      `${err.code}: ${err.message}`,
+      attempt
+    );
+    await this.agencyRepo.recordDestinationError(
+      orgId,
+      dest.id,
+      `${err.code}: ${err.message}`
+    );
+
+    switch (err.code) {
+      case 'OUTCOME_UNKNOWN':
+      case 'WORKER_PROTOCOL':
+      case 'UNKNOWN':
+        // The post may be live. It is not sent again until a person has looked.
+        await this.jobs.markTerminal(
+          job.id,
+          'UNCERTAIN',
+          'OUTCOME_UNKNOWN',
+          `${accountLabel}: the result of this send is not known (${err.message}); check the community before retrying`
+        );
+        await this.notify(
+          orgId,
+          'Publishing outcome unknown',
+          `"${dest.title}": check the community before this ad is sent again.`
+        );
+        return;
+      case 'ACCOUNT_RESTRICTED':
+      case 'SESSION_INVALID':
+        // Telegram limited, or ended the login of, this account. It is paused and shown; no other
+        // account is used in its place.
+        if (dest.userAccountId) {
+          await this.users.recordFailure(orgId, dest.userAccountId, err);
+        }
+        await this.stopUserDestination(
+          job,
+          attempt,
+          `ACCOUNT_${err.code}`,
+          `${accountLabel}: ${err.message}`
+        );
+        return;
+      case 'FORBIDDEN':
+      case 'NOT_FOUND':
+      case 'PRIVATE':
+        await this.stopUserDestination(job, attempt, err.code, err.message);
+        if (dest.communityId) {
+          await this.jobs.blockCommunity(
+            orgId,
+            dest.communityId,
+            `Telegram refused posting here: ${err.message}`.slice(0, 280)
+          );
+        }
+        return;
+      case 'BAD_REQUEST':
+      case 'INVALID_REF':
+      case 'UNSUPPORTED':
+        await this.jobs.markTerminal(job.id, 'DEAD', err.code, err.message);
+        await this.notify(
+          orgId,
+          'Ad rejected by Telegram',
+          `"${dest.title}": ${err.message}`
+        );
+        return;
+      default: {
+        // RATE_LIMITED, NETWORK, WORKER_UNAVAILABLE, WORKER_AUTH: nothing was sent, so waiting is safe.
+        if (err.code === 'RATE_LIMITED' && dest.userAccountId) {
+          await this.users.recordFailure(orgId, dest.userAccountId, err);
+        }
+        if (attempt >= job.maxAttempts) {
+          await this.jobs.markTerminal(
+            job.id,
+            'DEAD',
+            err.code,
+            `Gave up after ${attempt} attempts: ${err.message}`
+          );
+          await this.notify(
+            orgId,
+            'Publishing failed permanently',
+            `"${dest.title}": gave up after ${attempt} attempts (${err.message}). It is in the dead-letter queue.`
+          );
+          return;
+        }
+        const waitSeconds =
+          err.code === 'RATE_LIMITED' && err.retryAfterSeconds
+            ? err.retryAfterSeconds + 1
+            : this.backoffSeconds * 2 ** (attempt - 1) +
+              Math.floor(Math.random() * 10);
+        await this.jobs.releaseForRetry(
+          job.id,
+          new Date(Date.now() + waitSeconds * 1000),
+          err.code,
+          err.message
+        );
+      }
+    }
   }
 
   /** Every change of the bot that posts in a chat is recorded: when, why, and for which campaign. */

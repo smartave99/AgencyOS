@@ -48,6 +48,8 @@ model Organization {
   campaigns           Campaign[]
   telegramDestinations TelegramDestination[]
   telegramBots         TelegramBot[]
+  telegramUserAccounts TelegramUserAccount[]
+  communities          Community[]
   adTemplates          AdTemplate[]
   leadLinks            LeadLink[]
   leads               LeadCapture[]
@@ -2088,18 +2090,201 @@ model TelegramDestination {
   updatedAt             DateTime              @updatedAt
   deletedAt             DateTime?
 
+  // Who posts here: a bot (the default, the chat's administrators authorized it with /authorize) or a
+  // Telegram user account the agency connected, for a public community that was reviewed and
+  // authorized for advertising (see Community). A destination never changes who posts by itself.
+  senderKind            String                @default("BOT")
+  userAccountId         String?
+  communityId           String?
+
   organization          Organization          @relation(fields: [orgId], references: [id])
   bot                   TelegramBot?          @relation(fields: [botId], references: [id], onDelete: Restrict)
+  userAccount           TelegramUserAccount?  @relation(fields: [userAccountId], references: [id], onDelete: Restrict)
+  community             Community?            @relation(fields: [communityId], references: [id], onDelete: SetNull)
   campaignDestinations  CampaignDestination[]
   publishingEvents      PublishingEvent[]
   postingJobs           PostingJob[]
 
   @@unique([orgId, chatId, deletedAt])
   @@index([botId])
+  @@index([userAccountId])
+  @@index([communityId])
   @@index([orgId])
   @@index([chatId])
   @@index([isAuthorized])
   @@index([authorizationStatus])
+}
+
+enum TelegramUserAccountStatus {
+  ACTIVE
+  PAUSED
+  RATE_LIMITED
+  RESTRICTED
+  SESSION_INVALID
+  LOGGED_OUT
+}
+
+enum TelegramAccountEventKind {
+  CONNECTED
+  LOGGED_OUT
+  HEALTH_OK
+  HEALTH_FAILED
+  RATE_LIMITED
+  RESTRICTED
+  SESSION_INVALID
+  PERMISSIONS_CHANGED
+  PAUSED
+  RESUMED
+  ERROR
+}
+
+// A Telegram user account (not a bot) that a person at the agency signed in with their own phone
+// code. The api id, api hash and login session are one sealed value (AES-256-GCM) that no API ever
+// returns. Each account has its own permissions; research is on by default, everything else is
+// something an administrator grants. A restricted or revoked account is never replaced by another.
+model TelegramUserAccount {
+  id               String                      @id @default(cuid())
+  orgId            String
+  label            String
+  telegramUserId   String
+  username         String?
+  displayName      String?
+  // Only the masked form is kept: the number was needed once, to receive the login code.
+  phoneMasked      String
+  sealed           String
+  status           TelegramUserAccountStatus   @default(ACTIVE)
+  statusReason     String?
+  rateLimitedUntil DateTime?
+  canResearch      Boolean                     @default(true)
+  canJoin          Boolean                     @default(false)
+  canPublish       Boolean                     @default(false)
+  canManage        Boolean                     @default(false)
+  lastCheckedAt    DateTime?
+  lastError        String?
+  lastErrorCode    String?
+  connectedById    String?
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+  deletedAt        DateTime?
+
+  organization     Organization                @relation(fields: [orgId], references: [id])
+  events           TelegramAccountEvent[]
+  communities      Community[]
+  destinations     TelegramDestination[]
+
+  @@index([orgId])
+  @@index([orgId, telegramUserId])
+}
+
+// What happened to an account, newest first on screen: sign-in, health checks, rate limits,
+// restrictions, permission changes. No code, password or session ever appears here.
+model TelegramAccountEvent {
+  id          String                   @id @default(cuid())
+  orgId       String
+  accountId   String
+  kind        TelegramAccountEventKind
+  code        String?
+  message     String
+  actorUserId String?
+  createdAt   DateTime                 @default(now())
+
+  account     TelegramUserAccount      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+  @@index([orgId])
+}
+
+enum CommunityStage {
+  DISCOVERED
+  REVIEW_REQUIRED
+  JOIN_REQUEST_PENDING
+  JOINED
+  ADVERTISING_ALLOWED
+  PUBLISHING_AUTHORIZED
+  NOT_ELIGIBLE
+  BLOCKED
+}
+
+enum CommunityRelation {
+  OWNED
+  ADMINISTERED
+  MEMBER
+  PUBLIC_NOT_JOINED
+  RESTRICTED
+  UNAVAILABLE
+}
+
+// A public community in the agency's research directory. Only what Telegram publishes about the
+// community is kept (title, description, public username, counts Telegram returned); never a member,
+// a phone number or a message. `stage` is where the agency is with it, and every move is a recorded,
+// deliberate action by a named person.
+model Community {
+  id                  String              @id @default(cuid())
+  orgId               String
+  telegramId          String?
+  kind                String?
+  username            String?
+  title               String
+  description         String?
+  memberCount         Int?
+  verified            Boolean             @default(false)
+  scam                Boolean             @default(false)
+  fake                Boolean             @default(false)
+  joinRequestRequired Boolean             @default(false)
+  slowModeSeconds     Int?
+  // The agency's own labels, never Telegram's.
+  language            String?
+  category            String?
+  tags                String[]            @default([])
+  notes               String?
+  bookmarked          Boolean             @default(false)
+  relation            CommunityRelation   @default(PUBLIC_NOT_JOINED)
+  available           Boolean             @default(true)
+  lastErrorCode       String?
+  stage               CommunityStage      @default(DISCOVERED)
+  stageReason         String?
+  // The account that joined, or created, the community and the one that would post in it.
+  operatingAccountId  String?
+  // The advertising-policy review: a person reads the community's rules and says whether advertising
+  // is allowed there, and keeps the evidence.
+  adReview            String              @default("NOT_REVIEWED")
+  adReviewNote        String?
+  adReviewEvidenceUrl String?
+  adReviewedById      String?
+  adReviewedAt        DateTime?
+  lastRefreshedAt     DateTime?
+  source              String?
+  createdById         String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  organization        Organization        @relation(fields: [orgId], references: [id])
+  operatingAccount    TelegramUserAccount? @relation(fields: [operatingAccountId], references: [id], onDelete: SetNull)
+  history             CommunityHistory[]
+  destinations        TelegramDestination[]
+
+  @@unique([orgId, telegramId])
+  @@unique([orgId, username])
+  @@index([orgId, stage])
+  @@index([operatingAccountId])
+}
+
+model CommunityHistory {
+  id          String    @id @default(cuid())
+  orgId       String
+  communityId String
+  kind        String
+  fromStage   CommunityStage?
+  toStage     CommunityStage?
+  summary     String
+  changes     Json?
+  actorUserId String?
+  createdAt   DateTime  @default(now())
+
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@index([communityId, createdAt])
+  @@index([orgId])
 }
 
 model CampaignDestination {

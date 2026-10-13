@@ -986,6 +986,340 @@ describe(
       });
     });
 
+    describe('Telegram user accounts and communities over HTTP', () => {
+      it('signs an account in through a real worker connection, keeps secrets in, and walks research and joining under the role rules', async () => {
+        // A tiny worker that speaks docs/TELEGRAM_WORKER_CONTRACT.md over loopback.
+        const { createServer } = require('node:http');
+        const community = {
+          telegramId: '4242',
+          kind: 'SUPERGROUP',
+          title: 'Bakers United',
+          username: 'bakers_united',
+          link: 'https://t.me/bakers_united',
+          description: 'For people who bake',
+          memberCount: null,
+          verified: false,
+          scam: false,
+          fake: false,
+          joinRequestRequired: false,
+          slowModeSeconds: null,
+          hasLinkedChat: false,
+          restrictionReasons: [],
+        };
+        const seen = [];
+        const worker = createServer((req, res) => {
+          let raw = '';
+          req.on('data', (c) => (raw += c));
+          req.on('end', () => {
+            const body = raw ? JSON.parse(raw) : {};
+            seen.push({
+              path: req.url,
+              token: req.headers['x-agencyos-worker-token'],
+              body,
+            });
+            const send = (payload) => {
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ ok: true, ...payload }));
+            };
+            if (req.url === '/health') return send({ version: 'e2e' });
+            if (req.headers['x-agencyos-worker-token'] !== 'e2e-worker-token') {
+              res.statusCode = 401;
+              return res.end('{}');
+            }
+            switch (req.url) {
+              case '/v1/login/start':
+                return send({
+                  loginId: 'login-e2e',
+                  codeDelivery: 'app',
+                  timeoutSeconds: 600,
+                });
+              case '/v1/login/code':
+                return send({
+                  status: 'authorized',
+                  session: 'SECRET-SESSION-E2E',
+                  me: {
+                    id: '777',
+                    username: 'e2e_person',
+                    firstName: 'Eve',
+                    lastName: null,
+                    premium: false,
+                    phoneMasked: '+49•••••6789',
+                  },
+                });
+              case '/v1/account/status':
+                return send({
+                  authorized: true,
+                  me: {
+                    id: '777',
+                    username: 'e2e_person',
+                    firstName: 'Eve',
+                    lastName: null,
+                    premium: false,
+                    phoneMasked: '+49•••••6789',
+                  },
+                });
+              case '/v1/communities/search':
+                return send({ results: [community] });
+              case '/v1/communities/refresh':
+                return send({
+                  results: body.refs.map((ref) => ({
+                    ref,
+                    ok: true,
+                    community,
+                    relation: 'PUBLIC_NOT_JOINED',
+                  })),
+                });
+              case '/v1/communities/join':
+                return send({ status: 'JOINED', community });
+              default:
+                res.statusCode = 200;
+                return res.end(
+                  JSON.stringify({
+                    ok: false,
+                    error: { code: 'UNSUPPORTED', message: req.url },
+                  })
+                );
+            }
+          });
+        });
+        await new Promise((r) => worker.listen(0, '127.0.0.1', r));
+        process.env.AGENCYOS_TELEGRAM_WORKER_URL = `http://127.0.0.1:${
+          worker.address().port
+        }`;
+        process.env.AGENCYOS_TELEGRAM_WORKER_TOKEN = 'e2e-worker-token';
+        try {
+          const status = await call('GET', '/agency/telegram/accounts/status', {
+            as: 'manager',
+          });
+          matches(status.json, {
+            configured: true,
+            running: true,
+            version: 'e2e',
+          });
+
+          // Only owners and admins connect accounts; the form is validated before the worker is asked.
+          const start = {
+            apiId: 123456,
+            apiHash: 'ab'.repeat(16),
+            phone: '+4915112346789',
+            label: 'Eve',
+          };
+          assert.equal(
+            (
+              await call('POST', '/agency/telegram/accounts/login/start', {
+                as: 'manager',
+                body: start,
+              })
+            ).status,
+            403
+          );
+          for (const bad of [
+            { ...start, apiHash: 'short' },
+            { ...start, apiId: 'x' },
+            { ...start, phone: '12' },
+          ]) {
+            const res = await call(
+              'POST',
+              '/agency/telegram/accounts/login/start',
+              { as: 'owner', body: bad }
+            );
+            assert.equal(res.status, 400, JSON.stringify(bad) + res.text);
+          }
+          assert.equal(
+            seen.filter((x) => x.path.startsWith('/v1/login')).length,
+            0
+          );
+
+          const started = await call(
+            'POST',
+            '/agency/telegram/accounts/login/start',
+            { as: 'owner', body: start }
+          );
+          assert.equal(started.status, 201, started.text);
+          const connected = await call(
+            'POST',
+            '/agency/telegram/accounts/login/code',
+            {
+              as: 'owner',
+              body: { loginId: started.json.loginId, code: '12345' },
+            }
+          );
+          assert.equal(connected.status, 201, connected.text);
+          assert.equal(connected.json.status, 'connected');
+          const accountId = connected.json.account.id;
+          assert.ok(
+            seen.every(
+              (x) => x.token === 'e2e-worker-token' || x.path === '/health'
+            )
+          );
+
+          // The session and the api hash never come back, in any response.
+          const listed = await call('GET', '/agency/telegram/accounts', {
+            as: 'manager',
+          });
+          assert.equal(listed.status, 200);
+          for (const text of [connected.text, listed.text, started.text]) {
+            assert.ok(!text.includes('SECRET-SESSION-E2E'), 'session leaked');
+            assert.ok(!text.includes('ab'.repeat(16)), 'api hash leaked');
+            assert.ok(!text.includes('4915112346789'), 'phone leaked');
+            assert.ok(!text.includes('sealed'), 'sealed value leaked');
+          }
+          assert.equal(
+            (await call('GET', '/agency/telegram/accounts', { as: 'client' }))
+              .status,
+            403
+          );
+
+          // Permissions: owner grants joining; a manager cannot.
+          assert.equal(
+            (
+              await call('PUT', `/agency/telegram/accounts/${accountId}`, {
+                as: 'manager',
+                body: { canJoin: true },
+              })
+            ).status,
+            403
+          );
+          const granted = await call(
+            'PUT',
+            `/agency/telegram/accounts/${accountId}`,
+            { as: 'owner', body: { canJoin: true, canPublish: 'yes' } }
+          );
+          assert.equal(granted.status, 400); // booleans only
+          const ok = await call(
+            'PUT',
+            `/agency/telegram/accounts/${accountId}`,
+            { as: 'owner', body: { canJoin: true } }
+          );
+          assert.equal(ok.status, 200, ok.text);
+          assert.equal(ok.json.permissions.canJoin, true);
+
+          // Research: search, import, list, label, export.
+          const search = await call('POST', '/agency/communities/search', {
+            as: 'manager',
+            body: { accountId, query: 'bakers' },
+          });
+          assert.equal(search.status, 201, search.text);
+          assert.equal(search.json.results[0].username, 'bakers_united');
+          assert.equal(search.json.results[0].saved, null);
+          const imported = await call('POST', '/agency/communities/import', {
+            as: 'manager',
+            body: {
+              accountId,
+              refs: ['@bakers_united', 'https://t.me/bakers_united', 'x!'],
+              tags: ['Food'],
+            },
+          });
+          assert.equal(imported.status, 201, imported.text);
+          assert.equal(imported.json.created, 1);
+          assert.deepEqual(imported.json.failed.map((f) => f.code).sort(), [
+            'DUPLICATE',
+            'INVALID_REF',
+          ]);
+          assert.equal(
+            (
+              await call('POST', '/agency/communities/import', {
+                as: 'manager',
+                body: { accountId, refs: Array(51).fill('@bakers_united') },
+              })
+            ).status,
+            400
+          );
+
+          const dir = await call(
+            'GET',
+            '/agency/communities?tag=food&sort=members',
+            { as: 'sales' }
+          );
+          assert.equal(dir.status, 200);
+          assert.equal(dir.json.length, 1);
+          assert.equal(dir.json[0].memberCount, null); // nothing Telegram did not say
+          const id = dir.json[0].id;
+          const csv = await call('GET', '/agency/communities/export', {
+            as: 'sales',
+          });
+          assert.match(csv.text, /^title,username,link/);
+          assert.match(
+            csv.text,
+            /Bakers United,bakers_united,https:\/\/t\.me\/bakers_united/
+          );
+          const json = await call(
+            'GET',
+            '/agency/communities/export?format=json',
+            { as: 'sales' }
+          );
+          assert.equal(JSON.parse(json.text)[0].username, 'bakers_united');
+          assert.equal(
+            (await call('GET', '/agency/communities', { as: 'client' })).status,
+            403
+          );
+          assert.deepEqual(
+            (await call('GET', '/agency/communities', { as: 'otherOwner' }))
+              .json,
+            []
+          );
+          assert.equal(
+            (
+              await call('GET', `/agency/communities/${id}`, {
+                as: 'otherOwner',
+              })
+            ).status,
+            404
+          );
+
+          // Joining is a deliberate act: confirmation and a reason, for the roles that may.
+          assert.equal(
+            (
+              await call('POST', `/agency/communities/${id}/join`, {
+                as: 'sales',
+                body: { accountId, reason: 'Good fit', confirmed: true },
+              })
+            ).status,
+            403
+          );
+          assert.equal(
+            (
+              await call('POST', `/agency/communities/${id}/join`, {
+                as: 'manager',
+                body: { accountId, reason: 'Good fit', confirmed: false },
+              })
+            ).status,
+            400
+          );
+          const joined = await call('POST', `/agency/communities/${id}/join`, {
+            as: 'manager',
+            body: {
+              accountId,
+              reason: 'Bakers hang out here',
+              confirmed: true,
+            },
+          });
+          assert.equal(joined.status, 201, joined.text);
+          assert.equal(joined.json.stage, 'JOINED');
+
+          // Nothing about people was ever requested from the worker.
+          for (const x of seen)
+            assert.ok(
+              !/participant|member|add|phone|contact/i.test(x.path),
+              x.path
+            );
+
+          // Signing out ends the login and wipes it.
+          const out = await call(
+            'POST',
+            `/agency/telegram/accounts/${accountId}/logout`,
+            { as: 'owner' }
+          );
+          assert.equal(out.status, 201, out.text);
+          assert.equal(out.json.account.status, 'LOGGED_OUT');
+        } finally {
+          delete process.env.AGENCYOS_TELEGRAM_WORKER_URL;
+          delete process.env.AGENCYOS_TELEGRAM_WORKER_TOKEN;
+          await new Promise((r) => worker.close(r));
+        }
+      });
+    });
+
     describe('lead links over HTTP', () => {
       it('collects only people who tap Start, exports them, and lets them leave', async () => {
         const { TelegramGateway } = require(resolve(

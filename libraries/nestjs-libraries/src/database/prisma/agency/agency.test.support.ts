@@ -13,6 +13,10 @@ import { AgencyPublishingRepository } from './agency.publishing.repository';
 import { AgencyPublishingService } from './agency.publishing.service';
 import { AgencyTelegramService } from './agency.telegram.service';
 import { AgencyTelegramBotsService } from './agency.telegram.bots.service';
+import { AgencyTelegramUsersRepository } from './agency.telegram.users.repository';
+import { AgencyTelegramUsersService } from './agency.telegram.users.service';
+import { AgencyCommunitiesRepository } from './agency.communities.repository';
+import { AgencyCommunitiesService } from './agency.communities.service';
 import { AgencyService, CampaignInput } from './agency.service';
 import { AgencyPortalService } from './agency.portal.service';
 import { AgencyCrmRepository } from './agency.crm.repository';
@@ -26,6 +30,15 @@ import { AgencyAiService } from './agency.ai.service';
 import { AgencyAiToolsService } from './agency.ai.tools.service';
 import { AgencyAiDiscoveryService } from './agency.ai.discovery.service';
 import { AgencyAiAgentService } from './agency.ai.agent.service';
+import {
+  TelegramUserGateway,
+  TelegramUserGatewayError,
+  UserGatewayCanPost,
+  UserGatewayCommunity,
+  UserGatewayErrorCode,
+  UserGatewayMe,
+  UserGatewayRelation,
+} from '@gitroom/nestjs-libraries/integrations/telegram/telegram.user.gateway';
 import {
   BotPermissions,
   TelegramAd,
@@ -143,6 +156,380 @@ export class FakeTelegramGateway extends TelegramGateway {
   }
 }
 
+/** One public community in the fake Telegram's world, with who belongs to it. */
+export interface FakeCommunity {
+  community: UserGatewayCommunity;
+  owner?: string; // session
+  admins: Set<string>;
+  members: Set<string>;
+  pending: Set<string>;
+  joinRequests: Array<{
+    userId: string;
+    username: string | null;
+    date: string;
+    bio: string | null;
+  }>;
+  messages: Array<{ id: string; date: string; text: string }>;
+  canWrite: boolean;
+}
+
+/**
+ * A scripted stand-in for the Telegram worker: it speaks the same contract (docs/TELEGRAM_WORKER_CONTRACT.md)
+ * over an in-memory world, can be told to fail, and keeps a log of every request so tests can prove what
+ * was never asked for. It proves our code against our idea of Telegram, not against Telegram.
+ */
+export class FakeTelegramUserGateway extends TelegramUserGateway {
+  calls: Array<{ path: string; body: any }> = [];
+  errors = new Map<string, TelegramUserGatewayError[]>();
+  /** Failures that happen once and then clear: the next request goes through. */
+  once = new Map<string, TelegramUserGatewayError[]>();
+  people = new Map<
+    string,
+    UserGatewayMe & { phone: string; password?: string }
+  >();
+  logins = new Map<
+    string,
+    { phone: string; code: string; passwordOk: boolean }
+  >();
+  sessions = new Map<string, string>(); // session -> person id
+  revoked = new Set<string>();
+  world = new Map<string, FakeCommunity>(); // lower-case username -> community
+  sent: Array<{ ref: string; session: string; ad: any }> = [];
+  code = '12345';
+  private n = 1;
+
+  override isConfigured() {
+    return true;
+  }
+  protected override async getHealth() {
+    return { ok: true, version: 'test', telethon: 'fake', uptimeSeconds: 1 };
+  }
+
+  /** A person who can sign in with this phone number. */
+  person(
+    phone: string,
+    opts: { id?: string; username?: string; password?: string } = {}
+  ) {
+    const id = opts.id ?? String(900000 + this.n++);
+    const me = {
+      id,
+      username: opts.username ?? `person${id}`,
+      firstName: 'Sam',
+      lastName: 'Seller',
+      premium: false,
+      phoneMasked: `${phone.slice(0, 3)}•••••${phone.slice(-4)}`,
+      phone,
+      password: opts.password,
+    };
+    this.people.set(phone, me);
+    return me;
+  }
+
+  community(
+    username: string,
+    over: Partial<UserGatewayCommunity> = {},
+    extra: Partial<Omit<FakeCommunity, 'community'>> = {}
+  ): FakeCommunity {
+    const id = String(1000000 + this.n++);
+    const entry: FakeCommunity = {
+      community: {
+        telegramId: id,
+        kind: 'SUPERGROUP',
+        title: `Community ${username}`,
+        username,
+        link: `https://t.me/${username}`,
+        description: `About ${username}`,
+        memberCount: 1200,
+        verified: false,
+        scam: false,
+        fake: false,
+        joinRequestRequired: false,
+        slowModeSeconds: null,
+        hasLinkedChat: false,
+        restrictionReasons: [],
+        ...over,
+      },
+      admins: new Set(),
+      members: new Set(),
+      pending: new Set(),
+      joinRequests: [],
+      messages: [],
+      canWrite: true,
+      ...extra,
+    };
+    this.world.set(username.toLowerCase(), entry);
+    return entry;
+  }
+
+  fail(path: string, ...errors: TelegramUserGatewayError[]) {
+    this.errors.set(path, errors);
+  }
+  failOnce(path: string, ...errors: TelegramUserGatewayError[]) {
+    this.once.set(path, errors);
+  }
+  err(
+    code: UserGatewayErrorCode,
+    message = code as string,
+    retryAfter?: number
+  ) {
+    return new TelegramUserGatewayError(code, message, retryAfter);
+  }
+  asked(path: string) {
+    return this.calls.filter((c) => c.path === path);
+  }
+
+  private relationFor(
+    entry: FakeCommunity,
+    session: string
+  ): UserGatewayRelation {
+    if (entry.owner === session) return 'OWNED';
+    if (entry.admins.has(session)) return 'ADMINISTERED';
+    if (entry.members.has(session)) return 'MEMBER';
+    return 'PUBLIC_NOT_JOINED';
+  }
+  private canPostFor(
+    entry: FakeCommunity,
+    session: string
+  ): UserGatewayCanPost | null {
+    const relation = this.relationFor(entry, session);
+    if (relation === 'PUBLIC_NOT_JOINED') return null;
+    const admin = relation === 'OWNED' || relation === 'ADMINISTERED';
+    return {
+      sendMessages: admin || entry.canWrite,
+      sendMedia: admin || entry.canWrite,
+      isAdmin: admin,
+      postMessagesInChannel: admin,
+      slowModeSeconds: entry.community.slowModeSeconds,
+    };
+  }
+  private find(ref: string) {
+    const name = ref
+      .replace(/^https?:\/\/t\.me\//i, '')
+      .replace(/^@/, '')
+      .toLowerCase();
+    const entry = this.world.get(name);
+    if (!entry) throw this.err('NOT_FOUND', 'No such community');
+    return entry;
+  }
+  private who(body: any) {
+    const session = body?.account?.session;
+    if (!session || !this.sessions.has(session) || this.revoked.has(session)) {
+      throw this.err('SESSION_INVALID', 'The session is not authorized');
+    }
+    return session as string;
+  }
+
+  protected override async post<T>(
+    path: string,
+    body: Record<string, unknown>
+  ): Promise<T> {
+    this.calls.push({ path, body: JSON.parse(JSON.stringify(body)) });
+    const first = this.once.get(path);
+    if (first?.length) throw first.shift()!;
+    const queued = this.errors.get(path);
+    if (queued?.length) throw queued.length > 1 ? queued.shift()! : queued[0];
+    const result: any = this.handle(path, body as any);
+    return { ok: true, ...result } as T;
+  }
+
+  private handle(path: string, body: any): any {
+    switch (path) {
+      case '/v1/login/start': {
+        const person = this.people.get(body.phone);
+        if (!person) throw this.err('PHONE_INVALID');
+        const loginId = `login-${this.n++}`;
+        this.logins.set(loginId, {
+          phone: body.phone,
+          code: this.code,
+          passwordOk: !person.password,
+        });
+        return { loginId, codeDelivery: 'app', timeoutSeconds: 600 };
+      }
+      case '/v1/login/code': {
+        const login = this.logins.get(body.loginId);
+        if (!login) throw this.err('LOGIN_NOT_FOUND');
+        if (body.code !== login.code) throw this.err('CODE_INVALID');
+        const person = this.people.get(login.phone)!;
+        if (person.password && !login.passwordOk)
+          return { status: 'password_required' };
+        return this.authorize(person, body.loginId);
+      }
+      case '/v1/login/password': {
+        const login = this.logins.get(body.loginId);
+        if (!login) throw this.err('LOGIN_NOT_FOUND');
+        const person = this.people.get(login.phone)!;
+        if (body.password !== person.password)
+          throw this.err('PASSWORD_INVALID');
+        return this.authorize(person, body.loginId);
+      }
+      case '/v1/login/cancel':
+        this.logins.delete(body.loginId);
+        return { cancelled: true };
+      case '/v1/account/status': {
+        const session = body.account?.session;
+        const id = this.sessions.get(session);
+        if (!id || this.revoked.has(session)) return { authorized: false };
+        return { authorized: true, me: this.meOf(id) };
+      }
+      case '/v1/account/logout':
+        this.revoked.add(this.who(body));
+        return { loggedOut: true };
+    }
+    const session = this.who(body);
+    switch (path) {
+      case '/v1/communities/search': {
+        const q = String(body.query).toLowerCase();
+        const results = [...this.world.values()]
+          .filter(
+            (e) =>
+              e.community.title.toLowerCase().includes(q) ||
+              (e.community.username ?? '').toLowerCase().includes(q)
+          )
+          .slice(0, body.limit)
+          .map((e) => e.community);
+        return { results };
+      }
+      case '/v1/communities/resolve': {
+        const e = this.find(body.ref);
+        return {
+          community: e.community,
+          relation: this.relationFor(e, session),
+          canPost: this.canPostFor(e, session),
+        };
+      }
+      case '/v1/communities/refresh':
+        return {
+          results: (body.refs as string[]).map((ref) => {
+            try {
+              const e = this.find(ref);
+              return {
+                ref,
+                ok: true,
+                community: e.community,
+                relation: this.relationFor(e, session),
+              };
+            } catch (err) {
+              const g = err as TelegramUserGatewayError;
+              return {
+                ref,
+                ok: false,
+                error: { code: g.code, message: g.message },
+              };
+            }
+          }),
+        };
+      case '/v1/communities/messages':
+        return { messages: this.find(body.ref).messages.slice(0, body.limit) };
+      case '/v1/communities/mine':
+        return {
+          communities: [...this.world.values()]
+            .filter((e) => this.relationFor(e, session) !== 'PUBLIC_NOT_JOINED')
+            .map((e) => ({
+              community: e.community,
+              relation: this.relationFor(e, session),
+            })),
+        };
+      case '/v1/communities/permissions': {
+        const e = this.find(body.ref);
+        return {
+          relation: this.relationFor(e, session),
+          canPost: this.canPostFor(e, session),
+        };
+      }
+      case '/v1/communities/join': {
+        const e = this.find(body.ref);
+        if (e.community.joinRequestRequired) {
+          e.pending.add(session);
+          return { status: 'JOIN_REQUEST_PENDING', community: e.community };
+        }
+        e.members.add(session);
+        return { status: 'JOINED', community: e.community };
+      }
+      case '/v1/communities/leave': {
+        const e = this.find(body.ref);
+        e.members.delete(session);
+        return { left: true };
+      }
+      case '/v1/communities/create': {
+        const username = body.username ?? `created${this.n}`;
+        const e = this.community(username, {
+          title: body.title,
+          description: body.about ?? null,
+          kind: body.kind === 'channel' ? 'BROADCAST_CHANNEL' : 'SUPERGROUP',
+          memberCount: 1,
+        });
+        e.owner = session;
+        return {
+          community: e.community,
+          inviteLink: `https://t.me/+invite${this.n}`,
+        };
+      }
+      case '/v1/communities/update': {
+        const e = this.find(body.ref);
+        if (
+          this.relationFor(e, session) !== 'OWNED' &&
+          this.relationFor(e, session) !== 'ADMINISTERED'
+        ) {
+          throw this.err('FORBIDDEN');
+        }
+        if (body.title) e.community.title = body.title;
+        if (body.about !== undefined) e.community.description = body.about;
+        return { community: e.community };
+      }
+      case '/v1/communities/invite-link': {
+        const e = this.find(body.ref);
+        if (this.relationFor(e, session) === 'PUBLIC_NOT_JOINED')
+          throw this.err('FORBIDDEN');
+        return { link: `https://t.me/+${e.community.telegramId}` };
+      }
+      case '/v1/communities/join-requests': {
+        const e = this.find(body.ref);
+        if (!['OWNED', 'ADMINISTERED'].includes(this.relationFor(e, session)))
+          throw this.err('FORBIDDEN');
+        return { requests: e.joinRequests.slice(0, body.limit) };
+      }
+      case '/v1/communities/join-requests/decide': {
+        const e = this.find(body.ref);
+        if (!['OWNED', 'ADMINISTERED'].includes(this.relationFor(e, session)))
+          throw this.err('FORBIDDEN');
+        e.joinRequests = e.joinRequests.filter((r) => r.userId !== body.userId);
+        return { decided: true };
+      }
+      case '/v1/messages/send': {
+        const e = this.find(body.ref);
+        const can = this.canPostFor(e, session);
+        if (!can?.sendMessages)
+          throw this.err('FORBIDDEN', 'Writing is not allowed');
+        this.sent.push({ ref: body.ref, session, ad: body.ad });
+        const id = String(5000 + this.sent.length);
+        return {
+          messageIds: [id],
+          primaryMessageId: id,
+          releaseUrl: e.community.username
+            ? `https://t.me/${e.community.username}/${id}`
+            : null,
+        };
+      }
+    }
+    throw this.err('UNSUPPORTED', `No such endpoint ${path}`);
+  }
+
+  private meOf(id: string): UserGatewayMe {
+    const person = [...this.people.values()].find((p) => p.id === id)!;
+    const { phone: _phone, password: _password, ...me } = person;
+    return me;
+  }
+  private authorize(
+    person: UserGatewayMe & { phone: string },
+    loginId: string
+  ) {
+    this.logins.delete(loginId);
+    const session = `session-${this.n++}-${person.id}`;
+    this.sessions.set(session, person.id);
+    return { status: 'authorized', session, me: this.meOf(person.id) };
+  }
+}
+
 export interface Harness {
   prisma: PrismaService;
   gateway: FakeTelegramGateway;
@@ -154,6 +541,9 @@ export interface Harness {
   publishing: AgencyPublishingService;
   telegram: AgencyTelegramService;
   bots: AgencyTelegramBotsService;
+  userGateway: FakeTelegramUserGateway;
+  users: AgencyTelegramUsersService;
+  communities: AgencyCommunitiesService;
   agency: AgencyService;
   portal: AgencyPortalService;
   crm: AgencyCrmService;
@@ -191,13 +581,29 @@ export async function buildHarness(): Promise<Harness> {
     access,
     gateway
   );
+  const userGateway = new FakeTelegramUserGateway();
+  const users = new AgencyTelegramUsersService(
+    new AgencyTelegramUsersRepository(prisma),
+    access,
+    userGateway
+  );
   const publishing = new AgencyPublishingService(
     agencyRepo,
     jobsRepo,
     gateway,
     access,
     notifications as any,
-    bots
+    bots,
+    users,
+    userGateway
+  );
+  const communities = new AgencyCommunitiesService(
+    new AgencyCommunitiesRepository(prisma),
+    users,
+    access,
+    publishing,
+    agencyRepo,
+    userGateway
   );
   const leads = new AgencyLeadsService(
     new AgencyLeadsRepository(prisma),
@@ -251,6 +657,9 @@ export async function buildHarness(): Promise<Harness> {
     publishing,
     telegram,
     bots,
+    userGateway,
+    users,
+    communities,
     agency,
     portal,
     platforms,
@@ -497,4 +906,43 @@ export async function clearQueue(h: Harness) {
     where: { status: { in: ['PENDING', 'SENDING', 'BLOCKED'] } },
     data: { status: 'CANCELLED' },
   });
+}
+
+/** A Telegram user account signed in through the (fake) worker, with the permissions an owner grants. */
+export async function connectAccount(
+  h: Harness,
+  t: Tenant,
+  opts: {
+    username?: string;
+    password?: string;
+    grants?: Partial<
+      Record<'canResearch' | 'canJoin' | 'canPublish' | 'canManage', boolean>
+    >;
+    label?: string;
+  } = {}
+) {
+  const phone = `+49151${Math.floor(1_000_000 + Math.random() * 8_999_999)}`;
+  h.userGateway.person(phone, {
+    username: opts.username,
+    password: opts.password,
+  });
+  const start = await h.users.startLogin(t.owner, {
+    label: opts.label,
+    apiId: 123456,
+    apiHash: 'a1'.repeat(16),
+    phone,
+  });
+  let res: any = await h.users.submitCode(
+    t.owner,
+    start.loginId,
+    h.userGateway.code
+  );
+  if (res.status === 'password_required') {
+    res = await h.users.submitPassword(t.owner, start.loginId, opts.password!);
+  }
+  let account = res.account;
+  if (opts.grants && Object.keys(opts.grants).length) {
+    account = await h.users.update(t.owner, account.id, opts.grants);
+  }
+  return account as Awaited<ReturnType<Harness['users']['list']>>[number];
 }

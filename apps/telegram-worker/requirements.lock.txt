@@ -1,0 +1,13 @@
+# Exact runtime dependencies of agencyos-telegram-worker (Python >= 3.11), for vendoring wheels
+# into the Windows installer. Everything here is pure Python (no compiled extensions).
+#
+# Wheels on PyPI (py3-none-any): telethon, rsa, pyasn1.
+# pyaes publishes ONLY a source distribution on PyPI. It is a single pure-Python package and
+# builds to a py3-none-any wheel (`pip wheel --no-deps pyaes==1.6.1`); the installer build must
+# do that once and vendor the resulting wheel next to the others.
+#
+# `cryptg` (optional speed-up for Telethon) is compiled and is intentionally absent.
+telethon==1.45.0
+pyaes==1.6.1
+rsa==4.9.1
+pyasn1==0.6.4

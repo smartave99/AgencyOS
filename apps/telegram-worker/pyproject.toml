@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agencyos-telegram-worker"
+version = "0.1.0"
+description = "Loopback-only JSON-over-HTTP worker around Telethon (MTProto user accounts) for AgencyOS"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+# Exact pin: the error table in errors.py and the TL request shapes in telethon_backend.py
+# were written against this version. Pure Python; its own dependencies (pyaes, rsa, pyasn1)
+# are pinned in requirements.lock.txt. `cryptg` is deliberately NOT a dependency (compiled).
+dependencies = ["telethon==1.45.0"]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1"]
+
+[tool.setuptools]
+packages = ["agencyos_telegram"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-p no:cacheprovider"

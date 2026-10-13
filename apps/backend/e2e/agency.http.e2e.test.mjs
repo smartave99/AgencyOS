@@ -900,6 +900,88 @@ describe(
         assert.equal((await call('GET', '/agency/ai/tools', { as: 'client' })).status, 403);
       });
 
+      it('a model and thinking level per job survive a real request (the validation pipe keeps them)', async () => {
+        process.env.AGENCY_ALLOW_EXTERNAL_AI = 'true';
+        const saved = await call('PUT', '/agency/ai/settings', {
+          as: 'owner',
+          body: {
+            tasks: {
+              copy: { provider: 'local', model: 'gemma3:1b', thinking: 'off' },
+              agent: { thinking: 'high' },
+            },
+          },
+        });
+        assert.equal(saved.status, 200, saved.text);
+        matches(saved.json.tasks, {
+          copy: { provider: 'local', model: 'gemma3:1b', thinking: 'off' },
+          agent: { provider: null, thinking: 'high' },
+        });
+        const read = await call('GET', '/agency/ai/settings', { as: 'manager' });
+        assert.equal(read.json.tasks.copy.model, 'gemma3:1b');
+
+        const bad = await call('PUT', '/agency/ai/settings', {
+          as: 'owner',
+          body: { tasks: { copy: { thinking: 'galaxy' } } },
+        });
+        assert.equal(bad.status, 400);
+        assert.equal(
+          (
+            await call('PUT', '/agency/ai/settings', {
+              as: 'manager',
+              body: { tasks: { copy: null } },
+            })
+          ).status,
+          403
+        );
+        const cleared = await call('PUT', '/agency/ai/settings', {
+          as: 'owner',
+          body: { tasks: { copy: null, agent: null } },
+        });
+        assert.equal(cleared.json.tasks.copy.provider, null);
+      });
+
+      it('the agent: proposals change nothing, approved changes are role-checked and audited', async () => {
+        process.env.OLLAMA_HOST = 'http://127.0.0.1:1'; // no model is reachable
+        const step = await call('POST', '/agency/ai/agent/step', {
+          as: 'manager',
+          body: { messages: [{ role: 'user', content: 'hello' }] },
+        });
+        assert.equal(step.status, 502, step.text);
+        assert.equal(step.json.code, 'unreachable');
+        assert.equal(
+          (await call('POST', '/agency/ai/agent/step', { as: 'manager', body: { messages: [] } })).status,
+          400
+        );
+        assert.equal(
+          (
+            await call('POST', '/agency/ai/agent/step', {
+              as: 'client',
+              body: { messages: [{ role: 'user', content: 'hi' }] },
+            })
+          ).status,
+          403
+        );
+
+        const act = (as, tool, args) =>
+          call('POST', '/agency/ai/agent/act', { as, body: { tool, args } });
+        // Reads, approvals and anything unknown are not changes the agent can make.
+        for (const tool of ['list_clients', 'approve_campaign', 'delete_campaign'])
+          assert.equal((await act('owner', tool, {})).status, 400);
+
+        const made = await act('owner', 'create_client', { name: 'Agent Made Co' });
+        assert.equal(made.status, 201, made.text);
+        assert.equal(made.json.ok, true);
+        const clients = await call('GET', '/agency/clients', { as: 'owner' });
+        assert.ok(clients.json.some((c) => c.name === 'Agent Made Co'));
+        const audit = await call('GET', '/agency/audit?entityType=AgentAction', { as: 'owner' });
+        assert.ok(audit.json.some((e) => e.action === 'ai.agent_action'));
+
+        // A role that may not add clients cannot get the agent to do it for them.
+        assert.equal((await act('manager', 'create_client', { name: 'Nope Co' })).status, 403);
+        const bad = await act('owner', 'create_client', { name: 'Bad', email: 'not-an-email' });
+        assert.equal(bad.json.ok, false);
+      });
+
       it('Test and chat report a provider problem plainly instead of failing silently', async () => {
         await call('PUT', '/agency/ai/settings', {
           as: 'owner',

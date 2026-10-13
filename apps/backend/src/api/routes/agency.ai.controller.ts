@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AgencyAiService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.service';
+import { AgencyAiAgentService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.agent.service';
 import { AgencyAiDiscoveryService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.discovery.service';
 import { AgencyAiToolsService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.tools.service';
 import {
@@ -28,6 +29,8 @@ import {
 } from '@gitroom/nestjs-libraries/dtos/agency/ai.dto';
 import {
   AI_PROVIDER_IDS,
+  AgentActDto,
+  AgentStepDto,
   AiChatDto,
   AiProviderId,
   AiProviderRefDto,
@@ -50,6 +53,7 @@ export class AgencyAiController {
     private readonly gateway: AgencyAiGatewayService,
     private readonly tools: AgencyAiToolsService,
     private readonly discovery: AgencyAiDiscoveryService,
+    private readonly agent: AgencyAiAgentService,
     private readonly access: AgencyAccessService
   ) {}
 
@@ -152,5 +156,33 @@ export class AgencyAiController {
     @Body() body: AiProviderRefDto
   ) {
     return this.tools.updateNow(actor, body.provider);
+  }
+
+  /** One turn of the agent: it looks something up, proposes a change, or answers. */
+  @Post('/agent/step')
+  async agentStep(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Body() body: AgentStepDto
+  ) {
+    try {
+      return await this.agent.step(actor, body);
+    } catch (error) {
+      if (error instanceof AiProviderError) {
+        throw new HttpException(
+          { message: error.message, code: error.code },
+          502
+        );
+      }
+      throw error;
+    }
+  }
+
+  /** The person approved a change the agent proposed. */
+  @Post('/agent/act')
+  agentAct(
+    @AgencyActorFromRequest() actor: AgencyActor,
+    @Body() body: AgentActDto
+  ) {
+    return this.agent.act(actor, body);
   }
 }

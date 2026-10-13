@@ -61,6 +61,17 @@ export class UpdateAiSettingsDto {
     string,
     { model?: string; baseUrl?: string; apiKey?: string }
   >;
+
+  /**
+   * Per job (copy, improve, copilot, agent): { provider?, model?, thinking? }. An empty value, or
+   * null for the whole job, goes back to "same as the default". The service checks each entry.
+   */
+  @IsOptional()
+  @IsObject()
+  tasks?: Record<
+    string,
+    { provider?: string; model?: string; thinking?: string } | null
+  >;
 }
 
 export class AiProviderRefDto {
@@ -101,4 +112,36 @@ export class AiChatDto {
 export class AiToolsDto {
   @IsBoolean()
   autoUpdate: boolean;
+}
+
+export class AgentMessageDto {
+  @IsIn(['user', 'assistant'])
+  role: 'user' | 'assistant';
+
+  @IsString()
+  @MaxLength(14000)
+  content: string;
+}
+
+export class AgentStepDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(60)
+  @ValidateNested({ each: true })
+  @Type(() => AgentMessageDto)
+  messages: AgentMessageDto[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  page?: string;
+}
+
+export class AgentActDto {
+  @IsString()
+  @MaxLength(80)
+  tool: string;
+
+  @IsObject()
+  args: Record<string, unknown>;
 }

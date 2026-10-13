@@ -105,6 +105,41 @@ export interface AiTestResult {
   error?: string;
 }
 
+export type AgentTurn =
+  | { type: 'final'; text: string }
+  | {
+      type: 'tool';
+      tool: string;
+      activity: string;
+      args: Record<string, unknown>;
+      thought?: string;
+      ok: boolean;
+      result: string;
+    }
+  | {
+      type: 'proposal';
+      tool: string;
+      activity: string;
+      args: Record<string, unknown>;
+      thought?: string;
+      summary: string;
+    };
+
+export interface AgentStepResult {
+  turn: AgentTurn;
+  assistant: string;
+  provider: AiProviderId;
+  model: string | null;
+  ms: number;
+  notes: string[];
+}
+
+export interface AgentActResult {
+  ok: boolean;
+  result: string;
+  summary: string;
+}
+
 export interface AiChatReply {
   reply: string;
   provider: AiProviderId;

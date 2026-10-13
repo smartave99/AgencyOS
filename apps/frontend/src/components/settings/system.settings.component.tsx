@@ -17,6 +17,7 @@ import {
   Tone,
   useBusy,
 } from '@gitroom/frontend/components/agency/agency.ui';
+import { LocalAiCard } from '@gitroom/frontend/components/settings/local.ai.component';
 import {
   ServiceState,
   StoragePlan,
@@ -154,100 +155,6 @@ const StatusCard: FC<{
           <ServiceRow key={service.name} service={service} />
         ))}
       </ul>
-    </Card>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// Local AI
-// ---------------------------------------------------------------------------
-const aiLine = (ai: SystemAi) => {
-  if (ai.phase === 'ready') {
-    const parts: string[] = [];
-    if (ai.models?.embedding) parts.push(`Search: ${ai.models.embedding.id}`);
-    if (ai.models?.text) {
-      parts.push(
-        `Copy suggestions: ${ai.models.text.id}${
-          ai.models.text.tokensPerSecond
-            ? ` (${ai.models.text.tokensPerSecond} tokens/s)`
-            : ''
-        }`
-      );
-    }
-    return parts.length ? parts.join(' · ') : 'Ready';
-  }
-  if (ai.phase === 'off') return `Off. ${ai.message ?? ''}`.trim();
-  return ai.message || 'Checking this computer…';
-};
-
-const LocalAiCard: FC<{ ai: SystemAi }> = ({ ai }) => {
-  const toaster = useToaster();
-  const { busy, run } = useBusy();
-  const progress = ai.progress;
-  const downloading =
-    !!progress && progress.fraction >= 0 && ai.phase !== 'ready';
-
-  const retry = () =>
-    run(async () => {
-      try {
-        await systemRequest('POST', 'ai/retry', {});
-      } catch (error) {
-        toaster.show((error as Error).message, 'warning');
-      }
-    });
-
-  return (
-    <Card
-      title="Local AI"
-      subtitle="The model on this computer that suggests ad copy and powers search. It works offline."
-      right={
-        ai.phase === 'error' ? (
-          <Btn busy={busy} onClick={() => void retry()}>
-            Try again
-          </Btn>
-        ) : undefined
-      }
-    >
-      <p className="text-[14px] text-newTextColor">{aiLine(ai)}</p>
-      {downloading && progress && (
-        <div className="flex flex-col gap-1.5">
-          <div
-            className="h-1.5 overflow-hidden rounded-full bg-[var(--ag-neutral-bg)]"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(
-              Math.max(0, Math.min(1, progress.fraction)) * 100
-            )}
-          >
-            <div
-              className="h-full bg-[var(--ag-accent)] transition-[width]"
-              style={{
-                width: `${Math.round(
-                  Math.max(0, Math.min(1, progress.fraction)) * 100
-                )}%`,
-              }}
-            />
-          </div>
-          <p className="text-xs text-textItemBlur">
-            {bytes(progress.received)}
-            {progress.total ? ` of ${bytes(progress.total)}` : ''}
-            {progress.bytesPerSecond
-              ? ` · ${(progress.bytesPerSecond / 1048576).toFixed(1)} MB/s`
-              : ''}
-          </p>
-        </div>
-      )}
-      {!downloading && ai.tier && ai.label && (
-        <p className="text-xs text-textItemBlur">Tier: {ai.label}</p>
-      )}
-      {!!ai.reasons?.length && (
-        <ul className="ms-4 list-disc text-xs text-textItemBlur">
-          {ai.reasons.slice(0, 4).map((reason) => (
-            <li key={reason}>{reason}</li>
-          ))}
-        </ul>
-      )}
     </Card>
   );
 };

@@ -25,11 +25,26 @@ function fakeOllama({ tokensPerSecond = 20, failPull = null } = {}) {
     installed: new Set(),
     calls: [],
     rate: tokensPerSecond,
+    hold: false, // a download that stays open until it is cancelled
     async version() { return f.up ? '0.40.3' : null; },
     async has(m) { return f.installed.has(m) || f.installed.has(`${m}:latest`); },
-    async pull(model, onProgress) {
+    async installedModelDetails() {
+      return [...f.installed].map((name) => ({ name, sizeBytes: 1_500_000_000, modifiedAt: '2026-01-01T00:00:00Z', parameterSize: '4B', quantization: 'Q4' }));
+    },
+    async removeStrict(m) {
+      f.calls.push(['removeStrict', m]);
+      if (!f.installed.has(m)) throw new Error('model not found');
+      f.installed.delete(m);
+    },
+    async pull(model, onProgress, { signal } = {}) {
       f.calls.push(['pull', model]);
       if (failPull) { const e = failPull(model); if (e) throw e; }
+      if (f.hold) {
+        await new Promise((resolve, reject) => {
+          onProgress({ status: 'pulling', completed: 10, total: 100, fraction: 0.1 });
+          signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        });
+      }
       onProgress({ status: 'pulling', completed: 50, total: 100, fraction: 0.5 });
       onProgress({ status: 'success', completed: 100, total: 100, fraction: 1 });
       f.installed.add(model);
@@ -71,9 +86,11 @@ describe('AiManager', () => {
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-  const make = ({ hw = hardware(), client = fakeOllama(), runtime, registry, sleepFn } = {}) => {
+  // `auto` is whether the person turned automatic setup on; a fresh install starts with it off.
+  const make = ({ hw = hardware(), client = fakeOllama(), runtime, registry, sleepFn, auto = true } = {}) => {
     const rt = runtime || fakeRuntime(client);
     const started = [];
+    const stopped = [];
     const mgr = new AiManager({
       paths,
       ollamaHost: 'http://127.0.0.1:11434',
@@ -83,9 +100,18 @@ describe('AiManager', () => {
       makeClient: () => client,
       makeRuntime: () => rt,
       startOllama: async () => { started.push(true); client.up = true; },
+      stopOllama: async () => { stopped.push(true); client.up = false; },
       sleepFn: sleepFn || (async () => {}),
     });
-    return { mgr, client, rt, started };
+    if (auto) mgr.setAuto(true);
+    return { mgr, client, rt, started, stopped };
+  };
+  const settle = async (mgr, done) => {
+    for (let i = 0; i < 200; i += 1) {
+      if (done(mgr.snapshot())) return mgr.snapshot();
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error(`never settled: ${JSON.stringify(mgr.snapshot().download || mgr.snapshot().engineTask)}`);
   };
 
   it('plans, installs the runtime, pulls both models, checks them and reports ready', async () => {
@@ -212,5 +238,168 @@ describe('AiManager', () => {
   it('summarizeHardware prefers a real GPU over a virtual one', () => {
     const s = summarizeHardware(hardware({ gpus: [{ vendor: 'virtual', name: 'Hyper-V Video' }, { vendor: 'nvidia', name: 'RTX 4060', vramGB: 8 }] }));
     assert.equal(s.gpu, 'RTX 4060 (8 GB)');
+  });
+
+  describe('local AI by hand', () => {
+    it('a new install downloads and starts nothing: the Antigravity CLI answers until someone wants a local model', async () => {
+      const { mgr, client, rt, started } = make({ auto: false });
+      assert.equal(mgr.auto, false);
+      assert.equal(mgr.engineWanted, false);
+      await mgr.planModels();
+      assert.equal(await mgr.run(), 'standby');
+      assert.equal(rt.installs, 0);
+      assert.equal(started.length, 0);
+      assert.deepEqual([...client.installed], []);
+      assert.equal(mgr.snapshot().phase, 'standby');
+      assert.equal(mgr.snapshot().auto, false);
+    });
+
+    it('an install that already set local AI up keeps it automatic after the update', async () => {
+      const first = make({ auto: true });
+      await first.mgr.planModels(); // writes the state an older version also wrote
+      const upgraded = new AiManager({
+        paths, ollamaHost: 'http://127.0.0.1:11434', hostEnv: {}, detect: async () => hardware(),
+        registry: async () => ({ exists: true }), makeClient: () => first.client, makeRuntime: () => first.rt,
+      });
+      assert.equal(upgraded.auto, true);
+
+      // An older state file has no "auto" at all: a plan or an installed engine means it was in use.
+      const state = JSON.parse(fs.readFileSync(paths.data.aiState, 'utf8'));
+      delete state.auto;
+      fs.writeFileSync(paths.data.aiState, JSON.stringify(state));
+      const old = new AiManager({
+        paths, ollamaHost: 'http://127.0.0.1:11434', hostEnv: {}, detect: async () => hardware(),
+        registry: async () => ({ exists: true }), makeClient: () => first.client, makeRuntime: () => first.rt,
+      });
+      assert.equal(old.auto, true);
+    });
+
+    it('turning automatic setup on sets everything up, and off stops doing so without deleting anything', async () => {
+      const { mgr, client } = make({ auto: false });
+      await mgr.planModels();
+      assert.equal(await mgr.run(), 'standby');
+      mgr.setAuto(true);
+      assert.equal(await mgr.run(), 'ready');
+      assert.ok(client.installed.has('embeddinggemma'));
+      mgr.setAuto(false);
+      assert.equal(mgr.snapshot().phase, 'standby');
+      assert.ok(client.installed.has('embeddinggemma'), 'nothing is removed');
+    });
+
+    it('lists what is installed with sizes and what each is used for, and suggests models with the recommended first', async () => {
+      const { mgr, client } = make();
+      await mgr.planModels();
+      await mgr.run();
+      const list = await mgr.models();
+      assert.equal(list.engine.running, true);
+      assert.deepEqual(list.installed.map((m) => m.name).sort(), ['embeddinggemma', 'gemma4:e2b']);
+      assert.deepEqual(list.installed.find((m) => m.name === 'gemma4:e2b').roles, ['copy']);
+      assert.deepEqual(list.installed.find((m) => m.name === 'embeddinggemma').roles, ['search']);
+      assert.equal(list.suggestions[0].recommended, true);
+      assert.ok(list.suggestions.some((s) => s.id === 'gemma3:1b' && s.sizeGB));
+      client.up = false;
+      assert.deepEqual((await mgr.models()).installed, []); // an engine that is off lists nothing
+    });
+
+    it('downloads a model the person names, with progress, and refuses a name that is not one', async () => {
+      const { mgr, client } = make({ auto: false });
+      await assert.rejects(async () => mgr.downloadModel('gemma3:1b; rm -rf /'), /valid model name/);
+      await assert.rejects(async () => mgr.downloadModel(''), /valid model name/);
+      mgr.downloadModel('gemma3:4b');
+      const done = await settle(mgr, (s) => s.download?.state === 'done');
+      assert.equal(done.download.model, 'gemma3:4b');
+      assert.ok(client.installed.has('gemma3:4b'));
+      assert.equal(mgr.snapshot().phase, 'standby'); // downloading by hand does not turn automatic setup on
+    });
+
+    it('a download can be cancelled, and only one runs at a time', async () => {
+      const { mgr, client } = make({ auto: false });
+      client.hold = true;
+      mgr.downloadModel('gemma3:4b');
+      await settle(mgr, (s) => s.download?.state === 'downloading' && s.download.fraction > 0);
+      assert.throws(() => mgr.downloadModel('gemma3:1b'), /still running/);
+      assert.deepEqual(mgr.cancelDownload(), { cancelled: true });
+      const cancelled = await settle(mgr, (s) => s.download?.state === 'cancelled');
+      assert.equal(cancelled.download.error, null);
+      assert.ok(!client.installed.has('gemma3:4b'));
+      mgr.downloadModel('gemma3:1b'); // free again
+      client.hold = false;
+      await settle(mgr, (s) => s.download?.model === 'gemma3:1b' && s.download.state === 'done');
+    });
+
+    it('deletes a model for good: it is unloaded, removed, and never downloaded again by the automatic setup', async () => {
+      const { mgr, client } = make();
+      await mgr.planModels();
+      await mgr.run();
+      assert.deepEqual(await mgr.deleteModel('gemma4:e2b'), { deleted: 'gemma4:e2b' });
+      assert.ok(!client.installed.has('gemma4:e2b'));
+      assert.ok(client.calls.some(([c, m]) => c === 'unload' && m === 'gemma4:e2b'));
+      assert.equal(mgr.snapshot().models.text.state, 'removed');
+
+      const before = client.calls.filter(([c]) => c === 'pull').length;
+      assert.equal(await mgr.run(), 'ready');
+      assert.equal(client.calls.filter(([c]) => c === 'pull').length, before, 'the deleted model was not pulled again');
+
+      // Asking for it again by name undoes that choice.
+      mgr.downloadModel('gemma4:e2b');
+      await settle(mgr, (s) => s.download?.model === 'gemma4:e2b' && s.download.state === 'done');
+      assert.ok(client.installed.has('gemma4:e2b'));
+    });
+
+    it('says plainly when a model cannot be deleted: not installed, engine off, or the engine refused', async () => {
+      const { mgr, client } = make();
+      await mgr.planModels();
+      await mgr.run();
+      await assert.rejects(mgr.deleteModel('nothing:1b'), (e) => e.status === 404 && /not installed/.test(e.message));
+      client.removeStrict = async () => { throw new Error('file is in use'); };
+      await assert.rejects(mgr.deleteModel('gemma4:e2b'), (e) => e.status === 502 && /file is in use/.test(e.message));
+      client.up = false;
+      await assert.rejects(mgr.deleteModel('gemma4:e2b'), (e) => e.status === 409 && /Start the local AI engine/.test(e.message));
+    });
+
+    it('installs, starts and stops the engine on request, remembering whether it should run at the next start', async () => {
+      const { mgr, rt, started, stopped } = make({ auto: false });
+      assert.equal(mgr.engineWanted, false);
+      mgr.installEngine();
+      await settle(mgr, (s) => s.engineTask?.state === 'done');
+      assert.equal(rt.installs, 1);
+      assert.equal(started.length, 1);
+      assert.equal(mgr.engineWanted, true);
+
+      mgr.stopEngine();
+      await settle(mgr, (s) => s.engineTask?.action === 'stop' && s.engineTask.state === 'done');
+      assert.equal(stopped.length, 1);
+      assert.equal(mgr.engineWanted, false, 'stopped by the person: it stays off at the next start');
+      assert.equal((await mgr.engineState()).running, false);
+
+      mgr.startEngine();
+      await settle(mgr, (s) => s.engineTask?.action === 'start' && s.engineTask.state === 'done');
+      assert.equal((await mgr.engineState()).running, true);
+    });
+
+    it('will not stop an engine AgencyOS did not start, and starting one that is not installed says to install it', async () => {
+      const external = make({ auto: false });
+      external.client.up = true; // someone else's Ollama
+      external.mgr.stopEngine();
+      const failed = await settle(external.mgr, (s) => s.engineTask?.state === 'failed');
+      assert.match(failed.engineTask.error, /outside AgencyOS/);
+
+      const bare = make({ auto: false });
+      bare.mgr.startEngine();
+      const noEngine = await settle(bare.mgr, (s) => s.engineTask?.state === 'failed');
+      assert.match(noEngine.engineTask.error, /not installed/);
+    });
+
+    it('tries a model: a text model answers with its speed, an embedding model returns a vector', async () => {
+      const { mgr } = make();
+      await mgr.planModels();
+      await mgr.run();
+      const text = await mgr.tryModel('gemma4:e2b');
+      assert.equal(text.ok, true);
+      assert.equal(text.kind, 'text');
+      assert.ok(text.tokensPerSecond > 0);
+      const embed = await mgr.tryModel('embeddinggemma');
+      assert.deepEqual({ ok: embed.ok, kind: embed.kind, dimensions: embed.dimensions }, { ok: true, kind: 'embedding', dimensions: 768 });
+    });
   });
 });

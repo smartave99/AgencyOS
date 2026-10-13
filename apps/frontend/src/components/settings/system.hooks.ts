@@ -28,6 +28,8 @@ export interface SystemService {
 export interface SystemAi {
   phase?: string;
   message?: string;
+  /** Whether AgencyOS sets up and starts local AI by itself (off for a new install). */
+  auto?: boolean;
   tier?: string;
   label?: string;
   reasons?: string[];
@@ -92,6 +94,58 @@ export interface StorageRequest {
   keepWithData?: boolean;
 }
 
+/** The local AI engine and models, as the launcher lists them. */
+export interface LocalModel {
+  name: string;
+  sizeBytes: number;
+  modifiedAt: string | null;
+  parameterSize: string | null;
+  quantization: string | null;
+  roles: Array<'copy' | 'search'>;
+}
+
+export interface ModelSuggestion {
+  id: string;
+  label: string;
+  kind: 'text' | 'embedding';
+  sizeGB: number | null;
+  recommended: boolean;
+}
+
+export interface LocalAiModels {
+  auto: boolean;
+  engine: {
+    installed: boolean;
+    running: boolean;
+    version: string | null;
+    external: boolean;
+  };
+  installed: LocalModel[];
+  listError: string | null;
+  suggestions: ModelSuggestion[];
+  download: null | {
+    model: string;
+    state: 'starting' | 'downloading' | 'done' | 'failed' | 'cancelled';
+    fraction?: number;
+    received?: number;
+    total?: number;
+    bytesPerSecond?: number;
+    error?: string | null;
+  };
+  engineTask: null | {
+    action: 'install' | 'start' | 'stop';
+    state: 'working' | 'done' | 'failed';
+    message: string;
+    error?: string;
+  };
+  freeDiskGB: number | null;
+  modelsDir: string;
+}
+
+/** The same rule the launcher applies before a model name reaches the engine. */
+export const MODEL_NAME =
+  /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,80}){0,2}(:[A-Za-z0-9._-]{1,60})?$/;
+
 export const systemRequest = async <T>(
   method: 'GET' | 'POST',
   path: string,
@@ -113,6 +167,13 @@ export const systemRequest = async <T>(
   }
   return json as T;
 };
+
+export const useLocalModels = () =>
+  useSWR<LocalAiModels>(
+    'agency-local-models',
+    () => systemRequest<LocalAiModels>('GET', 'ai/models'),
+    { refreshInterval: 2000, revalidateOnFocus: true }
+  );
 
 export const useSystemStatus = () =>
   useSWR<SystemStatus>(

@@ -215,6 +215,15 @@ export class AgencyAiGatewayService {
   }
 
   /**
+   * What answers until someone chooses. On the desktop app that is the Antigravity CLI: nothing is
+   * downloaded to use it, and a model on this computer is something to switch on later, not the
+   * starting point. A server has no command-line tools, so it keeps the local model.
+   */
+  private get defaultProvider(): AiProviderId {
+    return this.isLocalMode ? 'antigravity-cli' : 'local';
+  }
+
+  /**
    * Why a provider cannot be used here, or null. Command-line tools exist only on the
    * person's own computer. On a server, text only leaves for an outside AI service when the
    * operator has allowed it (AGENCY_ALLOW_EXTERNAL_AI=true); in the desktop app the person
@@ -246,7 +255,7 @@ export class AgencyAiGatewayService {
         summary:
           'Runs on this computer. Private, free and works offline; speed depends on your hardware.',
         setup:
-          'AgencyOS installs Ollama and a small model for you. To use another model, pull it in Ollama and pick it here.',
+          'Optional. Settings → System → Local AI downloads the engine (Ollama) and the models you choose, and lets you start, stop and delete them. Then pick the model here.',
         needsKey: false,
         baseUrl: { value: ollama, editable: true },
         thinking: ['auto', 'off', 'low', 'medium', 'high'],
@@ -283,7 +292,7 @@ export class AgencyAiGatewayService {
         label: 'Antigravity CLI',
         kind: 'cli',
         summary:
-          'Uses the Google Antigravity program (agy) on this computer, with your own Google sign-in.',
+          'The default on the desktop app. Uses the Google Antigravity program (agy) on this computer, with your own Google sign-in.',
         setup:
           'Install Antigravity, run “agy” once in a terminal and sign in, then press Test. Support is experimental: it depends on the version you have installed.',
         binary: 'agy',
@@ -414,7 +423,7 @@ export class AgencyAiGatewayService {
     ) as StoredProviders;
     const active = AI_PROVIDER_IDS.includes(row?.activeProvider as AiProviderId)
       ? (row!.activeProvider as AiProviderId)
-      : 'local';
+      : this.defaultProvider;
     const thinking = THINKING_LEVELS.includes(row?.thinking as ThinkingLevel)
       ? (row!.thinking as ThinkingLevel)
       : 'auto';
@@ -1374,6 +1383,9 @@ export class AgencyAiGatewayService {
           );
         })
       );
+      // A program that stops before it reads its input (signed out, bad flag) closes the pipe; the
+      // exit code and its message above are the answer, so a broken pipe must not crash the server.
+      child.stdin.on('error', () => undefined);
       if (options.stdin !== undefined) child.stdin.write(options.stdin);
       child.stdin.end();
     });

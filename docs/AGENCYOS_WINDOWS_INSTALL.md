@@ -34,10 +34,12 @@ Download `AgencyOS-Setup-<version>.exe` from the repository's **Releases** page 
 ## Daily use
 
 * **Open** it from the Start menu. The window is the app: no browser tabs or address bar.
-* **Closing the window does not stop AgencyOS.** It keeps running in the background (the AgencyOS
-  icon near the clock) so scheduled campaigns are still sent. Use the tray icon to open it again.
-* **Quit** from the tray icon (or the *AgencyOS → Quit* menu). It asks first, because campaigns
-  are not sent while AgencyOS is closed.
+* **Closing the window shuts AgencyOS down.** It asks first and says so plainly: while AgencyOS is
+  closed no scheduled campaign is sent and no group admin's `/authorize` or `/revoke` is heard.
+  **Minimizing the window keeps AgencyOS working** in the background (the AgencyOS icon near the
+  clock opens it again). *Start with Windows* starts it in the background, without a window, so
+  scheduled campaigns keep going after a restart.
+* **Quit** from the tray icon (or the *AgencyOS → Quit* menu) asks the same question.
 * **Settings → System** (also *System settings…* under the tray icon): what is running, the local
   AI status, restart, and where your files are kept (with a safe way to move them). Telegram bots
   are connected under **Settings → Telegram bots**: any number, each with its own token.
@@ -45,11 +47,26 @@ Download `AgencyOS-Setup-<version>.exe` from the repository's **Releases** page 
   only appears if something failed to start, or while your data is being moved.)
 * Links to other websites open in your normal browser. Only AgencyOS itself is shown in the window.
 
-## Local AI, chosen for your computer
+## AI: Antigravity by default, a local model if you want one
 
-AI is optional in AgencyOS — search and copy suggestions work without it — but a local model makes
-both better, and nothing leaves your computer. On the first start AgencyOS looks at your memory,
-processor and graphics card and installs what fits, automatically:
+AgencyOS uses **Antigravity CLI** for ad copy and the Copilot by default. Nothing is downloaded for
+it: install and sign in to Antigravity on this computer, and choose another tool or an API key in
+**Settings → AI and Copilot** whenever you like. Until Antigravity is installed, AgencyOS says so
+plainly in place of the AI answer; everything else works.
+
+A **local model** is optional and entirely your choice: it keeps text on this computer and works
+offline, but it is a download of several GB. Go to **Settings → System → Local AI**:
+
+* **Set up automatically** (a switch, off on a new install): AgencyOS looks at your memory,
+  processor and graphics card, installs the AI engine (Ollama) and picks models that fit. Turn it
+  off and AgencyOS stops the engine and downloads nothing more.
+* **Download any model yourself**: type a model name or pick a suggestion, watch the progress, and
+  cancel whenever you like. **Try** sends one short test question; **Delete** removes a model
+  after you confirm (a model you delete is not downloaded again by the automatic setup).
+* **Start and stop the engine** by hand, or set it up without downloading a model.
+* To use a local model in the product, pick it in **Settings → AI and Copilot**.
+
+If you switch the automatic setup on, it chooses like this:
 
 | Your computer | Search model | Text model for copy suggestions |
 | --- | --- | --- |
@@ -77,9 +94,10 @@ Details of how it decides:
   that no longer exists falls back to the next candidate.
 * If you already run Ollama, AgencyOS uses yours instead of installing a second one.
 
-The AI engine (Ollama, about 1.4 GB) and the models are downloaded in the background after the
-first start. You can use AgencyOS right away; keyword search and template copy are used until
-the models are ready. The status page shows progress.
+The AI engine (Ollama, about 1.4 GB) and the models are downloaded in the background once you
+switch this on. You can use AgencyOS right away; keyword search and template copy are used until
+the models are ready, and Settings → System shows progress. An install that already used the
+automatic setup (an earlier version) keeps it on.
 
 Override the choice by creating `%LOCALAPPDATA%\AgencyOS\config\user.env` containing, for example:
 
@@ -94,16 +112,16 @@ AGENCYOS_EMBEDDING_MODEL=nomic-embed-text
 * Everything runs on this computer. The database, cache, workflow engine, server and AI listen on
   `127.0.0.1` only, so Windows Firewall does not prompt and nothing is reachable from the network.
 * Nothing is sent to a third-party AI service unless you choose one in **Settings → AI and Copilot**
-  and save its key (the local model is the default). Choosing Claude Code, Codex CLI or Antigravity
+  and save its key (Antigravity CLI is the default on this computer). Choosing Claude Code, Codex CLI or Antigravity
   CLI sends text to that tool, which sends it to its own service under your sign-in. API keys are
   stored encrypted in your local database and are never shown again.
 * AgencyOS runs the own update command of Claude Code, Codex CLI and Antigravity CLI once a day to keep them current
   (Settings → AI and Copilot turns this off; `AGENCY_AI_TOOL_UPDATES=off` in `user.env` disables it
   for good). It never downloads or installs anything else for them.
-* The only connections AgencyOS itself makes: the one-time download of the AI engine and models
-  (GitHub and the Ollama registry), and Telegram if you add a bot token.
-* A Telegram bot token is stored in `user.env` in your own profile folder. It is never stored in
-  the database or shown again.
+* The only connections AgencyOS itself makes: the download of the AI engine and models when you ask
+  for them (GitHub and the Ollama registry), and Telegram if you add a bot token.
+* Telegram bot tokens are pasted under **Settings → Telegram bots**, stored encrypted in your local
+  database and never shown again.
 
 ## Where your files are stored
 
@@ -122,8 +140,8 @@ stays in the default folder so AgencyOS, the installer and the uninstaller agree
 `/DATADIR=D:\AgencyOS` and `/AIDIR=E:\AgencyOS-AI` (plain letters, numbers and symbols only; the AI folder
 is optional). Network folders, whole drives and folders that already hold other files are refused.
 
-**Changing it later.** Open **Settings → Storage → Change location**, or tray icon → *Status and
-settings*. Pick the new folder (any characters are fine here); AgencyOS checks it and the free space
+**Changing it later.** Open **Settings → System → Change location…** (or tray icon → *System
+settings…*). Pick the new folder (any characters are fine here); AgencyOS checks it and the free space
 while you type, then asks you to confirm. It stops, copies the files, **compares the copy with the
 original**, switches, and starts again by itself. Nothing is deleted from the old place; when you are
 happy, press *Delete the old copy*. If anything fails, AgencyOS puts everything back and keeps running

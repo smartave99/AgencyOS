@@ -8,6 +8,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { renderStatusPage } from './status-page.mjs';
+import { validModelName } from './ollama.mjs';
 
 const TELEGRAM_TOKEN = /^\d{6,}:[A-Za-z0-9_-]{30,}$/;
 
@@ -38,6 +39,14 @@ async function readJson(req, limit = 16 * 1024) {
   }
 }
 
+/** A model name typed by a person: checked here, and again by the manager, before it reaches the engine. */
+export function modelName(value) {
+  if (!validModelName(value)) {
+    throw Object.assign(new Error('That is not a valid model name. Use a name like gemma3:4b.'), { status: 400 });
+  }
+  return value.trim();
+}
+
 /**
  * Folders arrive as plain strings. An empty or missing field means "leave as is"; for the AI folder
  * `keepWithData: true` means "store the AI files inside the data folder" (the default layout).
@@ -53,7 +62,9 @@ export function storageRequest(body = {}) {
 
 /**
  * @param actions { restart(service?), shutdown(), retryAi(), setTelegramToken(token|null),
- *                  checkStorage(request), moveStorage(request), cleanupStorage() }
+ *                  checkStorage(request), moveStorage(request), cleanupStorage(),
+ *                  aiModels(), aiSetAuto(enabled), aiDownload(model), aiCancel(), aiDelete(model),
+ *                  aiEngine(action), aiTry(model) }
  */
 export function createStatusServer({ port, token, version, getStatus, tail, actions }) {
   const send = (res, status, body, type = 'application/json; charset=utf-8') => {
@@ -79,6 +90,8 @@ export function createStatusServer({ port, token, version, getStatus, tail, acti
 
       if (!authorized) return send(res, 403, { error: 'Forbidden' });
 
+      if (req.method === 'GET' && url.pathname === '/api/ai/models') return send(res, 200, await actions.aiModels());
+
       if (req.method === 'GET' && url.pathname.startsWith('/api/logs/')) {
         const name = decodeURIComponent(url.pathname.slice('/api/logs/'.length));
         const lines = Math.min(Number.parseInt(url.searchParams.get('lines') || '200', 10) || 200, 2000);
@@ -99,6 +112,18 @@ export function createStatusServer({ port, token, version, getStatus, tail, acti
           case '/api/ai/retry':
             actions.retryAi();
             return send(res, 202, { ok: true });
+          case '/api/ai/auto':
+            return send(res, 200, actions.aiSetAuto(body.enabled === true));
+          case '/api/ai/pull':
+            return send(res, 202, { ok: true, ...actions.aiDownload(modelName(body.model)) });
+          case '/api/ai/cancel':
+            return send(res, 200, actions.aiCancel());
+          case '/api/ai/delete':
+            return send(res, 200, { ok: true, ...(await actions.aiDelete(modelName(body.model))) });
+          case '/api/ai/engine':
+            return send(res, 202, { ok: true, ...actions.aiEngine(String(body.action || '')) });
+          case '/api/ai/try':
+            return send(res, 200, await actions.aiTry(modelName(body.model)));
           case '/api/storage/check':
             return send(res, 200, await actions.checkStorage(storageRequest(body)));
           case '/api/storage/move':

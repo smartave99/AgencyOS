@@ -3,12 +3,18 @@ import { NextRequest, NextResponse } from 'next/server';
 // The desktop app's System settings (what is running, local AI, where files are kept) talk to the
 // launcher that runs AgencyOS on this computer. The launcher's own token stays on this side: a page
 // can only ask through here, and only a signed-in administrator on this computer is answered.
-const READ = new Set(['status']);
+const READ = new Set(['status', 'ai/models']);
 const WRITE = new Set([
   'storage/check',
   'storage/move',
   'storage/cleanup',
   'ai/retry',
+  'ai/auto',
+  'ai/pull',
+  'ai/cancel',
+  'ai/delete',
+  'ai/engine',
+  'ai/try',
   'restart',
 ]);
 const MAX_BODY = 16 * 1024;

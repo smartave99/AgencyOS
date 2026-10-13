@@ -12,20 +12,16 @@ A desktop app: install it, open it from the Start menu, and everything runs on y
 
 ### What the installer sets up
 
-- The AgencyOS desktop app (own window, taskbar and tray icon; closing the window keeps scheduled campaigns running; quit from the tray icon).
+- The AgencyOS desktop app (own window, taskbar and tray icon; **closing the window shuts AgencyOS down** (it asks first, and nothing is sent while it is closed) and **minimizing keeps it working** in the background).
 - PostgreSQL 16, Redis, the Temporal workflow engine and Node.js, bundled and started for you. They listen only on this computer, so Windows Firewall never asks about them.
-- **Local AI, chosen for your computer, with no setup.** On first start AgencyOS looks at your memory, processor and graphics card and picks models that fit:
-  - EmbeddingGemma (Google) for meaning-based search of your knowledge base,
-  - a Gemma text model for ad-copy suggestions, from a small model on a modest laptop up to a large one on a powerful NVIDIA card,
-  - it then measures real speed and steps down to a lighter model if the machine is too slow.
-  The AI engine and models are downloaded in the background (a one-time download of roughly 2–6 GB depending on your computer). AgencyOS works fully meanwhile, using keyword search and template copy, and works offline afterwards.
+- **AI with nothing to download.** AgencyOS uses Antigravity CLI by default (install and sign in to it on this computer; other tools and API keys are one choice away). A **local model is optional**: under **Settings → System → Local AI** you can let AgencyOS pick models for your computer, or download, try, start, stop and delete models yourself. Local models are a one-time download of roughly 2–6 GB, then work offline.
 - **You choose where your files are stored.** Setup asks for a data folder (database, uploads, logs) and, optionally, a separate folder for the AI models. The default is `%LOCALAPPDATA%\AgencyOS`. Later, **Settings → Storage** moves them safely: files are copied and checked first, and the old copy is deleted only when you say so. Your data is kept when you upgrade or uninstall (the uninstaller asks and lists the folders).
 - **No sign-in.** AgencyOS runs for one person on this computer and opens straight into your workspace.
-- **One place for AI.** Settings → AI and Copilot lets you use the local model, Claude Code, Codex CLI, Antigravity CLI or an API key (Anthropic, OpenAI, Gemini, or any OpenAI-compatible service), choose the model and the thinking level, and test that it works. The **Guide** inside the app explains the main workflow and how to set up a local model.
+- **One place for AI.** Settings → AI and Copilot lets you use Antigravity CLI (the default), a local model, Claude Code, Codex CLI, Antigravity CLI or an API key (Anthropic, OpenAI, Gemini, or any OpenAI-compatible service), choose the model and the thinking level, and test that it works. The **Guide** inside the app explains the main workflow and how to set up a local model if you want one.
 
 ### Requirements
 
-Windows 10 (version 1809) or Windows 11, 64-bit (Windows on ARM runs it through Windows' x64 emulation). About 4 GB of free disk space for the program, plus space for the AI models. 8 GB of memory or more recommended; below 8 GB the AI is limited to small models, below 4 GB it is switched off.
+Windows 10 (version 1809) or Windows 11, 64-bit (Windows on ARM runs it through Windows' x64 emulation). About 4 GB of free disk space for the program, plus space for any local AI models you choose to download. 8 GB of memory or more recommended for local models; below 8 GB they are limited to small ones, below 4 GB they are not offered.
 
 ### First start
 

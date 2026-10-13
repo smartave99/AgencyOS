@@ -52,6 +52,30 @@ describe('status server', () => {
           calls.push(['cleanupStorage']);
           return { removed: 1 };
         },
+        aiModels: async () => ({ auto: false, engine: { installed: false, running: false }, installed: [] }),
+        aiSetAuto: (enabled) => {
+          calls.push(['aiSetAuto', enabled]);
+          return { auto: enabled };
+        },
+        aiDownload: (model) => {
+          calls.push(['aiDownload', model]);
+          return { started: true };
+        },
+        aiCancel: () => {
+          calls.push(['aiCancel']);
+          return { cancelled: true };
+        },
+        aiDelete: async (model) => {
+          calls.push(['aiDelete', model]);
+          if (model === 'gone:1b') throw Object.assign(new Error('gone:1b is not installed.'), { status: 404 });
+          return { deleted: model };
+        },
+        aiEngine: (action) => {
+          calls.push(['aiEngine', action]);
+          if (action === 'explode') throw Object.assign(new Error('Unknown engine action'), { status: 400 });
+          return { started: true };
+        },
+        aiTry: async (model) => ({ ok: true, kind: 'text', model }),
       },
     });
     await handle.listen();
@@ -93,6 +117,39 @@ describe('status server', () => {
     const logs = await request(port, { path: '/api/logs/backend', headers: auth });
     assert.equal(logs.body, 'log line');
     assert.equal((await request(port, { path: '/api/logs/nope', headers: auth })).status, 404);
+  });
+
+  it('local AI by hand: needs the token, checks the model name, and passes the request on', async () => {
+    const before = calls.length;
+    for (const p of ['/api/ai/auto', '/api/ai/pull', '/api/ai/cancel', '/api/ai/delete', '/api/ai/engine', '/api/ai/try']) {
+      const r = await request(port, { method: 'POST', path: p, headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      assert.equal(r.status, 403, p);
+    }
+    assert.equal((await request(port, { path: '/api/ai/models' })).status, 403);
+    assert.equal(calls.length, before);
+
+    assert.equal(JSON.parse((await request(port, { path: '/api/ai/models', headers: auth })).body).auto, false);
+    assert.equal((await request(port, { method: 'POST', path: '/api/ai/auto', headers: auth, body: { enabled: true } })).status, 200);
+    assert.equal((await request(port, { method: 'POST', path: '/api/ai/auto', headers: auth, body: { enabled: 'yes' } })).status, 200); // only true turns it on
+    assert.deepEqual(calls.slice(before), [['aiSetAuto', true], ['aiSetAuto', false]]);
+
+    const pulled = await request(port, { method: 'POST', path: '/api/ai/pull', headers: auth, body: { model: ' gemma3:4b ' } });
+    assert.equal(pulled.status, 202);
+    assert.deepEqual(calls.at(-1), ['aiDownload', 'gemma3:4b']);
+    for (const model of ['', 'a b', 'x;rm -rf /', '../../etc/passwd', 'x'.repeat(300), undefined, 42, ['gemma3:4b']]) {
+      for (const p of ['/api/ai/pull', '/api/ai/delete', '/api/ai/try']) {
+        const r = await request(port, { method: 'POST', path: p, headers: auth, body: { model } });
+        assert.equal(r.status, 400, `${p} ${JSON.stringify(model)}`);
+      }
+    }
+    assert.equal((await request(port, { method: 'POST', path: '/api/ai/delete', headers: auth, body: { model: 'gemma3:4b' } })).status, 200);
+    const missing = await request(port, { method: 'POST', path: '/api/ai/delete', headers: auth, body: { model: 'gone:1b' } });
+    assert.equal(missing.status, 404);
+    assert.match(JSON.parse(missing.body).error, /not installed/);
+    assert.equal((await request(port, { method: 'POST', path: '/api/ai/engine', headers: auth, body: { action: 'start' } })).status, 202);
+    assert.equal((await request(port, { method: 'POST', path: '/api/ai/engine', headers: auth, body: { action: 'explode' } })).status, 400);
+    assert.equal(JSON.parse((await request(port, { method: 'POST', path: '/api/ai/try', headers: auth, body: { model: 'gemma3:4b' } })).body).ok, true);
+    assert.equal((await request(port, { method: 'POST', path: '/api/ai/cancel', headers: auth, body: {} })).status, 200);
   });
 
   it('validates the Telegram token shape and never echoes it back', async () => {

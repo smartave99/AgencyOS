@@ -85,7 +85,7 @@ limit. **Missing** = not built. **Unverified** = built, but could not be exercis
 | Knowledge base: ingest with authorization attestation, retention (purge, delete), tenant-isolated | Done | Tests. |
 | Search | Partial | Keyword hashing by default (labelled). Meaning-based search only when an Ollama embedding model is reachable, and only when every document has an embedding from the same model. No pgvector. |
 | Sentiment | Partial | Word-list score, labelled as such. |
-| Copy suggestions | Partial | The provider chosen in Settings (local Ollama by default); otherwise a template, labelled "Template draft" with the reason. Never blocks publishing (scenario 11). |
+| Copy suggestions | Partial | The provider chosen in Settings (Antigravity CLI by default on the desktop app, a local Ollama model otherwise); otherwise a template, labelled "Template draft" with the reason. Never blocks publishing (scenario 11). |
 | AI providers (local, Claude Code, Codex CLI, Antigravity CLI, Anthropic, OpenAI, Gemini, OpenAI-compatible), model and thinking-level choice, sealed keys, Test, Copilot chat | Partial | 35 unit/integration tests plus HTTP tests with stand-in programs and mocked APIs. Claude Code's flags were run for real; Codex CLI and API request shapes follow their documentation but were **not** run against the real services here; Antigravity CLI is experimental (third-party-documented flags, known headless hang in some versions). Chat answers are not streamed. |
 | Automatic updates for AI command-line tools | Partial | `claude update`, `codex update` and `agy update` once a day with a switch and an Update now button (tested with stand-in programs, not against the real updaters; the Antigravity command follows Google's documentation). |
 | Model and thinking-level discovery | Partial | Each tool is asked for its own list: Claude Code through its stream-json initialize reply (run for real), Codex CLI through `codex app-server` `model/list`, Antigravity through `agy models`, Ollama through `/api/show` capabilities. Codex and Antigravity discovery follow third-party or snippet-level documentation and were **not** run against real installs; each falls back to a short built-in list and says so. |
@@ -104,14 +104,16 @@ limit. **Missing** = not built. **Unverified** = built, but could not be exercis
 ## Windows desktop installer
 
 AgencyOS can be installed on a Windows laptop with nothing else installed and runs as its own
-desktop application (Electron window, tray icon; not a browser tab) with local AI chosen for the
-hardware. How it works: [`installer/README.md`](../installer/README.md); how to use it:
+desktop application (Electron window, tray icon; not a browser tab). Antigravity CLI is the default
+AI; a local model, which AgencyOS can choose for the hardware, is optional. How it works: [`installer/README.md`](../installer/README.md); how to use it:
 [`AGENCYOS_WINDOWS_INSTALL.md`](AGENCYOS_WINDOWS_INSTALL.md).
 
 | Item | Status | Evidence |
 | --- | --- | --- |
 | Hardware detection and model selection (EmbeddingGemma + a Gemma text model sized to memory, threads, NVIDIA video memory and free disk; AI off below 4 GB) | Done | 26 unit tests across hardware classes, disk limits, overrides and step-down; model sizes read from `registry.ollama.ai` |
 | AI manager: runtime download with resume and checksum, model pulls with progress, embedding check, measured speed, step-down to a lighter model, offline wait, reuse of an existing Ollama | Done | 9 state-machine tests with a scripted Ollama; 21 tests of downloads, the Ollama client and registry lookups |
+| Local model manager (opt-in automatic setup that starts off on a new install; download any model by name with progress and cancel; try, delete with confirmation, install/start/stop the engine; deleted models are not downloaded again; one operation at a time; names validated) | Done (launcher logic, proxy and browser run with a stand-in launcher); not run against a real Ollama on Windows until the 1.4.0 smoke run | 11 new launcher tests with a scripted Ollama, a status-server endpoint test, browser walkthrough; the Windows smoke test now downloads and deletes a small model by hand |
+| Closing the window shuts AgencyOS down after a confirmation that says no campaign will be sent; minimizing keeps it running | Done (policy text tested); not run on a real Windows desktop | policy test of the notice and buttons |
 | Supervisor: ordered start, readiness, restart with backoff, clean stop, leftover cleanup | Done | 11 tests with real child processes; also run on a Windows runner |
 | Status page and control API (loopback only, token for state changes, Host check) | Done | 14 tests. The page is now only the failure and data-move view; its Telegram box moved into the app. |
 | System and storage settings inside the app (status, local AI, restart, change data and AI folders with plan check, confirmation and folder picker) through an authenticated same-origin proxy; start-up screen instead of the status page; tray opens the in-app settings | Done (logic, proxy and browser run); not run on a real Windows desktop | policy tests (folder picker only for the Settings page, start-up line), launcher test (token only in the app server), 4 live proxy checks (allowed, anonymous, cross-site, wrong host, unlisted actions) and browser screenshots |

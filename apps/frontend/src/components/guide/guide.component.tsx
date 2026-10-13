@@ -173,7 +173,7 @@ export const GuideComponent: FC = () => {
       <div className="flex flex-wrap gap-2 text-[13px]">
         {[
           ['workflow', 'Your first campaign'],
-          ['local-model', 'Set up a local model'],
+          ['local-model', 'Use a local model'],
           ['agent', 'Copilot and agent'],
           ['other-ai', 'Other AI providers'],
           ['scope', 'What AgencyOS does'],
@@ -254,39 +254,43 @@ export const GuideComponent: FC = () => {
 
       <Section
         id="local-model"
-        title="Set up a local model"
-        intro="A local model runs on this computer: private, free and it works offline. For most people there is nothing to do."
+        title="Use a model on this computer (optional)"
+        intro="By default AgencyOS answers with the Antigravity CLI and downloads nothing. A model on this computer is private, free and works offline, but it takes disk space and memory, so it is yours to switch on."
       >
         <Steps
           items={[
             <>
-              <strong>It sets itself up.</strong> The first time AgencyOS starts
-              it looks at your memory, processor and graphics card and downloads
-              a model that fits (a one-time download of roughly 2 to 6 GB).
-              Until it finishes, ad copy uses templates and the Copilot says the
-              model is not ready. Progress is under <em>Settings → System</em>.
+              <strong>Nothing downloads on its own.</strong> Open{' '}
+              <Link
+                className="font-medium text-[color:var(--ag-accent-text)] hover:underline"
+                href="/settings?tab=system"
+              >
+                Settings → System → Local AI
+              </Link>
+              . Turn on <em>Set up automatically</em> and AgencyOS looks at your
+              memory, processor and graphics card, then downloads the engine and
+              a model that fits (roughly 2 to 6 GB). Or choose for yourself:
             </>,
             <>
-              <strong>Check that it works.</strong> Open{' '}
+              <strong>Install, download, try, delete.</strong> Press{' '}
+              <em>Install and start</em> for the engine (about 1.4 GB, once),
+              then type any model name (or pick a suggestion, which shows its
+              size) and press <em>Download</em>. <em>Try it</em> runs the model
+              once and shows its speed. <em>Delete</em> frees the disk space,
+              and a deleted model is not downloaded again unless you ask. The
+              engine can be stopped and started at any time.
+            </>,
+            <>
+              <strong>Use it.</strong> Open{' '}
               <Link
                 className="font-medium text-[color:var(--ag-accent-text)] hover:underline"
                 href="/settings?tab=ai"
               >
                 Settings → AI and Copilot
               </Link>
-              , choose <em>Local model (Ollama)</em> and press <em>Test</em>.
-              “Working” means it answered; anything else says what to fix.
-            </>,
-            <>
-              <strong>Too slow?</strong> Use a smaller model. In a terminal run{' '}
-              <Code>ollama pull qwen2.5:3b</Code>, then in Settings press{' '}
-              <em>Check again</em> and pick it under <em>Model</em>.
-            </>,
-            <>
-              <strong>Want a different or bigger model?</strong> Run{' '}
-              <Code>ollama pull &lt;name&gt;</Code> with any name from
-              ollama.com/library, then choose it under <em>Model</em>. Bigger
-              models write better but need more memory.
+              , choose <em>Local model (Ollama)</em>, pick the model and press{' '}
+              <em>Test</em>. “Working” means it answered; anything else says
+              what to fix. Too slow? Download a smaller model and pick that.
             </>,
             <>
               <strong>Thinking level.</strong> Leave it on <em>Auto</em> for ad
@@ -307,10 +311,10 @@ export const GuideComponent: FC = () => {
           ]}
         />
         <p className="text-[12px] leading-relaxed text-textItemBlur">
-          The <Code>ollama</Code> command comes from the free Ollama app
-          (ollama.com). AgencyOS and that command use the same address, so a
-          model you pull appears in AgencyOS. If you already run Ollama,
-          AgencyOS uses yours instead of starting a second one.
+          Models you pull with the free Ollama app’s own <Code>ollama</Code>{' '}
+          command appear here too, because they use the same address. If you
+          already run Ollama, AgencyOS uses yours instead of starting a second
+          one (and cannot stop it).
         </p>
       </Section>
 
@@ -382,8 +386,8 @@ export const GuideComponent: FC = () => {
 
       <Section
         id="other-ai"
-        title="Use Claude Code, Codex, Antigravity or an API"
-        intro="One setting decides which AI answers everywhere: ad copy, text improvement and the Copilot."
+        title="Choose your AI: Antigravity, Claude Code, Codex or an API"
+        intro="One setting decides which AI answers everywhere: ad copy, text improvement and the Copilot. On the desktop app it starts as the Antigravity CLI."
       >
         <div className="grid gap-3 sm:grid-cols-2">
           {[
@@ -396,8 +400,8 @@ export const GuideComponent: FC = () => {
               'Install it, run codex once and sign in. Leave the model empty to use Codex’s own default.',
             ],
             [
-              'Antigravity CLI (experimental)',
-              'Install it, run agy once and sign in. Support follows the program’s documented options and some versions hang when started by another program, so always press Test.',
+              'Antigravity CLI (the default, experimental)',
+              'Install it, run agy once and sign in, then press Test. Until it is installed and signed in, ad copy uses templates and the Copilot says what is missing. Support follows the program’s documented options and some versions hang when started by another program.',
             ],
             [
               'APIs',

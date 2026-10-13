@@ -81,6 +81,13 @@ describe('desktop shell policy', () => {
     assert.equal(p.isAppSettingsPage('http://localhost:4200/settings', null), false);
   });
 
+  it('warns, before closing, that closing shuts AgencyOS down and stops every scheduled send', () => {
+    const n = p.CLOSE_NOTICE;
+    assert.deepEqual(n.buttons, ['Close AgencyOS', 'Keep running']); // the safe answer is the second one
+    assert.match(n.detail, /No scheduled campaign will be sent/);
+    assert.match(n.detail, /minimize the window instead/);
+  });
+
   it('says on the start-up screen what is being started', () => {
     assert.equal(p.startupLine(undefined), 'Starting on this computer…');
     assert.equal(p.startupLine({ ready: false, services: [{ label: 'Database', state: 'starting' }, { label: 'Cache', state: 'pending' }] }), 'Starting database…');

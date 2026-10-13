@@ -2,12 +2,13 @@
 
 Every change in every version of AgencyOS, by NextGen OS, newest first. This file is generated from `libraries/helpers/src/changelog/releases.json`: edit that file, then run `node installer/build/changelog.mjs`.
 
-## 1.4.0 — 2026-10-13 · Backup bots that take turns, and an installer ready to be signed
+## 1.4.0 — 2026-10-13 · Antigravity by default, models you manage yourself, and backup bots
 
-A chat can have backup bots that take over or take turns with its main bot, but only bots its administrator has already made administrators, and never to get around a chat or Telegram. The build can now sign the installer as soon as a signing certificate is added.
+Antigravity CLI is now the default AI, so a new install downloads nothing; a local model is optional and you can download, try, start, stop and delete models yourself. Closing the window now shuts AgencyOS down (after telling you what that means) while minimizing keeps it working. A chat can also have backup bots, and the build can sign the installer as soon as a certificate is added.
 
 ### Added
 
+- **AI:** Settings → System → Local AI: download any model by name (with progress and cancel), try it, delete it after a confirmation, and start or stop the local engine. The automatic setup that picks models for your hardware is now a switch that starts off on a new install; an install that already used it keeps it on.
 - **Telegram:** Backup bots: on an authorized chat, choose Backup bots… to let other bots of yours post there too. Each must already be an administrator of the chat with permission to post; AgencyOS checks that live before every send, and nothing in AgencyOS can add a bot to a chat.
 - **Telegram:** How the bots share the work: main bot first (a backup takes over only when AgencyOS cannot use the main bot because it is paused, removed or its token is rejected), take turns, or fewest posts in the last 24 hours first. You can also make a backup the main bot by hand.
 - **Telegram:** Every change of bot is written to the audit trail with the time, the reason and the campaign, and delivery receipts show which bot sent each post.
@@ -19,11 +20,18 @@ A chat can have backup bots that take over or take turns with its main bot, but 
 
 ### Changed
 
+- **AI:** Antigravity CLI is the default AI on the desktop app. A new install no longer downloads a local model by itself; install and sign in to Antigravity, or pick another tool or an API key in Settings → AI and Copilot.
+- **Desktop:** Closing the window now shuts AgencyOS down, after asking: no scheduled campaign is sent and no administrator's /authorize or /revoke is heard until you open it again. Minimizing the window keeps AgencyOS working in the background.
 - **Telegram:** A chat whose main bot is removed from it, or loses the right to post, is disconnected whatever backups it has, and a post that Telegram asks to slow down waits for its own bot. AgencyOS never switches bots to get around a chat's or Telegram's decision.
+
+### Fixed
+
+- **AI:** A command-line AI tool that quit before reading its question (for example because it was signed out) could crash the AgencyOS server with a broken-pipe error. It now reports the tool's own message.
 
 ### Good to know
 
 - Telegram has still not been reached from the test machine: bots, backups and taking turns are tested against a simulated Telegram.
+- The local model manager and the new close-window behaviour have been run against a stand-in launcher and simulated engine; the Windows test run exercises them on a real machine. Antigravity, Codex and Claude Code themselves are not available to the test machine, so their sign-in and model lists have not been run for real.
 - The installer is still not code-signed in this release: signing needs a certificate that only the owner can obtain (docs/AGENCYOS_SIGNING.md). Even after that, Windows SmartScreen can warn for a while about a new publisher.
 - Auto-join, scraping members and bulk-adding people are still not built, and are not planned: see docs/AGENCYOS_RULES_CONFLICT.md.
 

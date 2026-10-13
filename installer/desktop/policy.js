@@ -70,6 +70,18 @@ function windowPhase(status) {
   return status.attention ? 'attention' : 'starting';
 }
 
+/**
+ * What the window's close button (and Quit) says before shutting AgencyOS down. Closing is a
+ * shutdown, so the notice names what stops, and points to minimizing for keeping it working.
+ */
+const CLOSE_NOTICE = {
+  title: 'Close AgencyOS',
+  message: 'Close AgencyOS?',
+  detail:
+    'Closing shuts AgencyOS down. No scheduled campaign will be sent, and no group admin’s /authorize or /revoke will be heard, until you open AgencyOS again. Your data is kept.\n\nTo keep AgencyOS working in the background, minimize the window instead.',
+  buttons: ['Close AgencyOS', 'Keep running'],
+};
+
 function trayTooltip(status, version = '') {
   const name = `AgencyOS${version ? ` ${version}` : ''}`;
   switch (windowPhase(status)) {
@@ -122,4 +134,4 @@ function isOwnPage(url, origins) {
   return !!u && u.protocol === 'http:' && origins.has(u.origin);
 }
 
-module.exports = { parseArgs, trustedOrigins, classifyNavigation, safeToOpenExternally, parseStatusPort, windowPhase, trayTooltip, isStatusPage, isAppSettingsPage, startupLine, titleBarOverlay, isOwnPage, TITLE_BAR_HEIGHT, RETRY_URL };
+module.exports = { parseArgs, trustedOrigins, classifyNavigation, safeToOpenExternally, parseStatusPort, windowPhase, trayTooltip, CLOSE_NOTICE, isStatusPage, isAppSettingsPage, startupLine, titleBarOverlay, isOwnPage, TITLE_BAR_HEIGHT, RETRY_URL };

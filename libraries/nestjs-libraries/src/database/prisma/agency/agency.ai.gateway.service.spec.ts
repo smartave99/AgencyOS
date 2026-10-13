@@ -106,6 +106,21 @@ describe('AgencyAiGatewayService - saved settings', () => {
     await rejects({ activeProvider: 'openai', thinking: 'max' });
   });
 
+  it('starts as the Antigravity CLI on the desktop app and as the local model on a server, until someone chooses', async () => {
+    const desktop = await build().gateway.getSettings(ACTOR);
+    expect(desktop.activeProvider).toBe('antigravity-cli');
+    expect(
+      desktop.providers.find((p) => p.id === 'antigravity-cli')
+    ).toMatchObject({
+      selectable: true,
+    });
+
+    process.env.AGENCYOS_LOCAL = 'false';
+    expect((await build().gateway.getSettings(ACTOR)).activeProvider).toBe(
+      'local'
+    );
+  });
+
   it('keeps command-line tools to the desktop app', async () => {
     process.env.AGENCYOS_LOCAL = 'false';
     const { gateway } = build();
@@ -593,6 +608,19 @@ describe('AgencyAiGatewayService - command-line providers', () => {
         .catch((e: any) => e);
       expect(crashed.code).toBe('bad_reply');
       expect(crashed.message).toContain('code 3');
+    });
+
+    it('survives a program that quits before it reads its input', async () => {
+      await install('codex', 'echo "Error: not logged in" >&2; exit 1');
+      const g = await use('codex-cli');
+      for (let round = 0; round < 5; round++) {
+        const error = await g
+          .complete('org-1', {
+            messages: [{ role: 'user', content: 'x'.repeat(2_000_000) }],
+          })
+          .catch((e: any) => e);
+        expect(error.code).toBe('not_signed_in');
+      }
     });
 
     it('stops a program that does not answer', async () => {

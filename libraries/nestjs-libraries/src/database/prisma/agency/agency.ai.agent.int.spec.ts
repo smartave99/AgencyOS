@@ -45,6 +45,12 @@ describeDb('AI agent (real database, scripted model)', () => {
     process.env.AGENCYOS_LOCAL = 'true';
     t = await seedTenant(h, 'agent');
     other = await seedTenant(h, 'agent-other');
+    // The scripted model stands in for the local one; the desktop app's own default is Antigravity.
+    for (const tenant of [t, other]) {
+      await h.aiGateway.updateSettings(tenant.owner, {
+        activeProvider: 'local',
+      });
+    }
   });
   afterEach(() => {
     global.fetch = realFetch;

@@ -9,8 +9,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { detectHardware } from './hardware.mjs';
-import { selectModels, lowerTier, judgeSpeed } from './models.mjs';
-import { OllamaClient, OllamaRuntime, registryInfo, tokensPerSecond, waitForOllama } from './ollama.mjs';
+import { selectModels, lowerTier, judgeSpeed, EMBEDDING_MODELS, TEXT_TIERS } from './models.mjs';
+import { OllamaClient, OllamaRuntime, registryInfo, sameModel, tokensPerSecond, validModelName, waitForOllama } from './ollama.mjs';
 import { sleep } from './net.mjs';
 
 // A failed download is retried quickly at first (a registry hiccup, a dropped connection) and then
@@ -37,6 +37,7 @@ export class AiManager extends EventEmitter {
     ollamaHost,
     runtimeManifest = null,
     startOllama = async () => {},
+    stopOllama = async () => {},
     log = () => {},
     detect = detectHardware,
     registry = registryInfo,
@@ -51,6 +52,7 @@ export class AiManager extends EventEmitter {
     this.host = ollamaHost;
     this.runtimeManifest = runtimeManifest;
     this.startOllama = startOllama;
+    this.stopOllama = stopOllama;
     this.log = log;
     this.detect = detect;
     this.registry = registry;
@@ -60,6 +62,10 @@ export class AiManager extends EventEmitter {
     this.hw = null;
     this.plan = null;
     this.state = this.#load();
+    // Decided once. An install that already set local AI up keeps it automatic; a new install starts
+    // with nothing downloaded, because the Antigravity CLI answers until someone wants a local model.
+    if (typeof this.state.auto !== 'boolean') this.state.auto = !!(this.state.plan || this.runtime.installed);
+    this.manual = null; // the download the person asked for: { model, controller }
     this.status = {
       phase: 'idle',
       message: 'Waiting to start',
@@ -72,8 +78,36 @@ export class AiManager extends EventEmitter {
       reasons: this.state.plan?.reasons || [],
       benchmark: this.state.benchmark || null,
       hardware: this.state.hardware || null,
+      auto: this.state.auto,
+      download: null,
     };
     this.stopped = false;
+  }
+
+  /** Whether AgencyOS sets up and starts local AI by itself. Off for a new install. */
+  get auto() {
+    return this.state.auto === true;
+  }
+
+  /** Whether the engine should be running at start: automatic setup, or the person last started it. */
+  get engineWanted() {
+    return this.auto || this.state.engineWanted === true;
+  }
+
+  setAuto(enabled) {
+    this.state.auto = enabled === true;
+    this.#save();
+    this.#set({ auto: this.state.auto, ...(this.state.auto ? {} : this.#standby()) });
+    if (!this.state.auto) this.stop();
+    return this.state.auto;
+  }
+
+  #standby() {
+    return {
+      phase: 'standby',
+      message: 'Local AI is off. Turn it on, or download a model yourself, to use one on this computer.',
+      progress: null,
+    };
   }
 
   // ---- persistence ---------------------------------------------------------------------
@@ -225,6 +259,10 @@ export class AiManager extends EventEmitter {
   }
 
   async #once() {
+    if (!this.auto) {
+      this.#set(this.#standby());
+      return 'standby';
+    }
     if (!this.plan) await this.planModels();
     const plan = this.plan;
     if (plan.tier === 'none' || (!plan.embeddingModel && !plan.textModel)) {
@@ -235,8 +273,7 @@ export class AiManager extends EventEmitter {
     await this.#ensureServer();
 
     if (plan.embeddingModel) await this.#ensureModel('embedding', plan.embeddingModel);
-    if (plan.textModel) {
-      await this.#ensureModel('text', plan.textModel);
+    if (plan.textModel && (await this.#ensureModel('text', plan.textModel))) {
       const kept = await this.#calibrate(plan);
       if (!kept) return 'retry-now';
     }
@@ -269,10 +306,15 @@ export class AiManager extends EventEmitter {
     if (!(await waitForOllama(this.client, 90000))) throw new Error('The local AI engine did not start.');
   }
 
+  /** True when the model is there. A model the person deleted is not downloaded again behind their back. */
   async #ensureModel(kind, id) {
     if (await this.client.has(id)) {
       this.#setModel(kind, { state: 'ready', id });
-      return;
+      return true;
+    }
+    if ((this.state.declined || []).some((d) => sameModel(d, id))) {
+      this.#setModel(kind, { state: 'removed', id });
+      return false;
     }
     this.#set({ phase: kind === 'embedding' ? 'downloading-embedding' : 'downloading-text', message: `Downloading ${id}` });
     this.#setModel(kind, { state: 'downloading', id });
@@ -297,6 +339,7 @@ export class AiManager extends EventEmitter {
       this.#setModel(kind, { state: 'ready', id });
     }
     this.#set({ progress: null });
+    return true;
   }
 
   /** Runs a short generation; keeps the model or steps down a tier. Returns true to keep. */
@@ -348,6 +391,228 @@ export class AiManager extends EventEmitter {
     this.#set({ reasons: smaller.reasons });
     this.emit('models-changed', this.appEnv());
     return false;
+  }
+
+  // ---- what the person can do by hand ----------------------------------------------------
+  // Download a model, start or stop the engine, try a model, delete one. Each is a plain action the
+  // person asked for: nothing here runs on its own, and a model they delete stays deleted.
+
+  #checkName(model) {
+    if (!validModelName(model)) {
+      throw Object.assign(new Error('That is not a valid model name. Use a name like gemma3:4b.'), { status: 400 });
+    }
+    return model.trim();
+  }
+
+  #busyError() {
+    return Object.assign(new Error('Another local AI action is still running. Wait for it, or cancel the download.'), { status: 409 });
+  }
+
+  get #working() {
+    return !!this.manual || this.status.engineTask?.state === 'working';
+  }
+
+  async engineState() {
+    const version = await this.client.version();
+    const installed = this.runtime.installed;
+    return { installed, running: !!version, version, external: !!version && !installed };
+  }
+
+  /** What the models screen shows: the engine, what is installed, what could be downloaded. */
+  async models() {
+    const engine = await this.engineState();
+    let installed = [];
+    let listError = null;
+    if (engine.running) {
+      try {
+        installed = await this.client.installedModelDetails();
+      } catch (error) {
+        listError = error.message;
+      }
+    }
+    const plan = this.state.plan;
+    const roleOf = (name) => {
+      const roles = [];
+      if (plan?.textModel && sameModel(name, plan.textModel)) roles.push('copy');
+      if (plan?.embeddingModel && sameModel(name, plan.embeddingModel)) roles.push('search');
+      return roles;
+    };
+    return {
+      auto: this.auto,
+      engine,
+      installed: installed.map((m) => ({ ...m, roles: roleOf(m.name) })),
+      listError,
+      suggestions: this.suggestions(),
+      download: this.status.download || null,
+      engineTask: this.status.engineTask || null,
+      freeDiskGB: this.hw?.disk?.freeGB ?? this.state.hardware?.freeDiskGB ?? null,
+      modelsDir: this.paths.data.ollamaModels,
+    };
+  }
+
+  /** Recommended first (what the automatic setup would choose), then other sizes. */
+  suggestions() {
+    const plan = this.state.plan;
+    const out = [];
+    const seen = new Set();
+    const add = (id, label, kind, sizeGB, recommended, note = '') => {
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      out.push({ id, label, kind, sizeGB: sizeGB ?? null, recommended, note });
+    };
+    const sizeOf = (id) => {
+      const embedding = EMBEDDING_MODELS.find((m) => m.id === id);
+      if (embedding) return embedding.downloadGB;
+      for (const tier of TEXT_TIERS) {
+        const found = tier.candidates.find((c) => c.id === id);
+        if (found) return found.downloadGB;
+      }
+      return null;
+    };
+    if (plan?.textModel) add(plan.textModel, 'Recommended for this computer', 'text', sizeOf(plan.textModel), true);
+    if (plan?.embeddingModel) add(plan.embeddingModel, 'Recommended for search', 'embedding', sizeOf(plan.embeddingModel), true);
+    for (const tier of [...TEXT_TIERS].reverse()) {
+      for (const c of tier.candidates) add(c.id, tier.label, 'text', c.downloadGB, false);
+    }
+    for (const m of EMBEDDING_MODELS) add(m.id, m.label, 'embedding', m.downloadGB, false);
+    return out;
+  }
+
+  /** Turns the engine on (downloading it first if it is missing). Returns at once; progress is in the status. */
+  installEngine() {
+    return this.#engineTask('install', async () => {
+      await this.#ensureServer();
+      this.state.engineWanted = true;
+      this.#save();
+    });
+  }
+
+  startEngine() {
+    return this.#engineTask('start', async () => {
+      if (!this.runtime.installed && !(await this.client.version())) {
+        throw new Error('The local AI engine is not installed yet. Install it first.');
+      }
+      await this.#ensureServer();
+      this.state.engineWanted = true;
+      this.#save();
+    });
+  }
+
+  stopEngine() {
+    return this.#engineTask('stop', async () => {
+      if (!this.runtime.installed && (await this.client.version())) {
+        throw new Error('This engine was started outside AgencyOS, so AgencyOS cannot stop it.');
+      }
+      this.manual?.controller.abort();
+      await this.stopOllama();
+      this.state.engineWanted = false;
+      this.#save();
+    });
+  }
+
+  #engineTask(action, work) {
+    if (this.#working) throw this.#busyError();
+    const labels = { install: 'Setting up the local AI engine', start: 'Starting the local AI engine', stop: 'Stopping the local AI engine' };
+    this.#set({ engineTask: { action, state: 'working', message: labels[action] } });
+    work()
+      .then(() => this.#set({ engineTask: { action, state: 'done', message: '' }, progress: null, ...(this.auto ? {} : this.#standby()) }))
+      .catch((error) => {
+        this.log(`Local AI engine (${action}): ${error.message}`);
+        this.#set({ engineTask: { action, state: 'failed', message: '', error: error.message }, progress: null });
+      });
+    return { started: true };
+  }
+
+  /** Downloads one model the person chose. Returns at once; progress is in the status. */
+  downloadModel(model) {
+    const id = this.#checkName(model);
+    if (this.#working) throw this.#busyError();
+    this.state.declined = (this.state.declined || []).filter((d) => !sameModel(d, id));
+    this.#save();
+    const controller = new AbortController();
+    this.manual = { model: id, controller };
+    const started = Date.now();
+    const progress = (patch) => this.#set({ download: { model: id, state: 'downloading', fraction: 0, received: 0, total: 0, ...patch } });
+    progress({ state: 'starting' });
+    (async () => {
+      try {
+        await this.#ensureServer();
+        await this.client.pull(
+          id,
+          (p) => {
+            const seconds = Math.max((Date.now() - started) / 1000, 1);
+            progress({ fraction: p.fraction, received: p.completed, total: p.total, bytesPerSecond: p.completed / seconds });
+          },
+          { signal: controller.signal }
+        );
+        this.#set({ download: { model: id, state: 'done', fraction: 1 }, progress: null });
+        this.log(`Downloaded ${id}`);
+      } catch (error) {
+        const cancelled = controller.signal.aborted;
+        if (!cancelled) this.log(`Download of ${id} failed: ${error.message}`);
+        this.#set({ download: { model: id, state: cancelled ? 'cancelled' : 'failed', error: cancelled ? null : error.message }, progress: null });
+      } finally {
+        this.manual = null;
+        if (!this.auto) this.#set(this.#standby());
+      }
+    })();
+    return { started: true };
+  }
+
+  cancelDownload() {
+    if (!this.manual) return { cancelled: false };
+    this.manual.controller.abort();
+    return { cancelled: true };
+  }
+
+  async deleteModel(model) {
+    const id = this.#checkName(model);
+    if (this.manual && sameModel(this.manual.model, id)) throw this.#busyError();
+    if (!(await this.client.version())) {
+      throw Object.assign(new Error('Start the local AI engine first: models are deleted through it.'), { status: 409 });
+    }
+    if (!(await this.client.has(id))) throw Object.assign(new Error(`${id} is not installed.`), { status: 404 });
+    await this.client.unload(id);
+    try {
+      await this.client.removeStrict(id);
+    } catch (error) {
+      throw Object.assign(new Error(`${id} could not be deleted: ${error.message}`), { status: 502 });
+    }
+    if (await this.client.has(id)) throw Object.assign(new Error(`${id} could not be deleted.`), { status: 502 });
+    // Remembered, so the automatic setup never puts it back without being asked.
+    this.state.declined = [...(this.state.declined || []).filter((d) => !sameModel(d, id)), id];
+    this.#save();
+    for (const kind of ['text', 'embedding']) {
+      if (this.status.models[kind] && sameModel(this.status.models[kind].id || '', id)) this.#setModel(kind, { state: 'removed' });
+    }
+    this.log(`Deleted ${id}`);
+    return { deleted: id };
+  }
+
+  /** Runs the model once and reports whether it answers and how fast. */
+  async tryModel(model) {
+    const id = this.#checkName(model);
+    if (!(await this.client.version())) {
+      throw Object.assign(new Error('Start the local AI engine first.'), { status: 409 });
+    }
+    const started = Date.now();
+    try {
+      if (/embed/i.test(id) || sameModel(id, this.state.plan?.embeddingModel || '')) {
+        const vectors = await this.client.embed(id, ['AgencyOS test']);
+        if (!vectors[0]?.length) return { ok: false, error: `${id} did not return an embedding.` };
+        return { ok: true, kind: 'embedding', dimensions: vectors[0].length, seconds: (Date.now() - started) / 1000 };
+      }
+      const result = await this.client.generate(id, 'Reply with the single word OK.', { options: { num_predict: 24 }, timeoutMs: 180000 });
+      return {
+        ok: true,
+        kind: 'text',
+        sample: String(result.response || '').trim().slice(0, 120),
+        tokensPerSecond: Math.round(tokensPerSecond(result) * 10) / 10,
+        seconds: Math.round(((Date.now() - started) / 1000) * 10) / 10,
+      };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
   }
 
   snapshot() {

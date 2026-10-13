@@ -673,12 +673,22 @@ const Editor: FC<{
           </button>
         </div>
         {view.id === 'local' && (
-          <Link
-            href="/guide#local-model"
-            className="text-[13px] font-medium text-[color:var(--ag-accent-text)] hover:underline"
-          >
-            Step by step: set up a local model
-          </Link>
+          <div className="flex flex-wrap gap-x-5 gap-y-1">
+            {settings.localMode && (
+              <Link
+                href="/settings?tab=system"
+                className="text-[13px] font-medium text-[color:var(--ag-accent-text)] hover:underline"
+              >
+                Manage local models: download, start, stop, delete
+              </Link>
+            )}
+            <Link
+              href="/guide#local-model"
+              className="text-[13px] font-medium text-[color:var(--ag-accent-text)] hover:underline"
+            >
+              Step by step: set up a local model
+            </Link>
+          </div>
         )}
       </Card>
 

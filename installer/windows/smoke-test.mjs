@@ -89,6 +89,16 @@ async function getJson(url, headers = {}) {
   const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
   return { status: res.status, json: await res.json().catch(() => null), headers: res.headers };
 }
+/** What the app's own System settings send to the launcher, through the app and as a signed-in person. */
+async function viaApp(auth, method, route, body) {
+  const res = await fetch(`http://localhost:4200/api/system/${route}`, {
+    method,
+    headers: { cookie: `auth=${auth}`, 'content-type': 'application/json' },
+    body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
+    signal: AbortSignal.timeout(30000),
+  });
+  return { status: res.status, json: await res.json().catch(() => null) };
+}
 /** The session the app hands to a browser on its first visit. */
 function sessionFrom(res) {
   for (const line of res.headers.getSetCookie?.() || []) {
@@ -338,7 +348,7 @@ async function main() {
       assert(res.status === 200, `${route} -> ${res.status}`);
     }
     const aiSettings = await getJson(`${api}/agency/ai/settings`, h);
-    assert(aiSettings.status === 200 && aiSettings.json?.localMode === true && aiSettings.json?.activeProvider === 'local', `ai settings -> ${aiSettings.status} ${JSON.stringify(aiSettings.json)?.slice(0, 200)}`);
+    assert(aiSettings.status === 200 && aiSettings.json?.localMode === true && aiSettings.json?.activeProvider === 'antigravity-cli', `ai settings -> ${aiSettings.status} ${JSON.stringify(aiSettings.json)?.slice(0, 200)}`);
     assert(aiSettings.json.providers.find((p) => p.id === 'claude-cli')?.selectable === true, 'command-line tools should be usable in the desktop app');
     assert(!JSON.stringify(aiSettings.json).includes('apiKey'), 'the AI settings must never carry key fields');
     const aiTools = await getJson(`${api}/agency/ai/tools`, h);
@@ -368,13 +378,28 @@ async function main() {
       const res = await fetch(`${app}/api/system/${closed}`, { method: 'POST', headers: { cookie: `auth=${auth}`, 'content-type': 'application/json' }, body: '{}' });
       assert(res.status === 404, `${closed} must not be reachable through the app -> ${res.status}`);
     }
+    // Antigravity is the default, so a new install downloads nothing: local AI is something the person switches on.
+    const localAi = await viaApp(auth, 'GET', 'ai/models');
+    assert(localAi.status === 200 && localAi.json?.auto === false && localAi.json.engine?.installed === false && localAi.json.installed?.length === 0, `local AI on a new install -> ${localAi.status} ${JSON.stringify(localAi.json)?.slice(0, 300)}`);
+    assert(localAi.json.suggestions?.some((x) => x.kind === 'text') && localAi.json.suggestions.some((x) => x.kind === 'embedding'), 'no models are suggested for download');
+    const standby = await waitFor('local AI to wait until it is switched on', async () => {
+      const ai = (await getJson(`http://127.0.0.1:${await statusPort()}/api/status`)).json?.ai;
+      return ai?.phase === 'standby' ? ai : null;
+    }, { timeoutMs: 120000 });
+    assert(standby.auto === false, 'local AI should be off on a new install');
     const noApprove = await fetch(`${api}/agency/ai/agent/act`, { method: 'POST', headers: h, body: JSON.stringify({ tool: 'approve_campaign', args: {} }) });
     assert(noApprove.status === 400, `the agent must have no way to approve a campaign -> ${noApprove.status}`);
     return { auth };
   });
 
   if (!skipAi) {
-    await step('local AI picks models for this hardware and downloads them automatically', async () => {
+    await step('local AI is opt-in: switching it on picks models for this hardware and downloads them', async () => {
+      const h = { auth: user.auth, 'content-type': 'application/json' };
+      // The person chooses the local model for the product, then lets AgencyOS set it up.
+      const choose = await fetch('http://127.0.0.1:3000/agency/ai/settings', { method: 'PUT', headers: h, body: JSON.stringify({ activeProvider: 'local' }) });
+      assert(choose.ok, `choosing the local model -> ${choose.status} ${await choose.text()}`);
+      const on = await viaApp(user.auth, 'POST', 'ai/auto', { enabled: true });
+      assert(on.status === 200, `switching local AI on -> ${on.status} ${JSON.stringify(on.json)}`);
       let ai;
       await waitFor('local AI to finish setting up', async () => {
         const r = await getJson(`http://127.0.0.1:${port}/api/status`);
@@ -425,6 +450,40 @@ async function main() {
       const test = await fetch('http://127.0.0.1:3000/agency/ai/test', { method: 'POST', headers: h, body: JSON.stringify({ provider: 'local' }), signal: AbortSignal.timeout(180000) });
       const outcome = await test.json();
       assert(outcome.ok === true, `the Test button failed: ${JSON.stringify(outcome)}`);
+    });
+
+    await step('local models by hand: download a small one, see it listed, delete it, stop and start the engine, keep the chosen ones', async () => {
+      const small = 'all-minilm';
+      const models = async () => (await viaApp(user.auth, 'GET', 'ai/models')).json;
+      const before = await models();
+      assert(before.engine.installed && before.engine.running, `the engine should be running: ${JSON.stringify(before.engine)}`);
+      const kept = before.installed.map((m) => m.name);
+      assert(kept.length >= 2, `expected the two chosen models, found ${kept.join(', ')}`);
+
+      const bad = await viaApp(user.auth, 'POST', 'ai/pull', { model: 'not a model; rm -rf' });
+      assert(bad.status === 400, `a bad model name was not refused -> ${bad.status}`);
+      const pull = await viaApp(user.auth, 'POST', 'ai/pull', { model: small });
+      assert(pull.status === 202, `download -> ${pull.status} ${JSON.stringify(pull.json)}`);
+      const listed = await waitFor(`${small} to download`, async () => {
+        const m = await models();
+        if (m.download?.state === 'failed') throw new Error(`the download failed: ${m.download.error}`);
+        return m.installed.some((x) => x.name.startsWith(small)) ? m : null;
+      }, { timeoutMs: 10 * 60000, intervalMs: 3000 });
+      const mine = listed.installed.find((x) => x.name.startsWith(small));
+      const gone = await viaApp(user.auth, 'POST', 'ai/delete', { model: mine.name });
+      assert(gone.status === 200, `delete -> ${gone.status} ${JSON.stringify(gone.json)}`);
+      assert(!(await models()).installed.some((x) => x.name.startsWith(small)), 'the deleted model is still listed');
+      const missing = await viaApp(user.auth, 'POST', 'ai/delete', { model: mine.name });
+      assert(missing.status === 404, `deleting it twice -> ${missing.status}`);
+
+      assert((await viaApp(user.auth, 'POST', 'ai/engine', { action: 'stop' })).status === 202, 'the engine did not accept stop');
+      await waitFor('the engine to stop', async () => (await models()).engine.running === false, { timeoutMs: 120000 });
+      assert((await viaApp(user.auth, 'POST', 'ai/engine', { action: 'start' })).status === 202, 'the engine did not accept start');
+      const again = await waitFor('the engine to start again', async () => {
+        const m = await models();
+        return m.engine.running && m.engineTask?.state !== 'working' ? m : null;
+      }, { timeoutMs: 180000 });
+      for (const name of kept) assert(again.installed.some((x) => x.name === name), `${name} was lost while managing models by hand`);
     });
   }
 

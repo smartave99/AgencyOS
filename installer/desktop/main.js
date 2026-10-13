@@ -4,7 +4,7 @@
 // server, local AI) through the launcher that ships next to it. The app is shown inside this
 // window; nothing is opened in a web browser.
 
-const { app, BrowserWindow, Menu, Tray, shell, dialog, nativeTheme, nativeImage, session, screen, Notification, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, Tray, shell, dialog, nativeTheme, nativeImage, session, screen, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -167,10 +167,10 @@ function createMainWindow() {
   win.on('close', (event) => {
     saveWindowState(win);
     if (quitting) return;
-    // Closing the window keeps AgencyOS running so scheduled campaigns are still sent.
+    // Closing the window shuts AgencyOS down, and with it every scheduled send, so it asks first.
+    // Minimizing is how it is kept working in the background.
     event.preventDefault();
-    win.hide();
-    notifyOnce('AgencyOS is still running', 'Scheduled campaigns keep being sent. Use the AgencyOS icon near the clock to open it again or to quit.');
+    quitAgencyOS({ confirm: true });
   });
   win.webContents.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
     if (!isMainFrame || code === -3 /* aborted */) return;
@@ -323,12 +323,12 @@ async function quitAgencyOS({ confirm }) {
     const { response } = await dialog.showMessageBox(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : undefined, {
       type: 'question',
       icon: nativeImage.createFromPath(iconPath),
-      buttons: ['Quit AgencyOS', 'Keep running'],
+      buttons: policy.CLOSE_NOTICE.buttons,
       defaultId: 1,
       cancelId: 1,
-      title: 'Quit AgencyOS',
-      message: 'Quit AgencyOS?',
-      detail: 'Scheduled campaigns will not be sent while AgencyOS is closed. Your data is kept.',
+      title: policy.CLOSE_NOTICE.title,
+      message: policy.CLOSE_NOTICE.message,
+      detail: policy.CLOSE_NOTICE.detail,
     });
     if (response !== 0) return;
   }
@@ -430,18 +430,6 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-function notifyOnce(title, body) {
-  const marker = path.join(app.getPath('userData'), 'tray-hint-shown');
-  if (fs.existsSync(marker) || !Notification.isSupported()) return;
-  try {
-    fs.mkdirSync(path.dirname(marker), { recursive: true });
-    fs.writeFileSync(marker, '1');
-  } catch {
-    /* ignore */
-  }
-  new Notification({ title, body, icon: iconPath }).show();
-}
-
 // ---- folder picker -------------------------------------------------------------------------
 
 ipcMain.handle('agencyos:pick-folder', async (event, current) => {
@@ -502,7 +490,7 @@ function hardenSession() {
 // ---- lifecycle ----------------------------------------------------------------------------
 
 app.on('window-all-closed', () => {
-  /* stay in the tray */
+  /* closing the window asks to shut AgencyOS down; nothing else ends it */
 });
 
 app.on('before-quit', (event) => {

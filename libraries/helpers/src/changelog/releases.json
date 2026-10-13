@@ -4,9 +4,29 @@
     {
       "version": "1.4.0",
       "date": "2026-10-13",
-      "title": "Backup bots that take turns, and an installer ready to be signed",
-      "summary": "A chat can have backup bots that take over or take turns with its main bot, but only bots its administrator has already made administrators, and never to get around a chat or Telegram. The build can now sign the installer as soon as a signing certificate is added.",
+      "title": "Antigravity by default, models you manage yourself, and backup bots",
+      "summary": "Antigravity CLI is now the default AI, so a new install downloads nothing; a local model is optional and you can download, try, start, stop and delete models yourself. Closing the window now shuts AgencyOS down (after telling you what that means) while minimizing keeps it working. A chat can also have backup bots, and the build can sign the installer as soon as a certificate is added.",
       "changes": [
+        {
+          "type": "changed",
+          "area": "AI",
+          "text": "Antigravity CLI is the default AI on the desktop app. A new install no longer downloads a local model by itself; install and sign in to Antigravity, or pick another tool or an API key in Settings → AI and Copilot."
+        },
+        {
+          "type": "added",
+          "area": "AI",
+          "text": "Settings → System → Local AI: download any model by name (with progress and cancel), try it, delete it after a confirmation, and start or stop the local engine. The automatic setup that picks models for your hardware is now a switch that starts off on a new install; an install that already used it keeps it on."
+        },
+        {
+          "type": "changed",
+          "area": "Desktop",
+          "text": "Closing the window now shuts AgencyOS down, after asking: no scheduled campaign is sent and no administrator's /authorize or /revoke is heard until you open it again. Minimizing the window keeps AgencyOS working in the background."
+        },
+        {
+          "type": "fixed",
+          "area": "AI",
+          "text": "A command-line AI tool that quit before reading its question (for example because it was signed out) could crash the AgencyOS server with a broken-pipe error. It now reports the tool's own message."
+        },
         {
           "type": "added",
           "area": "Telegram",
@@ -40,6 +60,7 @@
       ],
       "notes": [
         "Telegram has still not been reached from the test machine: bots, backups and taking turns are tested against a simulated Telegram.",
+        "The local model manager and the new close-window behaviour have been run against a stand-in launcher and simulated engine; the Windows test run exercises them on a real machine. Antigravity, Codex and Claude Code themselves are not available to the test machine, so their sign-in and model lists have not been run for real.",
         "The installer is still not code-signed in this release: signing needs a certificate that only the owner can obtain (docs/AGENCYOS_SIGNING.md). Even after that, Windows SmartScreen can warn for a while about a new publisher.",
         "Auto-join, scraping members and bulk-adding people are still not built, and are not planned: see docs/AGENCYOS_RULES_CONFLICT.md."
       ]

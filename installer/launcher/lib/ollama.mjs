@@ -17,6 +17,13 @@ export function parseModelName(model) {
   return { name, tag: tag || 'latest' };
 }
 
+/**
+ * What a person may type as a model name: letters, digits, dots, underscores and dashes, with an
+ * optional owner path (up to two parts) and an optional :tag. Nothing else reaches the engine.
+ */
+export const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,80}){0,2}(:[A-Za-z0-9._-]{1,60})?$/;
+export const validModelName = (model) => typeof model === 'string' && MODEL_NAME.test(model.trim());
+
 export const sameModel = (a, b) => {
   const x = parseModelName(a);
   const y = parseModelName(b);
@@ -93,6 +100,20 @@ export class OllamaClient {
     return (data?.models || []).map((m) => m.name || m.model);
   }
 
+  /** Every installed model with its size on disk, newest first. */
+  async installedModelDetails() {
+    const data = await this.json('/api/tags');
+    return (data?.models || [])
+      .map((m) => ({
+        name: m.name || m.model,
+        sizeBytes: Number(m.size) || 0,
+        modifiedAt: m.modified_at || null,
+        parameterSize: m.details?.parameter_size || null,
+        quantization: m.details?.quantization_level || null,
+      }))
+      .sort((a, b) => String(b.modifiedAt).localeCompare(String(a.modifiedAt)));
+  }
+
   async has(model) {
     try {
       return (await this.installedModels()).some((m) => sameModel(m, model));
@@ -158,6 +179,11 @@ export class OllamaClient {
       body: { model, prompt, stream: false, think: false, ...(format ? { format } : {}), ...(options ? { options } : {}) },
       timeoutMs,
     });
+  }
+
+  /** Deletes a model and says so when it could not (remove() below is for cleanups that may fail). */
+  async removeStrict(model) {
+    await this.json('/api/delete', { method: 'DELETE', body: { model }, timeoutMs: 60000 });
   }
 
   async remove(model) {

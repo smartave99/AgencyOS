@@ -96,6 +96,9 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
     startOllama: async () => {
       await supervisor.start('ollama');
     },
+    stopOllama: async () => {
+      await supervisor.stop('ollama');
+    },
   });
 
   // What the status page shows about moving the data: null when idle, otherwise the move's progress.
@@ -210,7 +213,7 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
       restoreServices: async () => {
         supervisor.shuttingDown = false;
         await supervisor.startAll();
-        if (ai.runtime.installed) supervisor.start('ollama').catch((e) => log(`ollama: ${e.message}`));
+        if (ai.runtime.installed && ai.engineWanted) supervisor.start('ollama').catch((e) => log(`ollama: ${e.message}`));
         runAi();
       },
       onState: (state) => {
@@ -258,6 +261,26 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
       },
       shutdown: () => shutdown(0),
       retryAi: runAi,
+      // Local AI, by hand: nothing downloads, starts or is deleted unless one of these is asked for.
+      aiModels: () => ai.models(),
+      aiSetAuto: (enabled) => {
+        const on = ai.setAuto(enabled);
+        if (on) {
+          if (ai.runtime.installed) supervisor.start('ollama').catch((e) => log(`ollama: ${e.message}`));
+          runAi();
+        }
+        return { auto: on };
+      },
+      aiDownload: (model) => ai.downloadModel(model),
+      aiCancel: () => ai.cancelDownload(),
+      aiDelete: (model) => ai.deleteModel(model),
+      aiEngine: (action) => {
+        if (action === 'install') return ai.installEngine();
+        if (action === 'start') return ai.startEngine();
+        if (action === 'stop') return ai.stopEngine();
+        throw Object.assign(new Error('Unknown engine action'), { status: 400 });
+      },
+      aiTry: (model) => ai.tryModel(model),
       setTelegramToken: async (token) => {
         setEnvKey(paths.data.userEnv, 'AGENCY_TELEGRAM_BOT_TOKEN', token);
         log(token ? 'Telegram bot token saved' : 'Telegram bot token removed');
@@ -303,7 +326,8 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
   // The AI engine and models are downloaded after the app is up so the first start is not slowed
   // down, but never later than two minutes in even if one service is struggling.
   await Promise.race([starting, new Promise((resolve) => setTimeout(resolve, 120000))]);
-  if (ai.runtime.installed) supervisor.start('ollama').catch((e) => log(`ollama: ${e.message}`));
+  // The local AI engine starts with AgencyOS only when automatic setup is on or the person last started it.
+  if (ai.runtime.installed && ai.engineWanted) supervisor.start('ollama').catch((e) => log(`ollama: ${e.message}`));
   runAi();
   await starting;
   log(supervisor.isReady() ? `AgencyOS is ready at ${appUrl}` : 'AgencyOS started with problems; see the status page');

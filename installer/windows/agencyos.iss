@@ -72,7 +72,7 @@ VersionInfoDescription={#AppName} Setup
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "autostart"; Description: "Start {#AppName} when I &sign in to Windows (keeps scheduled campaigns running)"; GroupDescription: "Background operation:"
+Name: "autostart"; Description: "Start {#AppName} in the background when I &sign in to Windows, so scheduled campaigns keep going"; GroupDescription: "Background operation:"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
 
 [Files]

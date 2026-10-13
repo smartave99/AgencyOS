@@ -98,7 +98,7 @@ Nothing here has had an external penetration test or audit.
 * Text is **not** sent to a third-party AI service unless someone with the `ai:configure` permission
   (owners and admins) chooses one in Settings → AI and Copilot. On a server the operator must also
   set `AGENCY_ALLOW_EXTERNAL_AI=true` first; on the desktop app the person using it is the
-  operator. By default copy suggestions and the Copilot use a local Ollama model or work without one.
+  operator. By default the desktop app uses Antigravity CLI (nothing is downloaded); a local Ollama model is used only if the operator turns it on, and without any model AgencyOS says so and works without one.
 * AI provider keys are sealed with AES-256-GCM (key derived from the install's `JWT_SECRET` with HKDF),
   never returned by any API, and kept out of the audit trail and logs. A key that cannot be opened
   (for example after a reinstall with a new secret) is treated as missing and the person is asked
@@ -125,7 +125,7 @@ Nothing here has had an external penetration test or audit.
   server's environment (not in the backend's or the orchestrator's); a request is answered only
   if it comes from the app's own page (`Sec-Fetch-Site`, Host check), carries a valid session of
   an owner or admin, and names one of a short list of actions (status, check/move/clean up
-  storage, retry the local AI, restart). Shutting down and the old token form are not reachable.
+  storage, restart, and the local AI controls: switch automatic setup on or off, download, cancel, try and delete a model, install/start/stop the engine). Model names are checked against a strict pattern in both the app and the launcher before they reach the engine, one such operation runs at a time, and a delete asks for confirmation. Shutting down and the old token form are not reachable.
 
 ### Operations
 * Jobs are idempotent (unique key per campaign revision and destination), retried with

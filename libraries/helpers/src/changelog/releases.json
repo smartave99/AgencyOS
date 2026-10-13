@@ -29,6 +29,16 @@
         },
         {
           "type": "added",
+          "area": "Campaigns",
+          "text": "Compare versions of an ad: under the ad, choose Compare another version to write up to three more (B, C, D). Chats take turns, the preview has a tab for each, a reviewer approves all of them together, and Reports show delivery for each version. Clicks are still counted per campaign."
+        },
+        {
+          "type": "added",
+          "area": "Campaigns",
+          "text": "Repeat and drip schedules: post to each chat again and again (every hour to every year, up to 60 times, stopping at the end date), or start the chats one after another with a gap between them. The campaign page says in a sentence what will happen, and the jobs list names each version and repeat."
+        },
+        {
+          "type": "added",
           "area": "Dashboard",
           "text": "Live queue and bot health: the dashboard lists the posts that are sending, waiting or need someone (most urgent first), shows each connected bot with its state and chat count, and counts chats that are ready, lost or slowed down by Telegram. There is no shadow-ban indicator because Telegram does not report one."
         },
@@ -86,6 +96,11 @@
           "type": "improved",
           "area": "Telegram",
           "text": "A backup that its chat stops letting post is taken off the list automatically, and that is logged."
+        },
+        {
+          "type": "fixed",
+          "area": "AI",
+          "text": "Setup downloading the local AI engine no longer counts as turning automatic local AI on: a new install downloads no model until you ask."
         }
       ],
       "notes": [

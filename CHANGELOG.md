@@ -11,6 +11,8 @@ Antigravity CLI is now the default AI, so a new install downloads nothing; a loc
 - **Installer:** A brand-new computer needs nothing else. Everything AgencyOS runs on is in the setup file, and with Get ready to work ticked (the default) setup also downloads the local AI engine (about 1.4 GB, checked before it is used, no model) and installs Antigravity, so nothing is downloaded later. If you are offline or untick it, setup still finishes and Settings offers the same downloads.
 - **AI:** Settings → AI and Copilot → Tools on this computer: Claude Code and Codex are downloaded only when you press Download, each with its own Windows installer, and the page says where from. Nothing is downloaded for them otherwise.
 - **Campaigns:** Ad templates: in the campaign composer, press Templates to save the ad you wrote (text, media and link) or start a new campaign from a saved one. A template never sends anything by itself; the campaign made from it is reviewed like any other.
+- **Campaigns:** Compare versions of an ad: under the ad, choose Compare another version to write up to three more (B, C, D). Chats take turns, the preview has a tab for each, a reviewer approves all of them together, and Reports show delivery for each version. Clicks are still counted per campaign.
+- **Campaigns:** Repeat and drip schedules: post to each chat again and again (every hour to every year, up to 60 times, stopping at the end date), or start the chats one after another with a gap between them. The campaign page says in a sentence what will happen, and the jobs list names each version and repeat.
 - **Dashboard:** Live queue and bot health: the dashboard lists the posts that are sending, waiting or need someone (most urgent first), shows each connected bot with its state and chat count, and counts chats that are ready, lost or slowed down by Telegram. There is no shadow-ban indicator because Telegram does not report one.
 - **Leads:** Leads: create a link that opens one of your bots; whoever taps Start is added to your leads with the name and username Telegram gives, is told what is kept, and can send /stop to be deleted. Set status and notes, search, export CSV or JSON, or copy as text. Only people who asked are collected; nothing can message or add people in bulk.
 - **AI:** Settings → System → Local AI: download any model by name (with progress and cancel), try it, delete it after a confirmation, and start or stop the local engine. The automatic setup that picks models for your hardware is now a switch that starts off on a new install; an install that already used it keeps it on.
@@ -33,6 +35,7 @@ Antigravity CLI is now the default AI, so a new install downloads nothing; a loc
 ### Fixed
 
 - **AI:** A command-line AI tool that quit before reading its question (for example because it was signed out) could crash the AgencyOS server with a broken-pipe error. It now reports the tool's own message.
+- **AI:** Setup downloading the local AI engine no longer counts as turning automatic local AI on: a new install downloads no model until you ask.
 
 ### Good to know
 

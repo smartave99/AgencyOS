@@ -403,6 +403,34 @@
         "Someone who sends /stop is deleted and never listed or exported again, unless they tap Start again.",
         "Sales executives see only the links they made."
       ]
+    },
+    {
+      "id": "whatsapp",
+      "group": "grow",
+      "title": "WhatsApp",
+      "href": "/agency/whatsapp",
+      "icon": "inbox",
+      "status": "ready",
+      "summary": "Prepare WhatsApp messages for people who agreed to hear from you, then send each one yourself. AgencyOS never sends for you.",
+      "steps": [
+        "Open WhatsApp and add the people who agreed to be contacted. Each one needs how and when they agreed. To bring in a list, use Imports: the check shows what would happen before anything is saved.",
+        "Open Templates and write the wording. {{name}}, {{first_name}}, {{company}} and {{agency}} are filled in for each person, and every message ends with an opt-out line. Suggest wording asks your AI for a draft you can change.",
+        "Open Segments to save a group of people, such as everyone tagged berlin. People who withdrew are never in one.",
+        "Choose Prepare messages on a template or segment. This only prepares one message per person; nothing is sent.",
+        "Under Outreach, press Open in WhatsApp on a message. The chat opens with the text typed in; you press send in WhatsApp. Then come back and press Mark as sent. Copy message copies the text instead.",
+        "Set a reminder on a message to follow up. It shows under Today on that day, inside AgencyOS only.",
+        "If someone asks to stop, open their contact and choose Withdraw consent. They are kept out of every list and chat link, and the withdrawal stays in Unsubscribed even if you erase their details."
+      ],
+      "needs": [
+        "WhatsApp on this computer or WhatsApp Web signed in, to send the messages yourself.",
+        "Optional: an AI chosen under Settings for Suggest wording. Without one the button says so and everything else works."
+      ],
+      "tips": [
+        "AgencyOS cannot see whether a message arrived or was read, so a message is only ever marked sent by you. There is no delivered status.",
+        "Numbers show as +49•••••5678 in lists; the whole number appears only on a person's own screen and in the chat link.",
+        "There is no send-all button and no scheduled sending. The WhatsApp Business API is not available in this version.",
+        "It does not collect numbers or read WhatsApp groups. A person with no recorded consent cannot be added."
+      ]
     }
   ]
 }

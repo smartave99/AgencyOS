@@ -82,6 +82,26 @@ limit. **Missing** = not built. **Unverified** = built, but could not be exercis
 | Lead capture from bot links: a person who taps Start on a link is recorded (name and username Telegram sends), told what is kept and how to stop, and can send `/stop` to have their details deleted; status and notes, search, CSV/JSON export, erase on request; a link works only through its own bot; sales executives see only their links | Done (against a simulated Telegram) | 10 tests in `agency.leads.int.spec.ts`, 1 HTTP end-to-end test |
 | Lead forms, QR codes, conversion tracking | Missing | Links are shared as plain addresses; make a QR code from one with any QR tool. |
 
+### WhatsApp (free, local, human-operated)
+What it does and refuses to do: [`AGENCYOS_WHATSAPP.md`](AGENCYOS_WHATSAPP.md). AgencyOS prepares the message and a
+click-to-chat link; a person presses send in WhatsApp. Nothing here sends, and nothing claims a delivery.
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| Contacts: name, number (validated, written as E.164, duplicates refused per agency), language, tags, notes, and a consent record (source, evidence, day) without which nobody is added; numbers masked in lists, whole only on a contact's own screen for staff who work contacts, never in the audit trail | Done | Tests in `agency.whatsapp.int.spec.ts`: consent required, normalisation, duplicates, masking, audit text; 1 matrix test in `agency.security.int.spec.ts` |
+| Withdrawing consent: contact marked opted out, waiting messages closed, reminders cleared; the person is kept out of every segment, task list and chat link, and cannot be added again by form or import | Done | Tests (segments, tasks, links, previews, import all refuse) and an HTTP test |
+| Unsubscribe ledger: append-only, keyed hash of the number only (HMAC-SHA256 with the install's secret and the agency), survives erasing the contact; "Erase contact" deletes the details and their messages | Done | Tests: re-add and re-import refused after erase, ledger row holds no number, no route changes or removes a row |
+| Consent-recorded CSV import: check without saving, then commit only rows with their own consent source and day, after the operator's attestation (stored with the batch); max 2000 rows and the API's 100 KB body limit; semicolon, quoted and spreadsheet-style files | Done | Tests (preview versus commit, every row status, limits, a racing writer) and an HTTP test including the 100 KB limit |
+| Segments (saved filters, live member counts, opted-out always excluded), templates (fixed placeholder list, opt-out line per template with a warning when removed, live preview), tasks (one per person, state machine without any "delivered"), reminders in the app only | Done | Tests incl. the state machine, link encoding, "no repeat prepare", a 500-person cap per prepare |
+| Click-to-chat link made per task, on request, never for an opted-out person, text prefilled only while the task is waiting; no sender, timer, queue or send-all anywhere | Done | Tests; the screen opens one chat per click |
+| Suggest wording through the existing AI gateway (not a new client); says so when the AI is unavailable | Done (against a stand-in gateway) | Tests with the gateway answering and failing, HTTP test. Not run against a real model |
+| WhatsApp Business API: typed `WhatsappBusinessProvider` and a default that refuses every call; `businessApiEnabled` cannot be turned on; no network code, no credential fields | Done as an interface only | Tests; what switching it on would need is in `AGENCYOS_WHATSAPP.md` |
+| Roles: `whatsapp:read` (all staff), `:write` (sales, marketing), `:delete` (owner, admin, sales manager), `:manage` (owner, admin); clients none; every write scoped to the agency | Done | Matrix tests; cross-agency tests at service and repository level |
+| Screens: Today, Contacts, Segments, Templates, Outreach, Imports, Unsubscribed, under Grow in the sidebar | Done | `tsc --noEmit` clean; a 44-check scripted run in a real Chromium against the compiled backend and PostgreSQL (owner role, development server): every tab, dialogs, inline validation, one chat link per click, no sideways scroll at 390 px on all tabs and the two largest dialogs, light and dark screenshots reviewed. Other roles, browsers, touch devices and a production frontend build were not exercised in the browser |
+| Migration `a3_agency_whatsapp` (additive; needs only `Organization`) | Done | Applied to an empty database in Prisma's own order; `migrate diff` reports no drift |
+| That WhatsApp itself opens the chat and fills the text | Unverified | It is WhatsApp's behaviour; nothing here talks to WhatsApp |
+| Re-consent for someone who withdrew, exports of contacts, scheduled or bulk sending, group tools | Missing / by design | Withdrawals are final in this version; the rest is deliberately not built |
+
 ### Client portal, knowledge, AI
 | Item | Status | Evidence |
 | --- | --- | --- |

@@ -1506,6 +1506,525 @@ describe(
       });
     });
 
+    describe('WhatsApp workspace over HTTP', () => {
+      const wa = (path = '') => `/agency/whatsapp${path}`;
+      const person = (over = {}) => ({
+        name: 'Ana Costa',
+        phone: '+49 151 1234 5678',
+        consentSource: 'Web form',
+        consentedAt: '2026-03-14',
+        ...over,
+      });
+
+      it('keeps numbers masked, consent mandatory, and every step in the staff roles', async () => {
+        // an analyst reads; a client and an anonymous caller get nothing
+        const analystUser = await prisma.user.create({
+          data: {
+            email: `analyst-${rnd()}@test.local`,
+            providerName: 'LOCAL',
+            name: 'analyst',
+            activated: true,
+            timezone: 0,
+          },
+        });
+        await prisma.userOrganization.create({
+          data: {
+            userId: analystUser.id,
+            organizationId: ctx.users.owner.orgId,
+            role: 'USER',
+          },
+        });
+        await prisma.agencyMember.create({
+          data: {
+            orgId: ctx.users.owner.orgId,
+            userId: analystUser.id,
+            role: 'ANALYST',
+          },
+        });
+        ctx.users.analyst = {
+          userId: analystUser.id,
+          orgId: ctx.users.owner.orgId,
+        };
+        assert.equal((await call('GET', wa('/contacts'))).status, 403);
+        for (const path of ['/contacts', '/segments', '/tasks', '/settings']) {
+          assert.equal(
+            (await call('GET', wa(path), { as: 'client' })).status,
+            403,
+            path
+          );
+          assert.equal(
+            (await call('GET', wa(path), { as: 'analyst' })).status,
+            200,
+            path
+          );
+        }
+        assert.equal(
+          (
+            await call('POST', wa('/contacts'), {
+              as: 'analyst',
+              body: person(),
+            })
+          ).status,
+          403
+        );
+
+        // consent is not optional
+        for (const missing of ['consentSource', 'consentedAt', 'phone']) {
+          const refused = await call('POST', wa('/contacts'), {
+            as: 'sales',
+            body: person({ [missing]: undefined }),
+          });
+          assert.equal(refused.status, 400, missing);
+        }
+        const smuggled = await call('POST', wa('/contacts'), {
+          as: 'sales',
+          body: person({
+            phone: '+49 151 1234 0000',
+            orgId: ctx.users.otherOwner.orgId,
+            consentStatus: 'OPTED_OUT',
+          }),
+        });
+        assert.equal(smuggled.status, 201, smuggled.text);
+        matches(smuggled.json, {
+          consentStatus: 'OPTED_IN',
+          phone: '+4915112340000',
+        });
+        assert.equal(
+          (
+            await prisma.whatsappContact.findUniqueOrThrow({
+              where: { id: smuggled.json.id },
+            })
+          ).orgId,
+          ctx.users.sales.orgId
+        );
+
+        const created = await call('POST', wa('/contacts'), {
+          as: 'sales',
+          body: person({ tags: ['VIP'] }),
+        });
+        assert.equal(created.status, 201, created.text);
+        matches(created.json, { phone: '+4915112345678', tags: ['vip'] });
+        assert.equal(
+          (
+            await call('POST', wa('/contacts'), {
+              as: 'manager',
+              body: person({ phone: '0049 151 12345678' }),
+            })
+          ).status,
+          409
+        );
+
+        // lists show the number masked; the detail shows it to the people who work contacts only
+        const list = await call('GET', wa('/contacts'), { as: 'analyst' });
+        assert.equal(list.status, 200);
+        assert.equal(list.json.length, 2);
+        assert.ok(list.json.some((c) => c.maskedPhone === '+49•••••5678'));
+        assert.doesNotMatch(list.text, /15112345678|\+4915/);
+        const seenBySales = await call(
+          'GET',
+          wa(`/contacts/${created.json.id}`),
+          { as: 'sales' }
+        );
+        assert.equal(seenBySales.json.phone, '+4915112345678');
+        const seenByAnalyst = await call(
+          'GET',
+          wa(`/contacts/${created.json.id}`),
+          { as: 'analyst' }
+        );
+        assert.equal(seenByAnalyst.json.phone, null);
+        assert.doesNotMatch(seenByAnalyst.text, /15112345678/);
+
+        // another agency sees none of it
+        assert.deepEqual(
+          (await call('GET', wa('/contacts'), { as: 'otherOwner' })).json,
+          []
+        );
+        assert.equal(
+          (
+            await call('GET', wa(`/contacts/${created.json.id}`), {
+              as: 'otherOwner',
+            })
+          ).status,
+          404
+        );
+        ctx.waContact = created.json;
+      });
+
+      it('checks an import without saving it, honours the body limit, and imports only attested rows with consent', async () => {
+        const file = [
+          'name,phone,consent_source,consent_date',
+          'Ben Ode,+4915100777001,In person,2026-03-15',
+          'Cleo,+4915100777002,,2026-03-15',
+          'Dan,+4915112345678,Web form,2026-03-14',
+          'Eve,not a number,Web form,2026-03-14',
+        ].join('\n');
+        const preview = await call('POST', wa('/imports/preview'), {
+          as: 'sales',
+          body: { csv: file },
+        });
+        assert.equal(preview.status, 201, preview.text);
+        matches(preview.json, {
+          counts: {
+            total: 4,
+            valid: 1,
+            duplicate: 1,
+            invalid: 1,
+            missingConsent: 1,
+          },
+          canImport: true,
+        });
+        assert.doesNotMatch(preview.text, /4915100777001/);
+        assert.equal(
+          await prisma.whatsappImport.count({
+            where: { orgId: ctx.users.sales.orgId },
+          }),
+          0
+        );
+
+        for (const body of [
+          { csv: file },
+          { csv: file, attested: false },
+          { csv: file, attested: 'yes' },
+        ]) {
+          assert.equal(
+            (await call('POST', wa('/imports'), { as: 'sales', body })).status,
+            400
+          );
+        }
+        assert.equal(
+          (
+            await call('POST', wa('/imports/preview'), {
+              as: 'analyst',
+              body: { csv: file },
+            })
+          ).status,
+          403
+        );
+
+        // a file longer than the validated length is refused with a message; one past the API's
+        // JSON limit is refused before it is read
+        const tooLong = await call('POST', wa('/imports/preview'), {
+          as: 'sales',
+          body: { csv: 'x'.repeat(95000) },
+        });
+        assert.equal(tooLong.status, 400, tooLong.text);
+        const tooBig = await call('POST', wa('/imports/preview'), {
+          as: 'sales',
+          body: { csv: 'x'.repeat(150000) },
+        });
+        assert.equal(tooBig.status, 413, tooBig.text);
+
+        const done = await call('POST', wa('/imports'), {
+          as: 'sales',
+          body: { csv: file, attested: true, fileName: 'people.csv' },
+        });
+        assert.equal(done.status, 201, done.text);
+        matches(done.json, {
+          totalRows: 4,
+          importedRows: 1,
+          duplicateRows: 1,
+          invalidRows: 1,
+          missingConsentRows: 1,
+          fileName: 'people.csv',
+        });
+        assert.match(
+          done.json.attestation,
+          /agreed to be contacted on WhatsApp/
+        );
+        const batches = await call('GET', wa('/imports'), { as: 'analyst' });
+        assert.equal(batches.json.length, 1);
+        const audit = await call(
+          'GET',
+          `/agency/audit?entityType=WhatsappImport&entityId=${done.json.id}`,
+          { as: 'owner' }
+        );
+        assert.equal(audit.json[0].action, 'whatsapp_import.committed');
+        assert.doesNotMatch(JSON.stringify(audit.json), /4915100777001/);
+      });
+
+      it('prepares tasks, makes the chat link one task at a time, never claims delivery, and remembers who withdrew', async () => {
+        const settings = await call('GET', wa('/settings'), { as: 'sales' });
+        assert.deepEqual(settings.json.businessApi, {
+          enabled: false,
+          available: false,
+          message: 'Not available in this version',
+        });
+        assert.equal(
+          (
+            await call('PUT', wa('/settings'), {
+              as: 'owner',
+              body: { businessApiEnabled: true },
+            })
+          ).status,
+          400
+        );
+        assert.equal(
+          (
+            await call('PUT', wa('/settings'), {
+              as: 'sales',
+              body: { defaultOptOutLine: 'Send END' },
+            })
+          ).status,
+          403
+        );
+
+        const bad = await call('POST', wa('/templates'), {
+          as: 'sales',
+          body: { name: 'Bad', body: 'Hi {{phone}}' },
+        });
+        assert.equal(bad.status, 400);
+        assert.match(bad.json.message, /\{\{phone\}\}/);
+        const template = await call('POST', wa('/templates'), {
+          as: 'sales',
+          body: { name: 'Spring', body: 'Hi {{first_name}} from {{agency}}!' },
+        });
+        assert.equal(template.status, 201, template.text);
+        matches(template.json, { optOutLine: 'Reply STOP to opt out.' });
+        const preview = await call('POST', wa('/templates/preview'), {
+          as: 'analyst',
+          body: { body: 'Hi {{name}}', optOutLine: '' },
+        });
+        assert.equal(preview.status, 201);
+        assert.match(preview.json.warnings[0], /no way to opt out/);
+
+        const segment = await call('POST', wa('/segments'), {
+          as: 'sales',
+          body: { name: 'Everyone', tags: ['vip'] },
+        });
+        assert.equal(segment.status, 201, segment.text);
+        assert.equal(segment.json.memberCount, 1);
+
+        const drafted = await call('POST', wa('/tasks/draft'), {
+          as: 'sales',
+          body: { templateId: template.json.id, segmentId: segment.json.id },
+        });
+        assert.equal(drafted.status, 201, drafted.text);
+        assert.equal(drafted.json.created, 1);
+        const tasks = await call('GET', wa('/tasks?status=PENDING'), {
+          as: 'sales',
+        });
+        assert.equal(tasks.json.length, 1);
+        assert.doesNotMatch(tasks.text, /15112345678|wa\.me/);
+        const task = tasks.json[0];
+        assert.match(
+          task.message,
+          /^Hi Ana from .+!\n\nReply STOP to opt out\.$/
+        );
+
+        // the link is made on request, for this one task, and only for staff who work contacts
+        assert.equal(
+          (await call('POST', wa(`/tasks/${task.id}/open`), { as: 'analyst' }))
+            .status,
+          403
+        );
+        const opened = await call('POST', wa(`/tasks/${task.id}/open`), {
+          as: 'sales',
+        });
+        assert.equal(opened.status, 201, opened.text);
+        assert.equal(opened.json.prefilled, true);
+        assert.ok(
+          opened.json.url.startsWith(
+            'https://wa.me/4915112345678?text=Hi%20Ana'
+          )
+        );
+        assert.equal(
+          new URL(opened.json.url).searchParams.get('text'),
+          task.message
+        );
+
+        // only people can say what happened, and "delivered" is not something they can say
+        for (const status of ['DELIVERED', 'READ', 'SENT']) {
+          assert.equal(
+            (
+              await call('PUT', wa(`/tasks/${task.id}/status`), {
+                as: 'sales',
+                body: { status },
+              })
+            ).status,
+            400,
+            status
+          );
+        }
+        assert.equal(
+          (
+            await call('PUT', wa(`/tasks/${task.id}/status`), {
+              as: 'sales',
+              body: { status: 'REPLIED' },
+            })
+          ).status,
+          400
+        );
+        const sent = await call('PUT', wa(`/tasks/${task.id}/status`), {
+          as: 'sales',
+          body: { status: 'SENT_BY_USER' },
+        });
+        assert.equal(sent.status, 200, sent.text);
+        assert.equal(sent.json.status, 'SENT_BY_USER');
+        assert.doesNotMatch(sent.text, /deliver/i);
+        const remind = await call('PUT', wa(`/tasks/${task.id}`), {
+          as: 'sales',
+          body: { followUpAt: new Date(Date.now() - 3600000).toISOString() },
+        });
+        assert.equal(remind.status, 200, remind.text);
+        const until = encodeURIComponent(new Date().toISOString());
+        const due = await call('GET', wa(`/tasks/due?until=${until}`), {
+          as: 'sales',
+        });
+        assert.deepEqual(
+          due.json.map((d) => d.id),
+          [task.id]
+        );
+
+        // withdrawing ends everything: no link, no due reminder, a ledger row that outlives erasing
+        const withdrawn = await call(
+          'POST',
+          wa(`/contacts/${ctx.waContact.id}/withdraw`),
+          {
+            as: 'manager',
+            body: { method: 'REPLIED_STOP', reason: 'wrote STOP' },
+          }
+        );
+        assert.equal(withdrawn.status, 201, withdrawn.text);
+        matches(withdrawn.json, { consentStatus: 'OPTED_OUT' });
+        const refused = await call('POST', wa(`/tasks/${task.id}/open`), {
+          as: 'sales',
+        });
+        assert.equal(refused.status, 400);
+        assert.match(refused.json.message, /withdrew consent/);
+        assert.deepEqual(
+          (await call('GET', wa(`/tasks/due?until=${until}`), { as: 'sales' }))
+            .json,
+          []
+        );
+        assert.equal(
+          (await call('GET', wa('/segments'), { as: 'sales' })).json[0]
+            .memberCount,
+          0
+        );
+        assert.equal(
+          (
+            await call('POST', wa('/contacts'), {
+              as: 'sales',
+              body: person({ phone: '+4915112345678', name: 'Back again' }),
+            })
+          ).status,
+          409
+        );
+
+        assert.equal(
+          (
+            await call('DELETE', wa(`/contacts/${ctx.waContact.id}`), {
+              as: 'manager',
+            })
+          ).status,
+          403,
+          'a campaign manager works contacts but may not erase them'
+        );
+        assert.equal(
+          (
+            await call('DELETE', wa(`/contacts/${ctx.waContact.id}`), {
+              as: 'owner',
+            })
+          ).status,
+          200
+        );
+        const ledger = await call('GET', wa('/unsubscribes'), {
+          as: 'analyst',
+        });
+        assert.equal(ledger.status, 200);
+        assert.equal(ledger.json.length, 1);
+        matches(ledger.json[0], { method: 'REPLIED_STOP', contact: null });
+        assert.doesNotMatch(ledger.text, /15112345678/);
+        const stored = await prisma.whatsappUnsubscribe.findMany({
+          where: { orgId: ctx.users.owner.orgId },
+        });
+        assert.match(stored[0].phoneHash, /^[0-9a-f]{64}$/);
+        assert.equal(
+          await prisma.whatsappTask.count({
+            where: {
+              orgId: ctx.users.owner.orgId,
+              contactId: ctx.waContact.id,
+            },
+          }),
+          0
+        );
+        // ledger rows can only be read: there is no route that changes or removes one
+        for (const method of ['PUT', 'DELETE', 'POST']) {
+          const res = await call(method, wa(`/unsubscribes/${stored[0].id}`), {
+            as: 'owner',
+          });
+          assert.equal(res.status, 404, method);
+        }
+      });
+
+      it('suggests wording only as text, and says so when the AI is not available', async () => {
+        const { AgencyAiGatewayService, AiProviderError } = require(resolve(
+          root,
+          'dist/libraries/nestjs-libraries/src/database/prisma/agency/agency.ai.gateway.service.js'
+        ));
+        const saved = AgencyAiGatewayService.prototype.complete;
+        try {
+          AgencyAiGatewayService.prototype.complete = async () => {
+            throw new AiProviderError(
+              'unreachable',
+              'Ollama is not running. Start it or pick another AI in Settings.'
+            );
+          };
+          const down = await call('POST', wa('/templates/suggest'), {
+            as: 'sales',
+            body: { brief: 'Spring offer for returning customers' },
+          });
+          assert.equal(down.status, 201, down.text);
+          assert.deepEqual(down.json, {
+            available: false,
+            reason:
+              'Ollama is not running. Start it or pick another AI in Settings.',
+          });
+          AgencyAiGatewayService.prototype.complete = async () => ({
+            text: 'Hi {{first_name}}, our spring offer is here.',
+            provider: 'local',
+            model: 'tiny',
+            ms: 3,
+            notes: [],
+          });
+          const up = await call('POST', wa('/templates/suggest'), {
+            as: 'sales',
+            body: { brief: 'Spring offer' },
+          });
+          assert.equal(up.json.available, true);
+          assert.equal(
+            up.json.text,
+            'Hi {{first_name}}, our spring offer is here.'
+          );
+          assert.equal(
+            (
+              await call('POST', wa('/templates/suggest'), {
+                as: 'sales',
+                body: {},
+              })
+            ).status,
+            400
+          );
+          assert.equal(
+            (
+              await call('POST', wa('/templates/suggest'), {
+                as: 'analyst',
+                body: { brief: 'x' },
+              })
+            ).status,
+            403
+          );
+        } finally {
+          AgencyAiGatewayService.prototype.complete = saved;
+        }
+        // nothing was saved by asking
+        assert.equal(
+          (await call('GET', wa('/templates'), { as: 'sales' })).json.length,
+          1
+        );
+      });
+    });
+
     describe('client accounts are portal-only', () => {
       it("a CLIENT is refused the workspace's own APIs (plain 403, not a logout) but keeps its identity and portal", async () => {
         for (const path of [

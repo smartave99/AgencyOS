@@ -125,6 +125,14 @@ export const NAV_GROUPS: NavGroup[] = [
         permission: 'crm:read',
       },
       {
+        // Telegram stays the core channel; WhatsApp is a human-operated extra, so it sits here.
+        id: 'whatsapp',
+        label: 'WhatsApp',
+        href: '/agency/whatsapp',
+        icon: 'inbox',
+        permission: 'whatsapp:read',
+      },
+      {
         id: 'knowledge',
         label: 'Knowledge base',
         href: '/agency/intelligence',

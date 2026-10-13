@@ -223,6 +223,176 @@ export interface LeadView {
   campaign: { id: string; name: string } | null;
 }
 
+// WhatsApp workspace (mirrors AgencyWhatsappService). Numbers arrive masked except in a contact's
+// own detail, and only for roles that work contacts.
+export type WhatsappConsentStatus = 'OPTED_IN' | 'OPTED_OUT';
+
+/** What a person marked a task as. There is no "delivered": AgencyOS cannot see it. */
+export type WhatsappTaskStatus =
+  | 'PENDING'
+  | 'SENT_BY_USER'
+  | 'REPLIED'
+  | 'SKIPPED';
+
+export interface WhatsappContactItem {
+  id: string;
+  name: string;
+  maskedPhone: string;
+  company: string | null;
+  language: string | null;
+  tags: string[];
+  consentStatus: WhatsappConsentStatus;
+  consentSource: string;
+  consentedAt: string;
+  optedOutAt: string | null;
+  createdAt: string;
+}
+
+export interface WhatsappContactDetail extends WhatsappContactItem {
+  /** The whole number; null for roles that may only read. */
+  phone: string | null;
+  notes: string | null;
+  consentEvidence: string | null;
+  optOutMethod: string | null;
+  optOutReason: string | null;
+  importId: string | null;
+  tasks: Array<{
+    id: string;
+    status: WhatsappTaskStatus;
+    label: string;
+    templateName: string | null;
+    followUpAt: string | null;
+    sentAt: string | null;
+    createdAt: string;
+  }>;
+}
+
+export interface WhatsappSegmentView {
+  id: string;
+  name: string;
+  tags: string[];
+  languages: string[];
+  consentSources: string[];
+  memberCount: number;
+  createdAt: string;
+}
+
+export interface WhatsappTemplateView {
+  id: string;
+  name: string;
+  body: string;
+  language: string | null;
+  link: string | null;
+  optOutLine: string;
+  optOutMissing: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WhatsappTaskView {
+  id: string;
+  status: WhatsappTaskStatus;
+  label: string;
+  message: string;
+  skipReason: string | null;
+  note: string | null;
+  followUpAt: string | null;
+  openedAt: string | null;
+  sentAt: string | null;
+  repliedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  contact: {
+    id: string;
+    name: string;
+    maskedPhone: string;
+    consentStatus: WhatsappConsentStatus;
+  };
+  template: { id: string; name: string } | null;
+}
+
+export interface WhatsappImportView {
+  id: string;
+  fileName: string | null;
+  totalRows: number;
+  importedRows: number;
+  duplicateRows: number;
+  invalidRows: number;
+  missingConsentRows: number;
+  withdrawnRows: number;
+  attestation: string;
+  attestedBy: string;
+  createdAt: string;
+}
+
+export type WhatsappImportRowStatus =
+  | 'VALID'
+  | 'DUPLICATE'
+  | 'INVALID'
+  | 'MISSING_CONSENT'
+  | 'WITHDRAWN';
+
+export interface WhatsappImportPreview {
+  counts: {
+    total: number;
+    valid: number;
+    duplicate: number;
+    invalid: number;
+    missingConsent: number;
+    withdrawn: number;
+  };
+  rows: Array<{
+    line: number;
+    status: WhatsappImportRowStatus;
+    name: string;
+    phone: string | null;
+    reasons: string[];
+  }>;
+  columnProblems: string[];
+  canImport: boolean;
+}
+
+export interface WhatsappUnsubscribeView {
+  id: string;
+  receivedAt: string;
+  method: string;
+  recordedBy: string;
+  /** Null once the person's details were erased: only a hash is left. */
+  contact: { id: string; name: string; maskedPhone: string } | null;
+}
+
+export interface WhatsappSettings {
+  defaultOptOutLine: string;
+  businessApi: { enabled: boolean; available: boolean; message: string };
+  placeholders: string[];
+  withdrawMethods: string[];
+  attestation: string;
+  limits: {
+    maxImportRows: number;
+    maxImportChars: number;
+    maxTasksPerDraft: number;
+  };
+}
+
+export interface WhatsappFacets {
+  tags: string[];
+  languages: string[];
+  consentSources: string[];
+}
+
+export interface WhatsappTemplatePreview {
+  message: string;
+  characters: number;
+  problems: string[];
+  warnings: string[];
+  missing: string[];
+  usedSample: boolean;
+}
+
+export type WhatsappSuggestion =
+  | { available: true; text: string; provider: string; model: string | null }
+  | { available: false; reason: string };
+
 export interface DestinationView {
   id: string;
   /** Which connected bot serves this chat; null is the server's bot. */
@@ -737,6 +907,81 @@ export const useLeads = (linkId: string, status: string, search: string) => {
     20000
   );
 };
+
+export const useWhatsappSettings = () =>
+  useResource<WhatsappSettings>(
+    ['agency-whatsapp-settings'],
+    '/agency/whatsapp/settings'
+  );
+
+export const useWhatsappFacets = () =>
+  useResource<WhatsappFacets>(
+    ['agency-whatsapp-facets'],
+    '/agency/whatsapp/facets'
+  );
+
+export const useWhatsappContacts = (
+  search: string,
+  status: string,
+  tag: string
+) => {
+  const params = new URLSearchParams();
+  if (search.trim()) params.set('search', search.trim());
+  if (status) params.set('status', status);
+  if (tag) params.set('tag', tag);
+  return useResource<WhatsappContactItem[]>(
+    ['agency-whatsapp-contacts', search, status, tag],
+    `/agency/whatsapp/contacts?${params.toString()}`,
+    30000
+  );
+};
+
+export const useWhatsappContact = (id: string) =>
+  useResource<WhatsappContactDetail>(
+    ['agency-whatsapp-contact', id],
+    `/agency/whatsapp/contacts/${id}`
+  );
+
+export const useWhatsappSegments = () =>
+  useResource<WhatsappSegmentView[]>(
+    ['agency-whatsapp-segments'],
+    '/agency/whatsapp/segments',
+    30000
+  );
+
+export const useWhatsappTemplates = () =>
+  useResource<WhatsappTemplateView[]>(
+    ['agency-whatsapp-templates'],
+    '/agency/whatsapp/templates'
+  );
+
+export const useWhatsappTasks = (status: string, limit = 0) => {
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  if (limit) params.set('limit', String(limit));
+  return useResource<WhatsappTaskView[]>(
+    ['agency-whatsapp-tasks', status, limit],
+    `/agency/whatsapp/tasks?${params.toString()}`
+  );
+};
+
+export const useWhatsappDueTasks = (until: string) =>
+  useResource<WhatsappTaskView[]>(
+    ['agency-whatsapp-due', until],
+    `/agency/whatsapp/tasks/due?until=${encodeURIComponent(until)}`
+  );
+
+export const useWhatsappImports = () =>
+  useResource<WhatsappImportView[]>(
+    ['agency-whatsapp-imports'],
+    '/agency/whatsapp/imports'
+  );
+
+export const useWhatsappUnsubscribes = () =>
+  useResource<WhatsappUnsubscribeView[]>(
+    ['agency-whatsapp-unsubscribes'],
+    '/agency/whatsapp/unsubscribes'
+  );
 
 export const useTelegramBots = (enabled = true) =>
   useResource<TelegramBots>(

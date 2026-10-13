@@ -61,6 +61,13 @@ import { AgencyCrmRepository } from '@gitroom/nestjs-libraries/database/prisma/a
 import { AgencyCrmService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.crm.service';
 import { AgencyLeadsRepository } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.leads.repository';
 import { AgencyLeadsService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.leads.service';
+import { AgencyWhatsappRepository } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.whatsapp.repository';
+import { AgencyWhatsappService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.whatsapp.service';
+import { AgencyWhatsappOutreachService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.whatsapp.outreach.service';
+import {
+  DisabledWhatsappBusinessProvider,
+  WHATSAPP_BUSINESS_PROVIDER,
+} from '@gitroom/nestjs-libraries/integrations/whatsapp/whatsapp.business.provider';
 import { AgencyPublishingRepository } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.publishing.repository';
 import { AgencyPublishingService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.publishing.service';
 import { AgencyTelegramService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.telegram.service';
@@ -148,6 +155,13 @@ import { AgencyPortalService } from '@gitroom/nestjs-libraries/database/prisma/a
     AgencyCrmService,
     AgencyLeadsRepository,
     AgencyLeadsService,
+    AgencyWhatsappRepository,
+    AgencyWhatsappService,
+    AgencyWhatsappOutreachService,
+    {
+      provide: WHATSAPP_BUSINESS_PROVIDER,
+      useClass: DisabledWhatsappBusinessProvider,
+    },
     AgencyPublishingRepository,
     AgencyPublishingService,
     AgencyTelegramService,

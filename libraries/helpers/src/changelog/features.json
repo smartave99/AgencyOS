@@ -135,6 +135,52 @@
       ]
     },
     {
+      "id": "telegram-accounts",
+      "group": "deliver",
+      "title": "Telegram accounts",
+      "href": "/agency/telegram/accounts",
+      "icon": "user",
+      "status": "needs-setup",
+      "summary": "The Telegram accounts and bots your agency works through, with each one's health and what it may do.",
+      "steps": [
+        "Open Telegram accounts and choose Connect an account. You need an api id and api hash for your agency from my.telegram.org.",
+        "Enter them with the phone number. Telegram sends a code to that account; type it in, and the two-step password if the account has one.",
+        "Open What it may do. A new account may only look up public communities; allow joining, posting or running communities one by one.",
+        "Check now asks Telegram whether the login still works. Pause stops an account without signing it out; Sign out ends its login."
+      ],
+      "needs": [
+        "An api id and api hash from my.telegram.org, and a phone that can receive Telegram's code.",
+        "The Telegram worker running on this computer (not yet part of the Windows installer)."
+      ],
+      "tips": [
+        "A limit, a restriction or an ended login pauses that account and the chats that post through it. No other account takes its place; a person decides.",
+        "AgencyOS never creates Telegram accounts, and never warms them up."
+      ]
+    },
+    {
+      "id": "communities",
+      "group": "deliver",
+      "title": "Communities",
+      "href": "/agency/communities",
+      "icon": "globe",
+      "status": "needs-setup",
+      "summary": "Find public Telegram communities, keep a directory, join the ones that fit and post only where advertising is allowed.",
+      "steps": [
+        "Open Communities, then Find. Search Telegram's public communities, or paste a list of @names or t.me links and check it.",
+        "Save the ones worth a look. They go in your directory with exactly what Telegram shows; a number Telegram does not give stays empty.",
+        "Open a community. Join it with an account that may join: give a reason and tick the box. It is one community at a time.",
+        "Read the rules from inside, then record whether advertising is allowed, with a note and a link.",
+        "Allow campaigns to post. The community then appears as a place you can choose in the campaign composer; every post still needs an approved campaign."
+      ],
+      "needs": [
+        "A connected Telegram account that is allowed to look up communities (and to join or post for those steps)."
+      ],
+      "tips": [
+        "Export the directory as CSV or JSON: it holds communities only, never members or messages.",
+        "Reading recent public messages is on request, on screen only; nothing is saved."
+      ]
+    },
+    {
       "id": "accounts",
       "group": "deliver",
       "title": "Connected accounts",

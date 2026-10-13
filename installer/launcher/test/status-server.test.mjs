@@ -76,6 +76,25 @@ describe('status server', () => {
           return { started: true };
         },
         aiTry: async (model) => ({ ok: true, kind: 'text', model }),
+        cliTools: async () => ({ tools: [{ id: 'claude', installed: false }], task: null }),
+        cliInstall: (tool) => {
+          calls.push(['cliInstall', tool]);
+          return { started: true };
+        },
+        cliLogin: (tool) => {
+          calls.push(['cliLogin', tool]);
+          if (tool === 'codex') throw Object.assign(new Error('Codex CLI: Downloading… Wait for it to finish, or cancel it.'), { status: 409 });
+          return { started: true };
+        },
+        cliCancel: () => {
+          calls.push(['cliCancel']);
+          return { cancelled: true };
+        },
+        cliCheck: async (tool) => ({ signedIn: tool === 'claude' }),
+        cliSignOut: async (tool) => {
+          calls.push(['cliSignOut', tool]);
+          return { signedOut: true };
+        },
       },
     });
     await handle.listen();
@@ -191,6 +210,36 @@ describe('status server', () => {
     assert.equal(r.status, 202);
     await new Promise((resolve) => setTimeout(resolve, 120));
     assert.ok(calls.some(([c]) => c === 'shutdown'));
+  });
+
+  it('downloads, signs in and signs out of the command-line tools only for the three it knows, and only with the token', async () => {
+    assert.equal((await request(port, { path: '/api/cli/tools' })).status, 403);
+    const list = await request(port, { path: '/api/cli/tools', headers: auth });
+    assert.equal(JSON.parse(list.body).tools[0].id, 'claude');
+
+    calls.length = 0;
+    for (const path of ['install', 'login', 'check', 'signout']) {
+      assert.equal((await request(port, { method: 'POST', path: `/api/cli/${path}`, body: { tool: 'claude' } })).status, 403, `${path} needs the token`);
+    }
+    assert.equal(calls.length, 0);
+
+    const install = await request(port, { method: 'POST', path: '/api/cli/install', headers: auth, body: { tool: 'claude' } });
+    assert.equal(install.status, 202);
+    assert.equal((await request(port, { method: 'POST', path: '/api/cli/login', headers: auth, body: { tool: 'antigravity' } })).status, 202);
+    assert.equal(JSON.parse((await request(port, { method: 'POST', path: '/api/cli/check', headers: auth, body: { tool: 'claude' } })).body).signedIn, true);
+    assert.equal((await request(port, { method: 'POST', path: '/api/cli/signout', headers: auth, body: { tool: 'codex' } })).status, 200);
+    assert.equal(JSON.parse((await request(port, { method: 'POST', path: '/api/cli/cancel', headers: auth, body: {} })).body).cancelled, true);
+    assert.deepEqual(calls.map((c) => c.join(':')), ['cliInstall:claude', 'cliLogin:antigravity', 'cliSignOut:codex', 'cliCancel']);
+
+    // anything else is refused before it reaches the manager: a path, a command, nothing at all
+    for (const tool of ['../../evil', 'claude; calc', '', undefined, 7]) {
+      const res = await request(port, { method: 'POST', path: '/api/cli/install', headers: auth, body: { tool } });
+      assert.equal(res.status, 400, JSON.stringify(tool));
+    }
+    // a busy manager answers 409 with its own words
+    const busy = await request(port, { method: 'POST', path: '/api/cli/login', headers: auth, body: { tool: 'codex' } });
+    assert.equal(busy.status, 409);
+    assert.match(JSON.parse(busy.body).error, /Wait for it to finish/);
   });
 });
 

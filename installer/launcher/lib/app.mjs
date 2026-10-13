@@ -12,6 +12,7 @@ import { tcpOpen, portFree, findFreePort } from './net.mjs';
 import { Supervisor, cleanupStale } from './supervisor.mjs';
 import { buildServices, DEFAULT_PORTS } from './services.mjs';
 import { AiManager } from './ai.mjs';
+import { CliTools } from './cli-tools.mjs';
 import { createStatusServer } from './status-server.mjs';
 
 export const EXPECTED_IMAGES = ['node', 'redis-server', 'temporal', 'ollama', 'llama-server', 'postgres'];
@@ -100,6 +101,9 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
       await supervisor.stop('ollama');
     },
   });
+
+  // Antigravity, Claude Code and Codex: downloaded and signed in only when the person asks, always through the browser.
+  const cliTools = new CliTools({ env, log });
 
   // What the status page shows about moving the data: null when idle, otherwise the move's progress.
   let moveState = null;
@@ -281,6 +285,12 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
         throw Object.assign(new Error('Unknown engine action'), { status: 400 });
       },
       aiTry: (model) => ai.tryModel(model),
+      cliTools: () => cliTools.snapshot(),
+      cliInstall: (tool) => cliTools.startInstall(tool),
+      cliLogin: (tool) => cliTools.startLogin(tool),
+      cliCancel: () => cliTools.cancel(),
+      cliCheck: async (tool) => ({ signedIn: await cliTools.check(tool) }),
+      cliSignOut: (tool) => cliTools.signOut(tool),
       setTelegramToken: async (token) => {
         setEnvKey(paths.data.userEnv, 'AGENCY_TELEGRAM_BOT_TOKEN', token);
         log(token ? 'Telegram bot token saved' : 'Telegram bot token removed');

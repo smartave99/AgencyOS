@@ -9,6 +9,9 @@
 //   agencyos open                   open the app in the browser
 //   agencyos doctor                 print this computer's details and the AI models it would get
 //   agencyos logs <service>         print the end of a service log
+//   agencyos prepare [--skip=ollama,antigravity]
+//                                   what the installer runs: downloads the local AI engine and installs
+//                                   Antigravity so a new computer needs nothing more; never fails setup
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,7 +19,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolvePaths } from './lib/paths.mjs';
 import { assertLocationsAvailable } from './lib/storage.mjs';
-import { startLauncher, readSupervisorInfo, readJson } from './lib/app.mjs';
+import { startLauncher, readSupervisorInfo, readJson, createLogger } from './lib/app.mjs';
+import { prepareComputer } from './lib/prepare.mjs';
 import { loadOrCreateSecrets } from './lib/envfile.mjs';
 import { httpGet, waitFor } from './lib/net.mjs';
 import { isAlive, killTree, cleanupStale, tailFile } from './lib/supervisor.mjs';
@@ -152,6 +156,15 @@ try {
       const name = rest[0] || 'supervisor';
       console.log(tailFile(path.join(paths.data.logs, `${name}.log`), 300));
       process.exit(0);
+      break;
+    }
+    case 'prepare': {
+      const skip = rest.filter((a) => a.startsWith('--skip=')).flatMap((a) => a.slice('--skip='.length).split(',')).filter(Boolean);
+      const log = createLogger(path.join(paths.data.logs, 'prepare.log'));
+      log(`Preparing this computer (data: ${paths.data.root}, AI: ${paths.data.ollamaRoot})`);
+      const result = await prepareComputer({ paths, manifest: readJson(paths.runtime.manifest, {}), log, skip });
+      console.log(JSON.stringify(result, null, 2));
+      process.exit(0); // setup goes on whatever happened: each part says so itself and is offered again later
       break;
     }
     case 'doctor': {

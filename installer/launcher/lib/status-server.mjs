@@ -9,6 +9,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { renderStatusPage } from './status-page.mjs';
 import { validModelName } from './ollama.mjs';
+import { TOOL_IDS } from './cli-tools.mjs';
 
 const TELEGRAM_TOKEN = /^\d{6,}:[A-Za-z0-9_-]{30,}$/;
 
@@ -47,6 +48,14 @@ export function modelName(value) {
   return value.trim();
 }
 
+/** The tool a person asked about: one of the three AgencyOS knows, never a path or a command. */
+export function toolId(value) {
+  if (!TOOL_IDS.includes(value)) {
+    throw Object.assign(new Error('That is not one of the tools AgencyOS can set up.'), { status: 400 });
+  }
+  return value;
+}
+
 /**
  * Folders arrive as plain strings. An empty or missing field means "leave as is"; for the AI folder
  * `keepWithData: true` means "store the AI files inside the data folder" (the default layout).
@@ -64,7 +73,8 @@ export function storageRequest(body = {}) {
  * @param actions { restart(service?), shutdown(), retryAi(), setTelegramToken(token|null),
  *                  checkStorage(request), moveStorage(request), cleanupStorage(),
  *                  aiModels(), aiSetAuto(enabled), aiDownload(model), aiCancel(), aiDelete(model),
- *                  aiEngine(action), aiTry(model) }
+ *                  aiEngine(action), aiTry(model),
+ *                  cliTools(), cliInstall(tool), cliLogin(tool), cliCancel(), cliCheck(tool), cliSignOut(tool) }
  */
 export function createStatusServer({ port, token, version, getStatus, tail, actions }) {
   const send = (res, status, body, type = 'application/json; charset=utf-8') => {
@@ -91,6 +101,7 @@ export function createStatusServer({ port, token, version, getStatus, tail, acti
       if (!authorized) return send(res, 403, { error: 'Forbidden' });
 
       if (req.method === 'GET' && url.pathname === '/api/ai/models') return send(res, 200, await actions.aiModels());
+      if (req.method === 'GET' && url.pathname === '/api/cli/tools') return send(res, 200, await actions.cliTools());
 
       if (req.method === 'GET' && url.pathname.startsWith('/api/logs/')) {
         const name = decodeURIComponent(url.pathname.slice('/api/logs/'.length));
@@ -124,6 +135,16 @@ export function createStatusServer({ port, token, version, getStatus, tail, acti
             return send(res, 202, { ok: true, ...actions.aiEngine(String(body.action || '')) });
           case '/api/ai/try':
             return send(res, 200, await actions.aiTry(modelName(body.model)));
+          case '/api/cli/install':
+            return send(res, 202, { ok: true, ...actions.cliInstall(toolId(body.tool)) });
+          case '/api/cli/login':
+            return send(res, 202, { ok: true, ...actions.cliLogin(toolId(body.tool)) });
+          case '/api/cli/cancel':
+            return send(res, 200, actions.cliCancel());
+          case '/api/cli/check':
+            return send(res, 200, await actions.cliCheck(toolId(body.tool)));
+          case '/api/cli/signout':
+            return send(res, 200, { ok: true, ...(await actions.cliSignOut(toolId(body.tool))) });
           case '/api/storage/check':
             return send(res, 200, await actions.checkStorage(storageRequest(body)));
           case '/api/storage/move':

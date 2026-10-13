@@ -1093,6 +1093,38 @@ export const money = (
         maximumFractionDigits: 0,
       }).format(Number(value));
 
+/** "90 minutes" reads as "1 hour 30 minutes"; whole hours and days are said as such. */
+export const describeMinutes = (minutes: number) => {
+  const plural = (n: number, unit: string) =>
+    `${n} ${unit}${n === 1 ? '' : 's'}`;
+  if (minutes % 1440 === 0) return plural(minutes / 1440, 'day');
+  if (minutes % 60 === 0) return plural(minutes / 60, 'hour');
+  if (minutes > 60) {
+    return `${plural(Math.floor(minutes / 60), 'hour')} ${plural(
+      minutes % 60,
+      'minute'
+    )}`;
+  }
+  return plural(minutes, 'minute');
+};
+
+/** A campaign's schedule in one plain sentence. */
+export const describeSchedule = (
+  kind?: string | null,
+  intervalMinutes?: number | null,
+  occurrences?: number | null
+) => {
+  if (kind === 'REPEAT' && intervalMinutes && occurrences) {
+    return `Posts ${occurrences} times to each chat, ${describeMinutes(
+      intervalMinutes
+    )} apart`;
+  }
+  if (kind === 'DRIP' && intervalMinutes) {
+    return `One chat after another, ${describeMinutes(intervalMinutes)} apart`;
+  }
+  return 'Posts once to each chat';
+};
+
 /** Run an async action once at a time; returns the busy flag and a guarded runner. */
 export const useBusy = () => {
   const [busy, setBusy] = useState(false);

@@ -80,15 +80,18 @@
         "Write the title and body. The preview on the side is the real message that will be sent, and it names any limit you are over.",
         "Optional: press Suggest copy to get three headlines, bodies and calls to action from your AI provider. Edit freely; you decide what is used.",
         "Optional: press Templates to start from a saved ad, or to save this one so you can use it again. A template holds the text, media and link only.",
+        "Optional: under the ad, choose Compare another version to write up to three other versions (B, C, D). Chats take turns, and the preview has a tab for each version.",
         "Add a link and button text if you want tracked clicks.",
         "Choose the authorized Telegram destinations and a start time.",
+        "Under When, choose how it posts: once to each chat, repeating (every few hours or days, up to 60 times), or dripping one chat after another.",
         "Submit for review. Nothing is sent until it is approved."
       ],
       "needs": [
         "At least one authorized destination before you can schedule (see Telegram)."
       ],
       "tips": [
-        "Press Ctrl+K and type a campaign name to jump to it."
+        "Press Ctrl+K and type a campaign name to jump to it.",
+        "Reports show delivery for each version of an ad. Clicks are counted per campaign, not per version."
       ]
     },
     {

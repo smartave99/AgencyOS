@@ -81,6 +81,32 @@ const toCsv = (report: PublishingReport) => {
       c.lastDeliveredAt,
     ]),
   ];
+  // Versions of an ad go in their own block, so the campaign rows above stay one row per campaign.
+  if (report.variants.length) {
+    rows.push(
+      [],
+      [
+        'Campaign',
+        'Version',
+        'Delivered',
+        'Failed',
+        'Paused',
+        'Queued',
+        'Needs check',
+        'Delivery rate %',
+      ],
+      ...report.variants.map((v) => [
+        v.campaignName,
+        v.label,
+        v.delivered,
+        v.failed,
+        v.paused,
+        v.queued,
+        v.uncertain,
+        v.deliveryRate,
+      ])
+    );
+  }
   return rows.map((r) => r.map(cell).join(',')).join('\n');
 };
 
@@ -489,6 +515,71 @@ export const AgencyReportsComponent = () => {
                   </table>
                 </div>
               </Card>
+
+              {data.variants.length > 0 && (
+                <Card
+                  title="Versions of an ad"
+                  subtitle="Only campaigns that posted more than one version in this period. Delivery, not response: clicks are counted per campaign."
+                >
+                  <div className={tableClass.wrap}>
+                    <table className={tableClass.table}>
+                      <thead className={tableClass.head}>
+                        <tr>
+                          <th className={tableClass.th}>Campaign</th>
+                          <th className={tableClass.th}>Version</th>
+                          <th className={`${tableClass.th} text-right`}>
+                            Delivered
+                          </th>
+                          <th className={`${tableClass.th} text-right`}>
+                            Failed
+                          </th>
+                          <th className={`${tableClass.th} text-right`}>
+                            Open
+                          </th>
+                          <th className={`${tableClass.th} text-right`}>
+                            Rate
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.variants.map((v) => (
+                          <tr
+                            key={`${v.campaignId}-${v.label}`}
+                            className={tableClass.row}
+                          >
+                            <td
+                              className={`${tableClass.td} font-medium text-newTextColor`}
+                            >
+                              {v.campaignName}
+                            </td>
+                            <td className={tableClass.td}>{v.label}</td>
+                            <td
+                              className={`${tableClass.td} text-right tabular-nums`}
+                            >
+                              {v.delivered}
+                            </td>
+                            <td
+                              className={`${tableClass.td} text-right tabular-nums`}
+                            >
+                              {v.failed}
+                            </td>
+                            <td
+                              className={`${tableClass.td} text-right tabular-nums text-textItemBlur`}
+                            >
+                              {v.queued + v.paused + v.uncertain}
+                            </td>
+                            <td
+                              className={`${tableClass.td} text-right tabular-nums`}
+                            >
+                              {pct(v.deliveryRate)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              )}
             </>
           )}
 

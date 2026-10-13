@@ -484,6 +484,7 @@ export class AgencyPublishingRepository {
       lastByCampaign,
       lastByDestination,
       series,
+      byVariant,
     ] = await Promise.all([
       this.prisma.postingJob.groupBy({
         by: ['campaignId', 'status'],
@@ -514,6 +515,11 @@ export class AgencyPublishingRepository {
         select: { scheduledFor: true, status: true },
         orderBy: { scheduledFor: 'asc' },
         take: REPORT_SERIES_CAP + 1,
+      }),
+      this.prisma.postingJob.groupBy({
+        by: ['campaignId', 'variantLabel', 'status'],
+        where,
+        _count: { _all: true },
       }),
     ]);
 
@@ -557,6 +563,7 @@ export class AgencyPublishingRepository {
     return {
       byCampaign,
       byDestination,
+      byVariant,
       lastByCampaign,
       lastByDestination,
       series: series.slice(0, REPORT_SERIES_CAP),

@@ -32,6 +32,7 @@ import {
   TONE_TEXT,
   formatDate,
   formatDateTime,
+  describeSchedule,
   humanize,
   money,
   prettySummary,
@@ -210,6 +211,18 @@ const JobsTable: FC<{
             <tr key={j.id} className={`${tableClass.row} align-top`}>
               <td className={`${tableClass.td} font-medium text-newTextColor`}>
                 {j.telegramDestination?.title ?? '—'}
+                {(j.variantLabel || (j.occurrence ?? 0) > 0) && (
+                  <div className="mt-0.5 text-xs font-normal text-textItemBlur">
+                    {[
+                      j.variantLabel ? `Version ${j.variantLabel}` : null,
+                      (j.occurrence ?? 0) > 0
+                        ? `Repeat ${(j.occurrence ?? 0) + 1}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </div>
+                )}
               </td>
               <td className={tableClass.td}>
                 <StatusBadge status={j.status} />
@@ -785,6 +798,42 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
 
         <div className="lg:col-span-5 flex flex-col gap-6 min-w-0">
           <TelegramPreview preview={preview} media={media} />
+          {!!c.variants?.length && (
+            <Card
+              title="Versions being compared"
+              subtitle="Chats take turns: the first chat gets A, the next B, and so on."
+            >
+              <ul className="flex flex-col gap-3">
+                {[
+                  {
+                    label: 'A',
+                    contentTitle: c.contentTitle,
+                    contentBody: c.contentBody,
+                  },
+                  ...c.variants,
+                ].map((v) => (
+                  <li
+                    key={v.label}
+                    className="flex gap-3 rounded-xl bg-[var(--ag-neutral-bg)] p-3 text-[13px]"
+                  >
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--ag-accent-soft)] text-xs font-semibold text-[color:var(--ag-accent-text)]">
+                      {v.label}
+                    </span>
+                    <div className="min-w-0">
+                      {v.contentTitle && (
+                        <div className="font-medium text-newTextColor">
+                          {v.contentTitle}
+                        </div>
+                      )}
+                      <p className="line-clamp-3 whitespace-pre-wrap break-words text-textItemBlur">
+                        {v.contentBody}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
           <Card title="Details">
             <dl className="grid grid-cols-2 gap-y-3 text-[13px]">
               <dt className="text-textItemBlur">Starts</dt>
@@ -794,6 +843,14 @@ export const CampaignDetailComponent: FC<{ id: string }> = ({ id }) => {
               <dt className="text-textItemBlur">Stops sending</dt>
               <dd className="text-newTextColor text-right">
                 {c.endDate ? formatDateTime(c.endDate) : 'No end'}
+              </dd>
+              <dt className="text-textItemBlur">Schedule</dt>
+              <dd className="text-newTextColor text-right">
+                {describeSchedule(
+                  c.scheduleKind,
+                  c.intervalMinutes,
+                  c.occurrences
+                )}
               </dd>
               <dt className="text-textItemBlur">Budget</dt>
               <dd className="text-newTextColor text-right">

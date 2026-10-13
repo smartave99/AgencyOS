@@ -41,7 +41,8 @@ limit. **Missing** = not built. **Unverified** = built, but could not be exercis
 | Duplicate campaign, reopen (voids approval), archive, retry failed | Done | Publishing tests. |
 | Ad templates (content only: text, media, link; unique names, per-workspace, audited; composer dialog to save, use and delete with confirmation) | Done | 7 tests in `agency.templates.int.spec.ts`, 1 HTTP end-to-end test |
 | Version history of campaign content (`CampaignVersion`) | Missing | Only `revision` is counted. |
-| Recurring schedules | Missing | One start time per destination; optional end time. |
+| Recurring and drip schedules (once, repeat every N hours/days up to 60 times, drip one chat after another; a repeat stops at the end date, a drip that would pass it is refused; the first post keeps the legacy idempotency key) | Done | `agency.variants.int.spec.ts` (repeat, end date, drip, validation, queued-until-due) |
+| A/B versions of an ad (B, C, D; chats and repeats take turns; every version is part of the approved fingerprint and each must fit Telegram; delivery per version in the report and its CSV) | Done (delivery only: clicks stay per campaign) | `agency.variants.int.spec.ts` (18 tests); browser walkthrough with 21 checks at desktop and 390 px |
 
 ### Telegram (authorized-only)
 | Item | Status | Evidence |

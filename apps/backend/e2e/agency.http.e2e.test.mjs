@@ -893,6 +893,99 @@ describe(
       });
     });
 
+    describe('ad versions and schedules over HTTP', () => {
+      const campaign = (extra) => ({
+        customerId: ctx.customerId,
+        name: `Versions ${rnd()}`,
+        contentBody: 'Fresh fruit, delivered.',
+        destinations: [
+          {
+            destinationType: 'TELEGRAM',
+            telegramDestinationId: ctx.destination.id,
+          },
+        ],
+        ...extra,
+      });
+
+      it('saves versions B to D and a schedule, labels them, and refuses what cannot be sent', async () => {
+        const made = await call('POST', '/agency/campaigns', {
+          as: 'sales',
+          body: campaign({
+            scheduleKind: 'REPEAT',
+            intervalMinutes: 120,
+            occurrences: 4,
+            variants: [
+              { contentBody: 'Version B words' },
+              { contentBody: 'Version C words', ctaLink: 'https://x.test/c' },
+            ],
+          }),
+        });
+        assert.equal(made.status, 201, made.text);
+        matches(made.json, {
+          scheduleKind: 'REPEAT',
+          intervalMinutes: 120,
+          occurrences: 4,
+        });
+        assert.deepEqual(
+          made.json.variants.map((v) => v.label),
+          ['B', 'C']
+        );
+
+        const read = await call('GET', `/agency/campaigns/${made.json.id}`, {
+          as: 'sales',
+        });
+        assert.deepEqual(
+          read.json.variants.map((v) => v.contentBody),
+          ['Version B words', 'Version C words']
+        );
+
+        for (const bad of [
+          { scheduleKind: 'WEEKLY' },
+          { scheduleKind: 'REPEAT', intervalMinutes: 30, occurrences: 3 },
+          { scheduleKind: 'REPEAT', intervalMinutes: 60, occurrences: 1 },
+          { scheduleKind: 'DRIP' },
+          { variants: [{ contentBody: '' }] },
+          { variants: [{ contentBody: 'x', ctaLink: 'javascript:alert(1)' }] },
+          {
+            variants: [1, 2, 3, 4].map((n) => ({
+              contentBody: `Version ${n}`,
+            })),
+          },
+        ]) {
+          const res = await call('POST', '/agency/campaigns', {
+            as: 'sales',
+            body: campaign(bad),
+          });
+          assert.equal(res.status, 400, JSON.stringify(bad) + res.text);
+        }
+
+        // Changing back to "once" clears the gap and count; an edit that sends no versions keeps them.
+        const back = await call('PUT', `/agency/campaigns/${made.json.id}`, {
+          as: 'sales',
+          body: { scheduleKind: 'ONCE' },
+        });
+        assert.equal(back.status, 200, back.text);
+        matches(back.json, {
+          scheduleKind: 'ONCE',
+          intervalMinutes: null,
+          occurrences: null,
+        });
+        assert.equal(back.json.variants.length, 2);
+        const cleared = await call('PUT', `/agency/campaigns/${made.json.id}`, {
+          as: 'sales',
+          body: { variants: [] },
+        });
+        assert.equal(cleared.json.variants.length, 0);
+
+        // The report carries the per-version block (empty when nothing has been compared).
+        const report = await call('GET', '/agency/reports/publishing', {
+          as: 'manager',
+        });
+        assert.equal(report.status, 200, report.text);
+        assert.ok(Array.isArray(report.json.variants));
+      });
+    });
+
     describe('lead links over HTTP', () => {
       it('collects only people who tap Start, exports them, and lets them leave', async () => {
         const { TelegramGateway } = require(resolve(

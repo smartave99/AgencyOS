@@ -1048,6 +1048,30 @@ export class AgencyService {
         (a, b) => b.delivered - a.delivered || a.title.localeCompare(b.title)
       );
 
+    // Versions are compared only inside a campaign that actually posted more than one of them.
+    const perVariant = new Map<string, Map<string, Tally>>();
+    for (const r of data.byVariant) {
+      const label = r.variantLabel ?? 'A';
+      const labels = perVariant.get(r.campaignId) ?? new Map<string, Tally>();
+      const t = labels.get(label) ?? empty();
+      t[bucket(r.status)] += r._count._all;
+      labels.set(label, t);
+      perVariant.set(r.campaignId, labels);
+    }
+    const variants = data.campaigns
+      .filter((c) => (perVariant.get(c.id)?.size ?? 0) > 1)
+      .flatMap((c) =>
+        [...perVariant.get(c.id)!.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([label, t]) => ({
+            campaignId: c.id,
+            campaignName: c.name,
+            label,
+            ...t,
+            deliveryRate: rate(t),
+          }))
+      );
+
     // One row per UTC day in the period, including quiet days, so the chart is honest.
     const daily: Array<{
       date: string;
@@ -1083,13 +1107,14 @@ export class AgencyService {
       totals: { ...totals, deliveryRate: rate(totals), trackedClicks },
       campaigns,
       destinations,
+      variants,
       daily,
       dailyTruncated: data.seriesTruncated,
       notes: [
         'Posts are counted on the day they were due, in UTC.',
         'Delivered means Telegram accepted the post and returned a message ID. Failed means every retry was used up or Telegram refused it for good.',
         'Delivery rate is delivered divided by delivered plus failed; it is empty until something has been resolved.',
-        'Clicks are real visits to tracked links created in AgencyOS, with link-preview bots excluded. Impressions, views and reach are not reported because there is no verified source for them.',
+        'Clicks are real visits to tracked links created in AgencyOS, with link-preview bots excluded. They are counted per campaign, not per version of an ad. Impressions, views and reach are not reported because there is no verified source for them.',
       ],
     };
   }

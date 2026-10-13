@@ -277,6 +277,10 @@ export interface PostingJob {
   lastErrorCode: string | null;
   externalMessageId: string | null;
   releaseUrl: string | null;
+  /** Which version of the ad this post carries; null is version A. */
+  variantLabel?: string | null;
+  /** 0 for the first post to a chat, then 1, 2... for repeats. */
+  occurrence?: number;
   campaign?: { id: string; name: string };
   telegramDestination?: {
     id: string;
@@ -377,6 +381,18 @@ export interface CampaignSummary {
   ctaText: string | null;
   telegramChannelLink: string | null;
   internalNotes: string | null;
+  scheduleKind?: 'ONCE' | 'REPEAT' | 'DRIP';
+  intervalMinutes?: number | null;
+  occurrences?: number | null;
+  /** The other versions of the ad (B, C, D); the fields above are version A. */
+  variants?: Array<{
+    label: string;
+    contentTitle: string | null;
+    contentBody: string;
+    contentMedia: string | null;
+    ctaLink: string | null;
+    ctaText: string | null;
+  }>;
   revision: number;
   approvedAt: string | null;
   createdAt: string;
@@ -473,6 +489,15 @@ export interface PublishingReport {
       title: string;
       deliveryRate: number | null;
       lastDeliveredAt: string | null;
+    }
+  >;
+  /** Only campaigns that posted more than one version of their ad in the period. */
+  variants: Array<
+    ReportTally & {
+      campaignId: string;
+      campaignName: string;
+      label: string;
+      deliveryRate: number | null;
     }
   >;
   daily: Array<{

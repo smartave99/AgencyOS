@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import clsx from 'clsx';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useToaster } from '@gitroom/react/toaster/toaster';
+import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { MediaBox } from '@gitroom/frontend/components/media/media.component';
 import { useMediaDirectory } from '@gitroom/react/helpers/use.media.directory';
@@ -30,11 +31,14 @@ import {
   Loading,
   PageHeader,
   PageShell,
+  Segmented,
   SelectField,
   StatusBadge,
   TextArea,
   TextField,
   TONE_TEXT,
+  describeSchedule,
+  formatDateTime,
   humanize,
   inputClass,
   labelClass,
@@ -53,6 +57,27 @@ export interface Preview {
   limits: { message: number; caption: number };
   problem: string | null;
 }
+
+/** Another version of the ad as it is typed in; the campaign's own fields are version A. */
+interface VersionDraft {
+  contentTitle: string;
+  contentBody: string;
+  ctaLink: string;
+  ctaText: string;
+}
+
+const VERSION_LETTERS = ['B', 'C', 'D'];
+type ScheduleKind = 'ONCE' | 'REPEAT' | 'DRIP';
+const UNIT_MINUTES = { minutes: 1, hours: 60, days: 1440 } as const;
+type GapUnit = keyof typeof UNIT_MINUTES;
+
+/** 180 minutes reads back as "3 hours", the way it was most likely typed. */
+const splitGap = (minutes: number): { amount: string; unit: GapUnit } =>
+  minutes % 1440 === 0
+    ? { amount: String(minutes / 1440), unit: 'days' }
+    : minutes % 60 === 0
+    ? { amount: String(minutes / 60), unit: 'hours' }
+    : { amount: String(minutes), unit: 'minutes' };
 
 const OBJECTIVES = [
   'BRAND_AWARENESS',
@@ -356,6 +381,13 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
   const [timezone, setTimezone] = useState(
     Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
   );
+  const [variants, setVariants] = useState<VersionDraft[]>([]);
+  const [showVersions, setShowVersions] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState(0);
+  const [scheduleKind, setScheduleKind] = useState<ScheduleKind>('ONCE');
+  const [gapAmount, setGapAmount] = useState('');
+  const [gapUnit, setGapUnit] = useState<GapUnit>('hours');
+  const [times, setTimes] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState<'draft' | 'submit' | null>(null);
@@ -401,18 +433,40 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
     );
     setStartDate(toLocalInput(existing.startDate));
     setEndDate(toLocalInput(existing.endDate));
+    const others = (existing.variants ?? []).map((v) => ({
+      contentTitle: v.contentTitle ?? '',
+      contentBody: v.contentBody,
+      ctaLink: v.ctaLink ?? '',
+      ctaText: v.ctaText ?? '',
+    }));
+    setVariants(others);
+    setShowVersions(others.length > 0);
+    setScheduleKind(existing.scheduleKind ?? 'ONCE');
+    if (existing.intervalMinutes) {
+      const gap = splitGap(existing.intervalMinutes);
+      setGapAmount(gap.amount);
+      setGapUnit(gap.unit);
+    }
+    setTimes(existing.occurrences ? String(existing.occurrences) : '');
   }, [campaignId, existing]);
 
   // --- live preview, rendered by the server -----------------------------------
   const mediaKey = media.map((m) => m.path).join('\n');
+  // The preview shows one version at a time; version A is the campaign's own text.
+  const shown = variants[previewIndex - 1] ?? {
+    contentTitle,
+    contentBody,
+    ctaLink,
+    ctaText,
+  };
   useEffect(() => {
     const t = setTimeout(() => {
       api
         .post<Preview>('/agency/campaigns/preview', {
-          contentTitle,
-          contentBody,
-          ctaLink: isHttpUrl(ctaLink) ? ctaLink : undefined,
-          ctaText,
+          contentTitle: shown.contentTitle,
+          contentBody: shown.contentBody,
+          ctaLink: isHttpUrl(shown.ctaLink) ? shown.ctaLink : undefined,
+          ctaText: shown.ctaText,
           telegramChannelLink: isHttpUrl(channelLink) ? channelLink : undefined,
           media: mediaKey ? mediaKey.split('\n') : [],
         })
@@ -420,7 +474,74 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
         .catch(() => setPreview(null));
     }, 350);
     return () => clearTimeout(t);
-  }, [contentTitle, contentBody, ctaLink, ctaText, channelLink, mediaKey, api]);
+  }, [
+    shown.contentTitle,
+    shown.contentBody,
+    shown.ctaLink,
+    shown.ctaText,
+    channelLink,
+    mediaKey,
+    api,
+  ]);
+
+  // --- schedule and versions -----------------------------------------------------
+  const gapMinutes = Math.round(Number(gapAmount) * UNIT_MINUTES[gapUnit]);
+  const gapProblem =
+    scheduleKind === 'ONCE'
+      ? null
+      : !gapAmount || !Number.isFinite(gapMinutes) || gapMinutes <= 0
+      ? 'Enter how long to wait.'
+      : scheduleKind === 'REPEAT' && (gapMinutes < 60 || gapMinutes > 525600)
+      ? 'Repeats need at least an hour between posts, and at most a year.'
+      : scheduleKind === 'DRIP' && (gapMinutes < 1 || gapMinutes > 10080)
+      ? 'A drip needs between 1 minute and 1 week between one chat and the next.'
+      : null;
+  const dripProblem =
+    scheduleKind === 'DRIP' &&
+    !gapProblem &&
+    startDate &&
+    endDate &&
+    picked.length > 1 &&
+    new Date(startDate).getTime() + (picked.length - 1) * gapMinutes * 60_000 >
+      new Date(endDate).getTime()
+      ? 'The last chat would start after the stop time. Use a shorter gap, fewer chats, or a later stop time.'
+      : null;
+  const versionProblem = (() => {
+    for (let i = 0; i < variants.length; i++) {
+      const v = variants[i];
+      if (!v.contentBody.trim()) {
+        return `Version ${VERSION_LETTERS[i]} needs some ad text.`;
+      }
+      if (v.ctaLink && !isHttpUrl(v.ctaLink)) {
+        return `Version ${VERSION_LETTERS[i]}: enter a full link starting with https://`;
+      }
+    }
+    return null;
+  })();
+  const updateVersion = (index: number, patch: Partial<VersionDraft>) =>
+    setVariants((list) =>
+      list.map((v, i) => (i === index ? { ...v, ...patch } : v))
+    );
+  const addVersion = () => {
+    // A new version starts as a copy of A, so the difference being tested is the only thing to edit.
+    setVariants((list) => [
+      ...list,
+      { contentTitle, contentBody, ctaLink, ctaText },
+    ]);
+    setShowVersions(true);
+  };
+  const removeVersion = async (index: number) => {
+    const ok = await deleteDialog(
+      `Remove version ${VERSION_LETTERS[index]}? Its text will be lost.`,
+      'Yes, remove it',
+      `Remove version ${VERSION_LETTERS[index]}`,
+      undefined,
+      false
+    );
+    if (!ok) return;
+    setVariants((list) => list.filter((_, i) => i !== index));
+    setPreviewIndex(0);
+  };
 
   // --- validation: shown once a field is touched, and everywhere after a failed save
   const errors = {
@@ -442,6 +563,18 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
         : null,
     media:
       media.length > 10 ? 'Telegram allows at most 10 files per post.' : null,
+    versions: versionProblem,
+    times:
+      scheduleKind === 'REPEAT' &&
+      !(
+        Number.isInteger(Number(times)) &&
+        Number(times) >= 2 &&
+        Number(times) <= 60
+      )
+        ? 'Choose between 2 and 60 posts per chat.'
+        : null,
+    gap: gapProblem,
+    drip: dripProblem,
   };
   const err = (key: keyof typeof errors) =>
     tried ? errors[key] ?? undefined : touched.show(key, errors[key]);
@@ -486,6 +619,17 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
         telegramChannelLink: channelLink.trim(),
         internalNotes: notes.trim(),
         requiresClientApproval: needsClient,
+        scheduleKind,
+        intervalMinutes: scheduleKind === 'ONCE' ? undefined : gapMinutes,
+        occurrences: scheduleKind === 'REPEAT' ? Number(times) : undefined,
+        // Versions share the pictures above; everything else is their own.
+        variants: variants.map((v) => ({
+          contentTitle: v.contentTitle.trim() || undefined,
+          contentBody: v.contentBody.trim(),
+          contentMedia: JSON.stringify(media),
+          ctaLink: v.ctaLink.trim() || undefined,
+          ctaText: v.ctaText.trim() || undefined,
+        })),
       };
       const destinationsBody = picked.map((tid) => ({
         destinationType: 'TELEGRAM' as const,
@@ -831,6 +975,100 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
                 onChange={(e) => setCtaText(e.target.value)}
               />
             </div>
+
+            <button
+              type="button"
+              aria-expanded={showVersions}
+              className="inline-flex items-center gap-1 self-start text-[13px] font-medium text-[color:var(--ag-accent-text)] hover:underline"
+              onClick={() => setShowVersions((v) => !v)}
+            >
+              <Icon
+                name="chevron"
+                size={14}
+                className={clsx(
+                  'transition-transform',
+                  showVersions && 'rotate-180'
+                )}
+              />
+              {variants.length
+                ? `Other versions (${variants.length})`
+                : 'Compare another version'}
+            </button>
+            {showVersions && (
+              <div className="ag-rise flex flex-col gap-4">
+                <p className="text-xs leading-relaxed text-textItemBlur">
+                  Chats take turns: the first gets A, the next B, and so on. The
+                  reports then show which version was delivered where. Versions
+                  share the pictures above, and a reviewer approves all of them
+                  together.
+                </p>
+                {variants.map((v, i) => (
+                  <div
+                    key={VERSION_LETTERS[i]}
+                    className="flex flex-col gap-3 rounded-xl border border-[color:var(--ag-hairline)] p-4"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="text-[13px] font-semibold text-newTextColor">
+                        Version {VERSION_LETTERS[i]}
+                      </h3>
+                      <Btn variant="ghost" onClick={() => removeVersion(i)}>
+                        Remove
+                      </Btn>
+                    </div>
+                    <TextField
+                      label="Headline"
+                      optional
+                      value={v.contentTitle}
+                      onChange={(e) =>
+                        updateVersion(i, { contentTitle: e.target.value })
+                      }
+                    />
+                    <TextArea
+                      label="Ad text"
+                      rows={5}
+                      className="resize-y"
+                      value={v.contentBody}
+                      onChange={(e) =>
+                        updateVersion(i, { contentBody: e.target.value })
+                      }
+                      onBlur={touched.blur('versions')}
+                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <TextField
+                        label="Link"
+                        optional
+                        value={v.ctaLink}
+                        onChange={(e) =>
+                          updateVersion(i, { ctaLink: e.target.value })
+                        }
+                        onBlur={touched.blur('versions')}
+                        placeholder="https://example.com/offer"
+                      />
+                      <TextField
+                        label="Link text"
+                        value={v.ctaText}
+                        onChange={(e) =>
+                          updateVersion(i, { ctaText: e.target.value })
+                        }
+                      />
+                    </div>
+                  </div>
+                ))}
+                {err('versions') && (
+                  <p
+                    role="alert"
+                    className={clsx('text-[13px]', TONE_TEXT.bad)}
+                  >
+                    {err('versions')}
+                  </p>
+                )}
+                {variants.length < VERSION_LETTERS.length && (
+                  <Btn className="self-start" onClick={addVersion}>
+                    Add version {VERSION_LETTERS[variants.length]}
+                  </Btn>
+                )}
+              </div>
+            )}
           </Card>
 
           <Card>
@@ -917,7 +1155,11 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
                 type="datetime-local"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                hint="Posts once to each destination at this time, or right away if it is already past."
+                hint={
+                  scheduleKind === 'ONCE'
+                    ? 'Posts once to each destination at this time, or right away if it is already past.'
+                    : 'The first post goes out at this time, or right away if it is already past.'
+                }
               />
               <TextField
                 label="Stop sending after"
@@ -929,6 +1171,95 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
                 error={err('dates')}
               />
             </div>
+            <SelectField
+              label="How it posts"
+              value={scheduleKind}
+              onChange={(e) => setScheduleKind(e.target.value as ScheduleKind)}
+            >
+              <option value="ONCE">Once to each chat</option>
+              <option value="REPEAT">Repeat, again and again</option>
+              <option value="DRIP">Drip, one chat after another</option>
+            </SelectField>
+            {scheduleKind !== 'ONCE' && (
+              <div className="ag-rise flex flex-col gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {scheduleKind === 'REPEAT' && (
+                    <TextField
+                      label="Posts per chat"
+                      type="number"
+                      min={2}
+                      max={60}
+                      inputMode="numeric"
+                      value={times}
+                      onChange={(e) => setTimes(e.target.value)}
+                      onBlur={touched.blur('times')}
+                      error={err('times')}
+                    />
+                  )}
+                  <TextField
+                    label={
+                      scheduleKind === 'REPEAT'
+                        ? 'Wait between posts'
+                        : 'Wait between chats'
+                    }
+                    type="number"
+                    min={1}
+                    inputMode="decimal"
+                    value={gapAmount}
+                    onChange={(e) => setGapAmount(e.target.value)}
+                    onBlur={touched.blur('gap')}
+                    error={err('gap')}
+                  />
+                  <SelectField
+                    label="Unit"
+                    value={gapUnit}
+                    onChange={(e) => setGapUnit(e.target.value as GapUnit)}
+                  >
+                    <option value="minutes">minutes</option>
+                    <option value="hours">hours</option>
+                    <option value="days">days</option>
+                  </SelectField>
+                </div>
+                {!errors.gap && !errors.times && gapMinutes > 0 && (
+                  <p className="text-xs leading-relaxed text-textItemBlur">
+                    {describeSchedule(
+                      scheduleKind,
+                      gapMinutes,
+                      Number(times) || null
+                    )}
+                    .
+                    {startDate &&
+                      scheduleKind === 'REPEAT' &&
+                      Number(times) >= 2 &&
+                      ` The last post goes out ${formatDateTime(
+                        new Date(
+                          new Date(startDate).getTime() +
+                            (Number(times) - 1) * gapMinutes * 60_000
+                        ).toISOString()
+                      )}.`}
+                    {startDate &&
+                      scheduleKind === 'DRIP' &&
+                      picked.length > 1 &&
+                      ` The last of ${
+                        picked.length
+                      } chats starts ${formatDateTime(
+                        new Date(
+                          new Date(startDate).getTime() +
+                            (picked.length - 1) * gapMinutes * 60_000
+                        ).toISOString()
+                      )}.`}
+                  </p>
+                )}
+                {errors.drip && (
+                  <p
+                    role="alert"
+                    className={clsx('text-[13px]', TONE_TEXT.bad)}
+                  >
+                    {errors.drip}
+                  </p>
+                )}
+              </div>
+            )}
             <button
               type="button"
               aria-expanded={showAdvanced}
@@ -993,6 +1324,20 @@ export const CampaignFormComponent: FC<{ campaignId?: string }> = ({
         </div>
 
         <div className="lg:col-span-5 flex flex-col gap-6 lg:sticky lg:top-6 self-start min-w-0">
+          {variants.length > 0 && (
+            <Segmented
+              ariaLabel="Version shown in the preview"
+              value={String(previewIndex)}
+              onChange={(v) => setPreviewIndex(Number(v))}
+              options={[
+                { value: '0', label: 'Version A' },
+                ...variants.map((_, i) => ({
+                  value: String(i + 1),
+                  label: `Version ${VERSION_LETTERS[i]}`,
+                })),
+              ]}
+            />
+          )}
           <TelegramPreview preview={preview} media={media} />
           <Card title={ready ? 'Ready to submit' : 'Before you submit'}>
             <ul className="flex flex-col gap-2">

@@ -108,7 +108,11 @@ function sessionFrom(res) {
   return null;
 }
 function ps(command) {
-  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', timeout: 60000 });
+  // This script runs under PowerShell 7 on the build machine; Windows PowerShell 5.1 started from it must not
+  // inherit its module path, or it cannot load its own modules (Get-AuthenticodeSignature among them).
+  const env = { ...process.env };
+  delete env.PSModulePath;
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', timeout: 60000, env });
   return `${r.stdout || ''}`.trim();
 }
 

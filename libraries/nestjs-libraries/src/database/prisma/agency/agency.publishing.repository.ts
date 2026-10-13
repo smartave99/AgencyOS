@@ -13,6 +13,8 @@ export interface NewPostingJob {
   scheduledFor: Date;
   contentHash: string;
   maxAttempts: number;
+  variantLabel?: string | null;
+  occurrence?: number;
 }
 
 const OPEN_JOB_STATUSES: PostingJobStatus[] = [
@@ -134,6 +136,17 @@ export class AgencyPublishingRepository {
             approvedContentHash: true,
             postingWindows: true,
             timezone: true,
+            variants: {
+              select: {
+                label: true,
+                contentTitle: true,
+                contentBody: true,
+                contentMedia: true,
+                ctaLink: true,
+                ctaText: true,
+              },
+              orderBy: { label: 'asc' },
+            },
           },
         },
         telegramDestination: true,

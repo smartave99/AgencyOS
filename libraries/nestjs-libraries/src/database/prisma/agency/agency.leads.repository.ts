@@ -107,7 +107,7 @@ export class AgencyLeadsRepository {
       // Starting again after /stop is a new request to hear from the agency.
       status: 'NEW',
       consentedAt: now,
-      optedOutAt: null,
+      optedOutAt: null as Date | null,
     };
     const existing = await this.findLead(link.id, person.telegramUserId);
     if (existing && existing.status !== OPTED_OUT) {

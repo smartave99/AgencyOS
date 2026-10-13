@@ -13,7 +13,10 @@ import {
   Prisma,
 } from '@prisma/client';
 import { AgencyRepository } from './agency.repository';
-import { AgencyPublishingRepository } from './agency.publishing.repository';
+import {
+  AgencyPublishingRepository,
+  NewPostingJob,
+} from './agency.publishing.repository';
 import { AgencyAccessService, AgencyActor } from './agency.access.service';
 import {
   AgencyTelegramBotsService,
@@ -28,6 +31,16 @@ import {
   TelegramGatewayError,
 } from '@gitroom/nestjs-libraries/integrations/telegram/telegram.gateway';
 
+/** One extra version of an ad ("B", "C", "D"); the campaign's own content is "A". */
+export interface VariantFields {
+  label: string;
+  contentTitle: string | null;
+  contentBody: string;
+  contentMedia: string | null;
+  ctaLink: string | null;
+  ctaText: string | null;
+}
+
 interface CampaignForJobs {
   id: string;
   orgId: string;
@@ -41,6 +54,10 @@ interface CampaignForJobs {
   ctaText: string | null;
   telegramChannelLink: string | null;
   approvedContentHash: string | null;
+  scheduleKind?: string;
+  intervalMinutes?: number | null;
+  occurrences?: number | null;
+  variants?: VariantFields[];
   destinations: Array<{
     id: string;
     destinationType: string;
@@ -172,19 +189,59 @@ export class AgencyPublishingService {
     ctaLink: string | null;
     ctaText: string | null;
     telegramChannelLink: string | null;
+    variants?: VariantFields[];
   }): string {
-    return createHash('sha256')
-      .update(
-        JSON.stringify([
-          c.contentTitle ?? '',
-          c.contentBody,
-          c.contentMedia ?? '',
-          c.ctaLink ?? '',
-          c.ctaText ?? '',
-          c.telegramChannelLink ?? '',
-        ])
-      )
-      .digest('hex');
+    const parts: unknown[] = [
+      c.contentTitle ?? '',
+      c.contentBody,
+      c.contentMedia ?? '',
+      c.ctaLink ?? '',
+      c.ctaText ?? '',
+      c.telegramChannelLink ?? '',
+    ];
+    // Every extra version is part of what a reviewer approves. A campaign without any hashes exactly
+    // as it always did, so earlier approvals stay valid.
+    if (c.variants?.length) {
+      parts.push(
+        [...c.variants]
+          .sort((a, b) => a.label.localeCompare(b.label))
+          .map((v) => [
+            v.label,
+            v.contentTitle ?? '',
+            v.contentBody,
+            v.contentMedia ?? '',
+            v.ctaLink ?? '',
+            v.ctaText ?? '',
+          ])
+      );
+    }
+    return createHash('sha256').update(JSON.stringify(parts)).digest('hex');
+  }
+
+  /** The content one post carries: the campaign's own ("A"), or the extra version its job was given. */
+  contentFor(
+    c: {
+      contentTitle: string | null;
+      contentBody: string;
+      contentMedia: string | null;
+      ctaLink: string | null;
+      ctaText: string | null;
+      telegramChannelLink: string | null;
+      variants?: VariantFields[];
+    },
+    label?: string | null
+  ) {
+    const variant = label ? c.variants?.find((v) => v.label === label) : null;
+    return variant
+      ? {
+          contentTitle: variant.contentTitle,
+          contentBody: variant.contentBody,
+          contentMedia: variant.contentMedia,
+          ctaLink: variant.ctaLink,
+          ctaText: variant.ctaText,
+          telegramChannelLink: c.telegramChannelLink,
+        }
+      : c;
   }
 
   buildAd(c: {
@@ -318,6 +375,36 @@ export class AgencyPublishingService {
     } catch (err: any) {
       problems.push(err?.message || 'Advertisement is not valid for Telegram');
     }
+    if (
+      forPublish &&
+      campaign.scheduleKind === 'DRIP' &&
+      campaign.endDate &&
+      campaign.destinations.length > 1
+    ) {
+      const last =
+        (campaign.startDate ?? now).getTime() +
+        (campaign.destinations.length - 1) *
+          (campaign.intervalMinutes ?? 0) *
+          60_000;
+      if (last > campaign.endDate.getTime()) {
+        problems.push(
+          'The drip would reach past the end date: shorten the gap, choose fewer chats, or move the end date'
+        );
+      }
+    }
+    for (const variant of campaign.variants ?? []) {
+      try {
+        this.gateway.validateAd(
+          this.buildAd(this.contentFor(campaign, variant.label))
+        );
+      } catch (err: any) {
+        problems.push(
+          `Version ${variant.label}: ${
+            err?.message || 'not valid for Telegram'
+          }`
+        );
+      }
+    }
     return problems;
   }
 
@@ -334,20 +421,64 @@ export class AgencyPublishingService {
   ): Promise<number> {
     const now = new Date();
     const contentHash = this.computeContentHash(campaign);
-    return this.jobs.createJobsIfAbsent(
-      campaign.destinations.map((d) => ({
-        orgId: campaign.orgId,
-        campaignId: campaign.id,
-        campaignDestinationId: d.id,
-        telegramDestinationId: d.telegramDestinationId,
-        integrationId: d.integrationId,
-        destinationType: d.destinationType,
-        idempotencyKey: `camp_${campaign.id}_r${campaign.revision}_dest_${d.id}`,
-        scheduledFor: runAt ?? d.scheduledAt ?? campaign.startDate ?? now,
-        contentHash,
-        maxAttempts: this.maxAttempts,
-      }))
+    const kind = campaign.scheduleKind ?? 'ONCE';
+    const step = (campaign.intervalMinutes ?? 0) * 60_000;
+    const rounds = kind === 'REPEAT' ? campaign.occurrences ?? 1 : 1;
+    // Versions take turns across chats and, on a single chat, across repeats: A, B, C... A, B, C...
+    const labels = [
+      'A',
+      ...(campaign.variants ?? []).map((v) => v.label).sort(),
+    ];
+    // A stable order, so the same chat always gets the same version first.
+    const destinations = [...campaign.destinations].sort((a, b) =>
+      a.id.localeCompare(b.id)
     );
+
+    const rows: NewPostingJob[] = [];
+    destinations.forEach((d, index) => {
+      const own = runAt ?? d.scheduledAt;
+      const first =
+        own ??
+        new Date(
+          (campaign.startDate ?? now).getTime() +
+            (kind === 'DRIP' ? index * step : 0)
+        );
+      for (let round = 0; round < rounds; round++) {
+        const at = new Date(
+          first.getTime() + (kind === 'REPEAT' ? round * step : 0)
+        );
+        // Repeats stop at the end date; a drip that would run past it is refused below.
+        if (round > 0 && campaign.endDate && at > campaign.endDate) break;
+        const label = labels[(index + round) % labels.length];
+        const base = `camp_${campaign.id}_r${campaign.revision}_dest_${d.id}`;
+        rows.push({
+          orgId: campaign.orgId,
+          campaignId: campaign.id,
+          campaignDestinationId: d.id,
+          telegramDestinationId: d.telegramDestinationId,
+          integrationId: d.integrationId,
+          destinationType: d.destinationType,
+          // The first post keeps the key every campaign has always had, so nothing is sent twice
+          // by a campaign scheduled before schedules existed.
+          idempotencyKey: round === 0 ? base : `${base}_o${round}`,
+          scheduledFor: at,
+          contentHash,
+          maxAttempts: this.maxAttempts,
+          variantLabel: label === 'A' ? null : label,
+          occurrence: round,
+        });
+      }
+    });
+    if (
+      kind === 'DRIP' &&
+      campaign.endDate &&
+      rows.some((r) => r.scheduledFor > campaign.endDate!)
+    ) {
+      throw new BadRequestException(
+        'The drip would reach past the campaign’s end date. Shorten the gap, choose fewer chats, or move the end date.'
+      );
+    }
+    return this.jobs.createJobsIfAbsent(rows);
   }
 
   // ==========================================
@@ -584,7 +715,7 @@ export class AgencyPublishingService {
     try {
       const result = await pick.bot.gateway.sendAd(
         dest.chatId,
-        this.buildAd(campaign)
+        this.buildAd(this.contentFor(campaign, job.variantLabel))
       );
       const botName = pick.bot.username || pick.bot.label;
       const stored = await this.jobs.markSucceeded(jobId, {

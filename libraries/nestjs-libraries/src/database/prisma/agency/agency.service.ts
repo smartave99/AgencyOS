@@ -13,6 +13,7 @@ import {
   AdTemplateParams,
   CreateClientParams,
   UpdateClientParams,
+  VariantParams,
 } from './agency.repository';
 import { AgencyPublishingRepository } from './agency.publishing.repository';
 import { AgencyPublishingService } from './agency.publishing.service';
@@ -45,8 +46,21 @@ export interface CampaignInput {
   telegramChannelLink?: string;
   internalNotes?: string;
   requiresClientApproval?: boolean;
+  scheduleKind?: string;
+  intervalMinutes?: number;
+  occurrences?: number;
+  variants?: Array<{
+    contentTitle?: string;
+    contentBody: string;
+    contentMedia?: string;
+    ctaLink?: string;
+    ctaText?: string;
+  }>;
   destinations?: DestinationInput[];
 }
+
+/** Letters of the extra versions of an ad, in order: the campaign's own text is "A". */
+const VARIANT_LABELS = ['B', 'C', 'D'];
 
 const EDITABLE: CampaignStatus[] = [
   CampaignStatus.DRAFT,
@@ -211,6 +225,12 @@ export class AgencyService {
       throw new BadRequestException('Campaign promotional content is required');
     this.assertDates(input.startDate, input.endDate);
     this.assertTimezone(input.timezone);
+    const schedule = this.cleanSchedule(
+      input.scheduleKind,
+      input.intervalMinutes,
+      input.occurrences
+    );
+    const variants = this.cleanVariants(input.variants);
 
     await this.requireClient(actor.orgId, input.customerId);
     if (input.destinations?.length) {
@@ -235,6 +255,8 @@ export class AgencyService {
       telegramChannelLink: input.telegramChannelLink,
       internalNotes: input.internalNotes,
       requiresClientApproval: input.requiresClientApproval,
+      ...schedule,
+      variants,
       createdById: actor.userId,
       destinations: input.destinations,
     });
@@ -290,7 +312,23 @@ export class AgencyService {
       input.endDate ?? campaign.endDate ?? undefined
     );
     this.assertTimezone(input.timezone);
+    const touchesSchedule =
+      input.scheduleKind !== undefined ||
+      input.intervalMinutes !== undefined ||
+      input.occurrences !== undefined;
+    const schedule = touchesSchedule
+      ? this.cleanSchedule(
+          input.scheduleKind ?? campaign.scheduleKind,
+          input.intervalMinutes ?? campaign.intervalMinutes ?? undefined,
+          input.occurrences ?? campaign.occurrences ?? undefined
+        )
+      : {};
     return this.agencyRepo.updateCampaign(actor.orgId, id, {
+      ...schedule,
+      variants:
+        input.variants === undefined
+          ? undefined
+          : this.cleanVariants(input.variants),
       name: input.name,
       description: input.description,
       objective: input.objective,
@@ -356,6 +394,17 @@ export class AgencyService {
       ctaText: src.ctaText ?? undefined,
       telegramChannelLink: src.telegramChannelLink ?? undefined,
       requiresClientApproval: src.requiresClientApproval,
+      scheduleKind: src.scheduleKind,
+      intervalMinutes: src.intervalMinutes,
+      occurrences: src.occurrences,
+      variants: src.variants.map((v) => ({
+        label: v.label,
+        contentTitle: v.contentTitle,
+        contentBody: v.contentBody,
+        contentMedia: v.contentMedia,
+        ctaLink: v.ctaLink,
+        ctaText: v.ctaText,
+      })),
       createdById: actor.userId,
       destinations: src.destinations.map((d) => ({
         destinationType: d.destinationType as 'TELEGRAM' | 'SOCIAL',
@@ -1446,6 +1495,76 @@ export class AgencyService {
           'One or more social accounts were not found'
         );
     }
+  }
+
+  /** The three ways posts can go out, checked so a schedule can never be half set. */
+  private cleanSchedule(
+    kind?: string,
+    intervalMinutes?: number,
+    occurrences?: number
+  ) {
+    const scheduleKind = kind ?? 'ONCE';
+    if (!['ONCE', 'REPEAT', 'DRIP'].includes(scheduleKind)) {
+      throw new BadRequestException(
+        'Choose to post once, to repeat, or to drip one chat after another'
+      );
+    }
+    if (scheduleKind === 'ONCE') {
+      return { scheduleKind, intervalMinutes: null, occurrences: null };
+    }
+    if (scheduleKind === 'REPEAT') {
+      if (
+        !intervalMinutes ||
+        intervalMinutes < 60 ||
+        intervalMinutes > 525600
+      ) {
+        throw new BadRequestException(
+          'A repeating campaign needs at least an hour between posts, and at most a year'
+        );
+      }
+      if (!occurrences || occurrences < 2 || occurrences > 60) {
+        throw new BadRequestException(
+          'A repeating campaign posts between 2 and 60 times to each chat'
+        );
+      }
+      return { scheduleKind, intervalMinutes, occurrences };
+    }
+    if (!intervalMinutes || intervalMinutes < 1 || intervalMinutes > 10080) {
+      throw new BadRequestException(
+        'A drip needs between 1 minute and 1 week between one chat and the next'
+      );
+    }
+    return { scheduleKind, intervalMinutes, occurrences: null };
+  }
+
+  /** Up to three other versions of the ad, labelled B, C, D in the order given. */
+  private cleanVariants(
+    variants: CampaignInput['variants'] = []
+  ): VariantParams[] {
+    if (variants.length > VARIANT_LABELS.length) {
+      throw new BadRequestException(
+        `A campaign can compare at most ${
+          VARIANT_LABELS.length + 1
+        } versions of an ad`
+      );
+    }
+    return variants.map((v, index) => {
+      const label = VARIANT_LABELS[index];
+      if (!v.contentBody?.trim()) {
+        throw new BadRequestException(`Version ${label} needs some ad text`);
+      }
+      const link = v.ctaLink?.trim();
+      return {
+        label,
+        contentTitle: v.contentTitle?.trim() || null,
+        contentBody: v.contentBody.trim(),
+        contentMedia: v.contentMedia || null,
+        ctaLink: link
+          ? this.assertHttpUrl(link, `Version ${label}'s link`)
+          : null,
+        ctaText: v.ctaText?.trim() || null,
+      };
+    });
   }
 
   private assertDates(start?: Date | null, end?: Date | null) {

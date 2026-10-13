@@ -1,13 +1,16 @@
 import {
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsDateString,
   IsIn,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
   IsUrl,
+  Max,
   MaxLength,
   Min,
   ValidateIf,
@@ -45,6 +48,39 @@ export class CampaignDestinationItemDto {
   @IsDateString()
   @IsOptional()
   scheduledAt?: string;
+}
+
+export const SCHEDULE_KINDS = ['ONCE', 'REPEAT', 'DRIP'] as const;
+
+/** Another version of the ad ("B", "C", "D" by position); the campaign's own content is "A". */
+export class CampaignVariantDto {
+  @ApiPropertyOptional({ description: 'Headline of this version' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(300)
+  contentTitle?: string;
+
+  @ApiProperty({ description: 'Ad text of this version' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(10000)
+  contentBody: string;
+
+  @ApiPropertyOptional({ description: 'JSON array of media URLs or IDs' })
+  @IsString()
+  @IsOptional()
+  contentMedia?: string;
+
+  @ApiPropertyOptional({ description: 'Link of this version (http/https)' })
+  @ValidateIf((o) => o.ctaLink !== undefined && o.ctaLink !== '')
+  @IsUrl(HTTP_URL)
+  ctaLink?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  ctaText?: string;
 }
 
 export class CreateCampaignDto {
@@ -146,6 +182,44 @@ export class CreateCampaignDto {
   @IsOptional()
   internalNotes?: string;
 
+  @ApiPropertyOptional({
+    enum: SCHEDULE_KINDS,
+    description:
+      'ONCE: every chat at the start. REPEAT: every chat again and again. DRIP: one chat after another.',
+  })
+  @IsIn(SCHEDULE_KINDS as unknown as string[])
+  @IsOptional()
+  scheduleKind?: (typeof SCHEDULE_KINDS)[number];
+
+  @ApiPropertyOptional({
+    description: 'Minutes between repeats (REPEAT) or between chats (DRIP)',
+  })
+  @IsInt()
+  @Min(1)
+  @Max(525600)
+  @IsOptional()
+  intervalMinutes?: number;
+
+  @ApiPropertyOptional({
+    description: 'How many times REPEAT posts to each chat',
+  })
+  @IsInt()
+  @Min(2)
+  @Max(60)
+  @IsOptional()
+  occurrences?: number;
+
+  @ApiPropertyOptional({
+    type: [CampaignVariantDto],
+    description: 'Up to three other versions of the ad to compare (B, C, D)',
+  })
+  @IsArray()
+  @ArrayMaxSize(3)
+  @ValidateNested({ each: true })
+  @Type(() => CampaignVariantDto)
+  @IsOptional()
+  variants?: CampaignVariantDto[];
+
   @ApiPropertyOptional({ type: [CampaignDestinationItemDto] })
   @IsArray()
   @ValidateNested({ each: true })
@@ -243,6 +317,44 @@ export class UpdateCampaignDto {
   @IsString()
   @IsOptional()
   internalNotes?: string;
+
+  @ApiPropertyOptional({
+    enum: SCHEDULE_KINDS,
+    description:
+      'ONCE: every chat at the start. REPEAT: every chat again and again. DRIP: one chat after another.',
+  })
+  @IsIn(SCHEDULE_KINDS as unknown as string[])
+  @IsOptional()
+  scheduleKind?: (typeof SCHEDULE_KINDS)[number];
+
+  @ApiPropertyOptional({
+    description: 'Minutes between repeats (REPEAT) or between chats (DRIP)',
+  })
+  @IsInt()
+  @Min(1)
+  @Max(525600)
+  @IsOptional()
+  intervalMinutes?: number;
+
+  @ApiPropertyOptional({
+    description: 'How many times REPEAT posts to each chat',
+  })
+  @IsInt()
+  @Min(2)
+  @Max(60)
+  @IsOptional()
+  occurrences?: number;
+
+  @ApiPropertyOptional({
+    type: [CampaignVariantDto],
+    description: 'Up to three other versions of the ad to compare (B, C, D)',
+  })
+  @IsArray()
+  @ArrayMaxSize(3)
+  @ValidateNested({ each: true })
+  @Type(() => CampaignVariantDto)
+  @IsOptional()
+  variants?: CampaignVariantDto[];
 }
 
 export class UpdateCampaignDestinationsDto {

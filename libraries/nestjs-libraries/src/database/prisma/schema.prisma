@@ -1906,6 +1906,11 @@ model Campaign {
   timezone            String                @default("UTC")
   postingFrequency    String?
   postingWindows      String?
+  // When posts go out: ONCE (every chat at the start), REPEAT (every chat, again and again) or DRIP
+  // (one chat after another). See AgencyPublishingService.createJobsForCampaign.
+  scheduleKind        String                @default("ONCE")
+  intervalMinutes     Int?
+  occurrences         Int?
   contentTitle        String?
   contentBody         String
   contentMedia        String?
@@ -1941,6 +1946,7 @@ model Campaign {
   publishingEvents    PublishingEvent[]
   leads               LeadCapture[]
   leadLinks           LeadLink[]
+  variants            CampaignVariant[]
   trackingLinks       TrackingLink[]
   postingJobs         PostingJob[]
 
@@ -1949,6 +1955,25 @@ model Campaign {
   @@index([status])
   @@index([requiresAttention])
   @@index([createdAt])
+}
+
+// Another version of a campaign's ad, to see which works better. The campaign's own text is version "A";
+// these are "B", "C" and "D". Each chat (and each repeat) gets one version, taking turns, and the approved
+// content fingerprint covers every version, so nothing can be sent that a reviewer did not see.
+model CampaignVariant {
+  id           String   @id @default(cuid())
+  campaignId   String
+  label        String
+  contentTitle String?
+  contentBody  String
+  contentMedia String?
+  ctaLink      String?
+  ctaText      String?
+  createdAt    DateTime @default(now())
+
+  campaign     Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, label])
 }
 
 // Which of a chat's bots posts. Only ever among bots whose agency the chat's administrator made an
@@ -2330,6 +2355,10 @@ model PostingJob {
   integrationId         String?
   destinationType       String
   idempotencyKey        String                @unique
+  // Which version of the ad this post carries ("B", "C"...; null is the campaign's own, "A"), and which
+  // time in a repeating schedule it is (0 is the first).
+  variantLabel          String?
+  occurrence            Int                   @default(0)
   status                PostingJobStatus      @default(PENDING)
   scheduledFor          DateTime
   nextAttemptAt         DateTime

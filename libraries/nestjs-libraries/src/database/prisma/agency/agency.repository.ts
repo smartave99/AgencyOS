@@ -32,6 +32,15 @@ export interface UpdateClientParams {
   assignedSalesUserId?: string;
 }
 
+export interface VariantParams {
+  label: string;
+  contentTitle?: string | null;
+  contentBody: string;
+  contentMedia?: string | null;
+  ctaLink?: string | null;
+  ctaText?: string | null;
+}
+
 export interface AdTemplateParams {
   name: string;
   contentTitle?: string | null;
@@ -60,6 +69,10 @@ export interface CreateCampaignParams {
   telegramChannelLink?: string;
   internalNotes?: string;
   requiresClientApproval?: boolean;
+  scheduleKind?: string;
+  intervalMinutes?: number | null;
+  occurrences?: number | null;
+  variants?: VariantParams[];
   createdById: string;
   destinations?: Array<{
     destinationType: 'TELEGRAM' | 'SOCIAL';
@@ -88,6 +101,10 @@ export interface UpdateCampaignParams {
   telegramChannelLink?: string;
   internalNotes?: string;
   requiresClientApproval?: boolean;
+  scheduleKind?: string;
+  intervalMinutes?: number | null;
+  occurrences?: number | null;
+  variants?: VariantParams[];
 }
 
 export interface CreateTelegramDestinationParams {
@@ -395,10 +412,10 @@ export class AgencyRepository {
           orderBy: { createdAt: 'desc' },
           take: 50,
         },
-        leads: {
-          orderBy: { createdAt: 'desc' },
-          take: 20,
-        },
+        // Never the lead rows: they hold people's names and usernames, which only those who work the
+        // sales side may read (see AgencyLeadsService); a campaign's page needs only how many there are.
+        _count: { select: { leads: true } },
+        variants: { orderBy: { label: 'asc' } },
         trackingLinks: true,
       },
     });
@@ -430,7 +447,13 @@ export class AgencyRepository {
         telegramChannelLink: params.telegramChannelLink,
         internalNotes: params.internalNotes,
         requiresClientApproval: params.requiresClientApproval ?? false,
+        scheduleKind: params.scheduleKind ?? 'ONCE',
+        intervalMinutes: params.intervalMinutes ?? null,
+        occurrences: params.occurrences ?? null,
         createdById: params.createdById,
+        ...(params.variants && params.variants.length > 0
+          ? { variants: { create: params.variants } }
+          : {}),
         ...(params.destinations && params.destinations.length > 0
           ? {
               destinations: {
@@ -447,6 +470,7 @@ export class AgencyRepository {
       },
       include: {
         customer: true,
+        variants: { orderBy: { label: 'asc' } },
         destinations: {
           include: {
             telegramDestination: true,
@@ -507,11 +531,33 @@ export class AgencyRepository {
         ...(params.requiresClientApproval !== undefined
           ? { requiresClientApproval: params.requiresClientApproval }
           : {}),
+        ...(params.scheduleKind !== undefined
+          ? { scheduleKind: params.scheduleKind }
+          : {}),
+        ...(params.intervalMinutes !== undefined
+          ? { intervalMinutes: params.intervalMinutes }
+          : {}),
+        ...(params.occurrences !== undefined
+          ? { occurrences: params.occurrences }
+          : {}),
       },
     });
+    if (params.variants !== undefined) {
+      // The set is replaced as a whole, only while the campaign can still be edited.
+      await this.prisma.$transaction([
+        this.prisma.campaignVariant.deleteMany({ where: { campaignId: id } }),
+        this.prisma.campaignVariant.createMany({
+          data: params.variants.map((v) => ({ ...v, campaignId: id })),
+        }),
+      ]);
+    }
     return this.prisma.campaign.findFirst({
       where: { id, orgId, deletedAt: null },
-      include: { customer: true, destinations: true },
+      include: {
+        customer: true,
+        destinations: true,
+        variants: { orderBy: { label: 'asc' } },
+      },
     });
   }
 

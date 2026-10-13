@@ -95,9 +95,15 @@ Nothing here has had an external penetration test or audit.
   switched off where the program allows it, and without the database, Redis, session and Temporal
   secrets in their environment. Two run at a time at most, each with a timeout.
 * The same tools are kept current by running their own update command (`claude update`,
-  `codex update`) once a day, claimed in the database so only one process does it, never while a
-  request is using the tool. Antigravity has no documented update command and is never touched.
-  `AGENCY_AI_TOOL_UPDATES=off` disables updates entirely.
+  `codex update`, `agy update`) once a day, claimed in the database so only one process does it,
+  never while a request is using the tool. `AGENCY_AI_TOOL_UPDATES=off` disables updates entirely.
+* Each tool is also asked which models it offers and how hard each can think; the answer is cached
+  and only shown, never executed. Asking uses the same fixed arguments and scratch folder.
+* The Copilot's agent mode is a loop of one model call per request. Reading tools run at once under the
+  person's own role; every change is returned as a proposal and runs only when the person presses
+  Approve, again under their own role, and is audited. There is no tool to approve a campaign,
+  schedule or send anything, delete anything or authorize a chat. What tools return is treated as
+  data, never as instructions.
 
 ### Operations
 * Jobs are idempotent (unique key per campaign revision and destination), retried with

@@ -2,6 +2,37 @@
 
 Every change in every version of AgencyOS, by NextGen OS, newest first. This file is generated from `libraries/helpers/src/changelog/releases.json`: edit that file, then run `node installer/build/changelog.mjs`.
 
+## 1.2.0 — 2026-10-13 · An agent that does the work, and a window that feels like an app
+
+The Copilot can now act as an agent: it looks things up, drafts work and proposes changes that you approve. Each AI job can have its own model and thinking level, the tools report their own models, and the desktop window loses its old title bar and heavy scrollbars.
+
+### Added
+
+- **AI:** Agent mode in the Copilot (Ctrl+J, then Agent). It looks things up in AgencyOS (dashboard, clients, campaigns, Telegram destinations, approvals, reports, deals), writes ad copy, and proposes changes: add a client, create or edit a draft campaign, choose its Telegram destinations, submit it for review. You see each step as it happens and can stop it.
+- **AI:** Every change the agent proposes shows exactly what will change and runs only when you press Approve, under your own role, and is recorded in the audit trail. The agent has no way to approve a campaign, schedule or send anything, delete anything or authorize a chat, so approval and authorized delivery cannot be bypassed.
+- **AI:** Settings → AI and Copilot: a provider, model and thinking level for each job separately (ad copy, text improvement, Copilot chat, agent), each with its own Test button.
+- **AI:** Claude Code, Codex CLI and Antigravity CLI are asked which models they offer and how hard each can think, so the lists follow the tools' own updates; local models say whether they can think at all. The model list has a Refresh button, and the thinking choices shown are the ones the chosen model supports.
+- **AI:** A new thinking level, Extra high, for the models that offer it.
+- **Interface:** The window's own title bar is gone on Windows: the top bar drags the window and the minimise, maximise and close buttons sit on it in the colours of your theme.
+
+### Improved
+
+- **Interface:** Scrollbars are slim and quiet, with no arrow buttons, and only appear while you point at the area that scrolls. The sidebar scrolls without a bar and fades at the bottom when there is more below.
+- **Telegram:** On the desktop app the Dashboard says plainly when no Telegram bot is connected and has a Connect a Telegram bot button, instead of talking about server settings.
+
+### Changed
+
+- **AI:** Antigravity CLI is now kept up to date too, with its documented agy update. Claude Code and Codex CLI were already.
+- **AI:** The Copilot's Ask mode is the same as before; Agent is the new mode next to it.
+
+### Good to know
+
+- Agents work best with a capable model. A small local model may not follow the agent's format; choose a stronger one for “Agent” in Settings. The agent was checked end to end with the real Claude Code, not with every provider.
+- Codex CLI's model list is read through its app-server, and Antigravity CLI's from agy models, from their published documentation; neither was run against a real install here, and each falls back to suggestions, with the reason shown, if it cannot answer.
+- Telegram delivery has been tested against a simulated Telegram, not the real one: no bot token was available to test with.
+- Answers and agent steps appear when complete; they are not streamed word by word yet.
+- The installer is still not code-signed, so Windows SmartScreen warns on first run.
+
 ## 1.1.0 — 2026-10-12 · One platform, one place for AI
 
 A new look and layout that put every part of AgencyOS in one window, a Guide and feature explainer inside the app, and a single place to choose which AI answers: the local model, Claude Code, Codex CLI, Antigravity CLI or an API.
@@ -38,7 +69,7 @@ A new look and layout that put every part of AgencyOS in one window, a Guide and
 
 ### Good to know
 
-- Antigravity CLI has no documented update command, so AgencyOS shows its version but does not update it. The bundled local AI engine is updated with AgencyOS itself, not separately.
+- AgencyOS 1.1.0 showed the version of Antigravity CLI but did not update it; 1.2.0 does. The bundled local AI engine is updated with AgencyOS itself, not separately.
 - Antigravity CLI support is experimental: it follows the programme's documented options, and some versions hang when another program starts them. Use the Test button before relying on it.
 - Answers in the Copilot appear when complete; they are not streamed word by word yet.
 - The installer is still not code-signed, so Windows SmartScreen warns on first run.

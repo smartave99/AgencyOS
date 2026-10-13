@@ -174,6 +174,7 @@ export const GuideComponent: FC = () => {
         {[
           ['workflow', 'Your first campaign'],
           ['local-model', 'Set up a local model'],
+          ['agent', 'Copilot and agent'],
           ['other-ai', 'Other AI providers'],
           ['scope', 'What AgencyOS does'],
           ['shortcuts', 'Shortcuts'],
@@ -206,7 +207,7 @@ export const GuideComponent: FC = () => {
           <WorkflowStep
             n={2}
             title="Connect a Telegram chat"
-            body="Paste your bot token once (tray icon → Status and settings), connect a group or channel, and have its administrator send the code with /authorize."
+            body="Press Connect a Telegram bot on the Dashboard and paste your bot token (from @BotFather) once. Then connect a group or channel and have its administrator send the code with /authorize."
             href="/agency/telegram"
             cta="Open Telegram"
             done={d ? d.telegramDestinationsCount > 0 : undefined}
@@ -315,6 +316,72 @@ export const GuideComponent: FC = () => {
       </Section>
 
       <Section
+        id="agent"
+        title="Ask, or let the agent do it"
+        intro="Press Ctrl+J (⌘J on a Mac) for the Copilot. It has two modes."
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-2xl border border-[color:var(--ag-hairline)] p-4">
+            <h3 className="text-[14px] font-semibold">Ask</h3>
+            <p className="mt-1 text-[13px] leading-relaxed text-textItemBlur">
+              Questions and drafts: “How do I get an ad approved?”, “Write three
+              headlines for a bakery’s spring sale”. It explains and writes. It
+              never changes anything.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-[color:var(--ag-hairline)] p-4">
+            <h3 className="text-[14px] font-semibold">Agent</h3>
+            <p className="mt-1 text-[13px] leading-relaxed text-textItemBlur">
+              Work: “What needs my attention today?”, “Draft a campaign for Nair
+              Foods”. It looks things up in AgencyOS, shows each step, and
+              proposes changes.
+            </p>
+          </div>
+        </div>
+        <Steps
+          items={[
+            <>
+              <strong>How it works.</strong> The agent asks the AI one step at a
+              time: look something up, or answer. Each look-up runs with{' '}
+              <em>your</em> permissions, so it can only see what you can see.
+            </>,
+            <>
+              <strong>Changes need you.</strong> When it wants to add a client,
+              create or edit a draft campaign, choose its Telegram destinations
+              or submit it for review, it shows exactly what will change.
+              Nothing happens until you press <em>Approve</em>, and every
+              approved change is in the audit trail under your name.
+            </>,
+            <>
+              <strong>What it can never do.</strong> Approve a campaign,
+              schedule or send anything, delete anything, authorize a Telegram
+              chat, or change who may do what. Those stay with people, so the
+              review and authorization rules cannot be bypassed.
+            </>,
+            <>
+              <strong>Pick a capable model for it.</strong> Agents need a model
+              that follows instructions well. In{' '}
+              <Link
+                className="font-medium text-[color:var(--ag-accent-text)] hover:underline"
+                href="/settings?tab=ai"
+              >
+                Settings → AI and Copilot
+              </Link>{' '}
+              you can choose a different provider, model and thinking level for
+              the agent than for ad copy: for example a fast local model for
+              copy and Claude Code for the agent.
+            </>,
+          ]}
+        />
+        <div className="flex flex-wrap gap-2">
+          <Btn onClick={() => openCopilot(undefined, 'ask')}>Open Ask</Btn>
+          <Btn onClick={() => openCopilot(undefined, 'agent')}>
+            Open the agent
+          </Btn>
+        </div>
+      </Section>
+
+      <Section
         id="other-ai"
         title="Use Claude Code, Codex, Antigravity or an API"
         intro="One setting decides which AI answers everywhere: ad copy, text improvement and the Copilot."
@@ -352,10 +419,11 @@ export const GuideComponent: FC = () => {
         <p className="text-[12px] leading-relaxed text-textItemBlur">
           Command-line tools run only in the desktop app, in an empty folder
           with their tools switched off, so an answer can never change your
-          files. AgencyOS also keeps Claude Code and Codex CLI up to date by
-          running their own update command once a day; you can turn that off or
-          press Update now in the same settings. Only owners and admins can
-          change these settings.
+          files. AgencyOS also keeps Claude Code, Codex CLI and Antigravity CLI
+          up to date by running their own update command once a day; you can
+          turn that off or press Update now in the same settings. The model list
+          and the thinking levels shown come from the tool itself. Only owners
+          and admins can change these settings.
         </p>
         <div>
           <LinkBtn href="/settings?tab=ai">

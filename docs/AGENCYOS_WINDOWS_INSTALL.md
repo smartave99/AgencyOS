@@ -94,7 +94,7 @@ AGENCYOS_EMBEDDING_MODEL=nomic-embed-text
   and save its key (the local model is the default). Choosing Claude Code, Codex CLI or Antigravity
   CLI sends text to that tool, which sends it to its own service under your sign-in. API keys are
   stored encrypted in your local database and are never shown again.
-* AgencyOS runs Claude Code's and Codex CLI's own update command once a day to keep them current
+* AgencyOS runs the own update command of Claude Code, Codex CLI and Antigravity CLI once a day to keep them current
   (Settings → AI and Copilot turns this off; `AGENCY_AI_TOOL_UPDATES=off` in `user.env` disables it
   for good). It never downloads or installs anything else for them.
 * The only connections AgencyOS itself makes: the one-time download of the AI engine and models

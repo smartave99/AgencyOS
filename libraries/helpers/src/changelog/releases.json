@@ -2,32 +2,169 @@
   "$comment": "The one list of what changed in each AgencyOS version, newest first. CHANGELOG.md, the in-app What's new page and the release notes are all made from it (node installer/build/changelog.mjs). Add an entry here for every version; installer/VERSION must match the first one.",
   "releases": [
     {
+      "version": "1.2.0",
+      "date": "2026-10-13",
+      "title": "An agent that does the work, and a window that feels like an app",
+      "summary": "The Copilot can now act as an agent: it looks things up, drafts work and proposes changes that you approve. Each AI job can have its own model and thinking level, the tools report their own models, and the desktop window loses its old title bar and heavy scrollbars.",
+      "changes": [
+        {
+          "type": "added",
+          "area": "AI",
+          "text": "Agent mode in the Copilot (Ctrl+J, then Agent). It looks things up in AgencyOS (dashboard, clients, campaigns, Telegram destinations, approvals, reports, deals), writes ad copy, and proposes changes: add a client, create or edit a draft campaign, choose its Telegram destinations, submit it for review. You see each step as it happens and can stop it."
+        },
+        {
+          "type": "added",
+          "area": "AI",
+          "text": "Every change the agent proposes shows exactly what will change and runs only when you press Approve, under your own role, and is recorded in the audit trail. The agent has no way to approve a campaign, schedule or send anything, delete anything or authorize a chat, so approval and authorized delivery cannot be bypassed."
+        },
+        {
+          "type": "added",
+          "area": "AI",
+          "text": "Settings → AI and Copilot: a provider, model and thinking level for each job separately (ad copy, text improvement, Copilot chat, agent), each with its own Test button."
+        },
+        {
+          "type": "added",
+          "area": "AI",
+          "text": "Claude Code, Codex CLI and Antigravity CLI are asked which models they offer and how hard each can think, so the lists follow the tools' own updates; local models say whether they can think at all. The model list has a Refresh button, and the thinking choices shown are the ones the chosen model supports."
+        },
+        {
+          "type": "added",
+          "area": "AI",
+          "text": "A new thinking level, Extra high, for the models that offer it."
+        },
+        {
+          "type": "added",
+          "area": "Interface",
+          "text": "The window's own title bar is gone on Windows: the top bar drags the window and the minimise, maximise and close buttons sit on it in the colours of your theme."
+        },
+        {
+          "type": "improved",
+          "area": "Interface",
+          "text": "Scrollbars are slim and quiet, with no arrow buttons, and only appear while you point at the area that scrolls. The sidebar scrolls without a bar and fades at the bottom when there is more below."
+        },
+        {
+          "type": "improved",
+          "area": "Telegram",
+          "text": "On the desktop app the Dashboard says plainly when no Telegram bot is connected and has a Connect a Telegram bot button, instead of talking about server settings."
+        },
+        {
+          "type": "changed",
+          "area": "AI",
+          "text": "Antigravity CLI is now kept up to date too, with its documented agy update. Claude Code and Codex CLI were already."
+        },
+        {
+          "type": "changed",
+          "area": "AI",
+          "text": "The Copilot's Ask mode is the same as before; Agent is the new mode next to it."
+        }
+      ],
+      "notes": [
+        "Agents work best with a capable model. A small local model may not follow the agent's format; choose a stronger one for “Agent” in Settings. The agent was checked end to end with the real Claude Code, not with every provider.",
+        "Codex CLI's model list is read through its app-server, and Antigravity CLI's from agy models, from their published documentation; neither was run against a real install here, and each falls back to suggestions, with the reason shown, if it cannot answer.",
+        "Telegram delivery has been tested against a simulated Telegram, not the real one: no bot token was available to test with.",
+        "Answers and agent steps appear when complete; they are not streamed word by word yet.",
+        "The installer is still not code-signed, so Windows SmartScreen warns on first run."
+      ]
+    },
+    {
       "version": "1.1.0",
       "date": "2026-10-12",
       "title": "One platform, one place for AI",
       "summary": "A new look and layout that put every part of AgencyOS in one window, a Guide and feature explainer inside the app, and a single place to choose which AI answers: the local model, Claude Code, Codex CLI, Antigravity CLI or an API.",
       "changes": [
-        { "type": "added", "area": "Interface", "text": "A real top bar: where you are, a search that reaches every page, a light/dark switch, notifications and an account menu." },
-        { "type": "added", "area": "Interface", "text": "One sidebar for everything, grouped by the work: Workspace, Delivery, Grow, Social scheduler and Admin, with Guide and Settings pinned at the bottom. It folds to icons, and slides over the page on a small window." },
-        { "type": "added", "area": "Interface", "text": "Theme: light, dark or follow the computer. The last choice is applied before the page appears, so there is no flash of the wrong theme." },
-        { "type": "added", "area": "Interface", "text": "Search (Ctrl+K or ⌘K) works on every page, including the social scheduler, and also finds settings, guide pages and campaigns." },
-        { "type": "added", "area": "AI", "text": "Settings → AI and Copilot: choose the provider (local model, Claude Code, Codex CLI, Antigravity CLI, Anthropic, OpenAI, Google Gemini or any OpenAI-compatible service), the model, and the thinking level. A Test button says exactly what is wrong when something is not set up." },
-        { "type": "added", "area": "AI", "text": "Copilot panel (Ctrl+J or ⌘J): ask how to do something in AgencyOS, or ask for a draft. It uses the provider you chose and never changes your data on its own." },
-        { "type": "added", "area": "AI", "text": "Claude Code and Codex CLI are kept up to date automatically: once a day AgencyOS runs each tool's own update command, never at start-up and never while a request is using the tool. Turn it off, or press Update now, in Settings → AI and Copilot." },
-        { "type": "added", "area": "AI", "text": "Model lists are read live from the provider (installed local models, your API account) so they do not go out of date." },
-        { "type": "added", "area": "Help", "text": "A Guide for the main aim (create ads, get them approved, deliver to authorized Telegram chats, report), including how to set up a local model." },
-        { "type": "added", "area": "Help", "text": "A feature explainer: every part of AgencyOS with what it is for, how to use it step by step, and what it needs." },
-        { "type": "added", "area": "Help", "text": "What's new: the full change history of every version, inside the app and in CHANGELOG.md." },
-        { "type": "improved", "area": "Ad copy", "text": "Ad copy, text improvement and the Copilot all use the provider you chose. When AgencyOS has to fall back to templates it now says why, and which model wrote the copy otherwise." },
-        { "type": "improved", "area": "Interface", "text": "The search box no longer shows a second coloured outline around the field." },
-        { "type": "improved", "area": "Interface", "text": "Notifications, the account menu and the search use the same icons, spacing and colours as the rest of AgencyOS." },
-        { "type": "changed", "area": "AI", "text": "The AI provider is chosen in Settings. Nothing is sent to an outside AI service unless you pick one there and save its key (on a server, AGENCY_ALLOW_EXTERNAL_AI=true is still needed too). An OPENAI_API_KEY in the environment is still read as the OpenAI key." },
-        { "type": "changed", "area": "Interface", "text": "The old icon rail and the promotional links of the original scheduler are gone." },
-        { "type": "security", "area": "AI", "text": "API keys are sealed with AES-256-GCM before they are stored, are never sent back to the browser, and are kept out of the audit trail. Only owners and admins can change AI settings." },
-        { "type": "security", "area": "AI", "text": "Command-line AI tools run only inside the desktop app, in an empty scratch folder with their tools switched off and without AgencyOS's database or session secrets." }
+        {
+          "type": "added",
+          "area": "Interface",
+          "text": "A real top bar: where you are, a search that reaches every page, a light/dark switch, notifications and an account menu."
+        },
+        {
+          "type": "added",
+          "area": "Interface",
+          "text": "One sidebar for everything, grouped by the work: Workspace, Delivery, Grow, Social scheduler and Admin, with Guide and Settings pinned at the bottom. It folds to icons, and slides over the page on a small window."
+        },
+        {
+          "type": "added",
+          "area": "Interface",
+          "text": "Theme: light, dark or follow the computer. The last choice is applied before the page appears, so there is no flash of the wrong theme."
+        },
+        {
+          "type": "added",
+          "area": "Interface",
+          "text": "Search (Ctrl+K or ⌘K) works on every page, including the social scheduler, and also finds settings, guide pages and campaigns."
+        },
+        {
+          "type": "added",
+          "area": "AI",
+          "text": "Settings → AI and Copilot: choose the provider (local model, Claude Code, Codex CLI, Antigravity CLI, Anthropic, OpenAI, Google Gemini or any OpenAI-compatible service), the model, and the thinking level. A Test button says exactly what is wrong when something is not set up."
+        },
+        {
+          "type": "added",
+          "area": "AI",
+          "text": "Copilot panel (Ctrl+J or ⌘J): ask how to do something in AgencyOS, or ask for a draft. It uses the provider you chose and never changes your data on its own."
+        },
+        {
+          "type": "added",
+          "area": "AI",
+          "text": "Claude Code and Codex CLI are kept up to date automatically: once a day AgencyOS runs each tool's own update command, never at start-up and never while a request is using the tool. Turn it off, or press Update now, in Settings → AI and Copilot."
+        },
+        {
+          "type": "added",
+          "area": "AI",
+          "text": "Model lists are read live from the provider (installed local models, your API account) so they do not go out of date."
+        },
+        {
+          "type": "added",
+          "area": "Help",
+          "text": "A Guide for the main aim (create ads, get them approved, deliver to authorized Telegram chats, report), including how to set up a local model."
+        },
+        {
+          "type": "added",
+          "area": "Help",
+          "text": "A feature explainer: every part of AgencyOS with what it is for, how to use it step by step, and what it needs."
+        },
+        {
+          "type": "added",
+          "area": "Help",
+          "text": "What's new: the full change history of every version, inside the app and in CHANGELOG.md."
+        },
+        {
+          "type": "improved",
+          "area": "Ad copy",
+          "text": "Ad copy, text improvement and the Copilot all use the provider you chose. When AgencyOS has to fall back to templates it now says why, and which model wrote the copy otherwise."
+        },
+        {
+          "type": "improved",
+          "area": "Interface",
+          "text": "The search box no longer shows a second coloured outline around the field."
+        },
+        {
+          "type": "improved",
+          "area": "Interface",
+          "text": "Notifications, the account menu and the search use the same icons, spacing and colours as the rest of AgencyOS."
+        },
+        {
+          "type": "changed",
+          "area": "AI",
+          "text": "The AI provider is chosen in Settings. Nothing is sent to an outside AI service unless you pick one there and save its key (on a server, AGENCY_ALLOW_EXTERNAL_AI=true is still needed too). An OPENAI_API_KEY in the environment is still read as the OpenAI key."
+        },
+        {
+          "type": "changed",
+          "area": "Interface",
+          "text": "The old icon rail and the promotional links of the original scheduler are gone."
+        },
+        {
+          "type": "security",
+          "area": "AI",
+          "text": "API keys are sealed with AES-256-GCM before they are stored, are never sent back to the browser, and are kept out of the audit trail. Only owners and admins can change AI settings."
+        },
+        {
+          "type": "security",
+          "area": "AI",
+          "text": "Command-line AI tools run only inside the desktop app, in an empty scratch folder with their tools switched off and without AgencyOS's database or session secrets."
+        }
       ],
       "notes": [
-        "Antigravity CLI has no documented update command, so AgencyOS shows its version but does not update it. The bundled local AI engine is updated with AgencyOS itself, not separately.",
+        "AgencyOS 1.1.0 showed the version of Antigravity CLI but did not update it; 1.2.0 does. The bundled local AI engine is updated with AgencyOS itself, not separately.",
         "Antigravity CLI support is experimental: it follows the programme's documented options, and some versions hang when another program starts them. Use the Test button before relying on it.",
         "Answers in the Copilot appear when complete; they are not streamed word by word yet.",
         "The installer is still not code-signed, so Windows SmartScreen warns on first run."
@@ -39,14 +176,46 @@
       "title": "AgencyOS for Windows",
       "summary": "The first release: AgencyOS by NextGen OS as a desktop app that runs entirely on your own computer.",
       "changes": [
-        { "type": "added", "area": "Installer", "text": "Windows installer that sets up the desktop app, PostgreSQL, Redis, Temporal and Node.js. Nothing needs to be installed first, and Windows Firewall is never asked." },
-        { "type": "added", "area": "Installer", "text": "Choose where your files live: a data folder and, optionally, a separate folder for AI models. Settings → Storage moves them later, copying and checking before anything is removed." },
-        { "type": "added", "area": "AI", "text": "Local AI picked for your computer's memory, processor and graphics card, with a speed check that steps down to a lighter model if needed. It works offline once downloaded." },
-        { "type": "added", "area": "Workspace", "text": "Clients, campaigns with a Telegram preview, four-eyes approval, optional client sign-off and a tamper-checked approved version." },
-        { "type": "added", "area": "Delivery", "text": "Telegram delivery to chats whose administrators authorized the bot, with retries, backoff, a dead-letter list and a truthful status when something is not working." },
-        { "type": "added", "area": "Grow", "text": "Reports with CSV and print-to-PDF, tracked links, a sales pipeline, a knowledge base and invoices." },
-        { "type": "changed", "area": "Product", "text": "No sign-in: AgencyOS opens straight into your workspace on your own computer." },
-        { "type": "changed", "area": "Product", "text": "Rebranded as AgencyOS by NextGen OS, and released under a proprietary licence." }
+        {
+          "type": "added",
+          "area": "Installer",
+          "text": "Windows installer that sets up the desktop app, PostgreSQL, Redis, Temporal and Node.js. Nothing needs to be installed first, and Windows Firewall is never asked."
+        },
+        {
+          "type": "added",
+          "area": "Installer",
+          "text": "Choose where your files live: a data folder and, optionally, a separate folder for AI models. Settings → Storage moves them later, copying and checking before anything is removed."
+        },
+        {
+          "type": "added",
+          "area": "AI",
+          "text": "Local AI picked for your computer's memory, processor and graphics card, with a speed check that steps down to a lighter model if needed. It works offline once downloaded."
+        },
+        {
+          "type": "added",
+          "area": "Workspace",
+          "text": "Clients, campaigns with a Telegram preview, four-eyes approval, optional client sign-off and a tamper-checked approved version."
+        },
+        {
+          "type": "added",
+          "area": "Delivery",
+          "text": "Telegram delivery to chats whose administrators authorized the bot, with retries, backoff, a dead-letter list and a truthful status when something is not working."
+        },
+        {
+          "type": "added",
+          "area": "Grow",
+          "text": "Reports with CSV and print-to-PDF, tracked links, a sales pipeline, a knowledge base and invoices."
+        },
+        {
+          "type": "changed",
+          "area": "Product",
+          "text": "No sign-in: AgencyOS opens straight into your workspace on your own computer."
+        },
+        {
+          "type": "changed",
+          "area": "Product",
+          "text": "Rebranded as AgencyOS by NextGen OS, and released under a proprietary licence."
+        }
       ],
       "notes": [
         "Not code-signed: Windows SmartScreen warns on first run. The SHA-256 on the release page lets you check the file.",

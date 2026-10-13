@@ -317,6 +317,20 @@ async function main() {
     assert(!JSON.stringify(aiSettings.json).includes('apiKey'), 'the AI settings must never carry key fields');
     const aiTools = await getJson(`${api}/agency/ai/tools`, h);
     assert(aiTools.status === 200 && aiTools.json?.available === true && aiTools.json.tools.length === 3, `ai tools -> ${aiTools.status}`);
+    assert(aiSettings.json.tasks && typeof aiSettings.json.tasks === 'object', 'the per-job AI settings are missing');
+    // Model lists: each command-line tool is asked, and one that is not installed still answers with a labelled fallback.
+    for (const provider of ['claude-cli', 'codex-cli', 'antigravity-cli']) {
+      const models = await getJson(`${api}/agency/ai/models/${provider}`, h);
+      assert(models.status === 200 && Array.isArray(models.json?.models), `models/${provider} -> ${models.status} ${JSON.stringify(models.json)?.slice(0, 200)}`);
+    }
+    // The agent's approved changes run under the person's own role and show up in the app's own data.
+    const agentMade = await fetch(`${api}/agency/ai/agent/act`, { method: 'POST', headers: h, body: JSON.stringify({ tool: 'create_client', args: { name: 'Smoke Agent Client' } }) });
+    const agentBody = await agentMade.json();
+    assert((agentMade.status === 201 || agentMade.status === 200) && agentBody.ok === true, `agent act -> ${agentMade.status} ${JSON.stringify(agentBody)?.slice(0, 200)}`);
+    const afterAgent = await getJson(`${api}/agency/clients`, h);
+    assert(JSON.stringify(afterAgent.json).includes('Smoke Agent Client'), 'the client the agent added is not listed');
+    const noApprove = await fetch(`${api}/agency/ai/agent/act`, { method: 'POST', headers: h, body: JSON.stringify({ tool: 'approve_campaign', args: {} }) });
+    assert(noApprove.status === 400, `the agent must have no way to approve a campaign -> ${noApprove.status}`);
     return { auth };
   });
 

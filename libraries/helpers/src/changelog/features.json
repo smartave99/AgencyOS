@@ -1,12 +1,36 @@
 {
   "$comment": "The in-app feature explainer: what each part of AgencyOS is for and how to use it. Every item in the sidebar must have an entry here (checked by installer/launcher/test/changelog.test.mjs). Keep it honest: say what a feature needs and what it does not do.",
   "groups": [
-    { "id": "create", "title": "Create and approve", "blurb": "From a client's brief to an ad that is approved and ready to send." },
-    { "id": "deliver", "title": "Deliver", "blurb": "Send approved ads to Telegram chats that have authorized you, and see what happened." },
-    { "id": "grow", "title": "Grow", "blurb": "Keep leads, knowledge and invoices next to the campaigns." },
-    { "id": "scheduler", "title": "Social scheduler", "blurb": "Plan posts for social networks you connect. Separate from Telegram campaigns." },
-    { "id": "assist", "title": "AI and personal", "blurb": "Your assistant, search, look and where your files live." },
-    { "id": "team", "title": "Team", "blurb": "For agencies where more than one person works in AgencyOS." }
+    {
+      "id": "create",
+      "title": "Create and approve",
+      "blurb": "From a client's brief to an ad that is approved and ready to send."
+    },
+    {
+      "id": "deliver",
+      "title": "Deliver",
+      "blurb": "Send approved ads to Telegram chats that have authorized you, and see what happened."
+    },
+    {
+      "id": "grow",
+      "title": "Grow",
+      "blurb": "Keep leads, knowledge and invoices next to the campaigns."
+    },
+    {
+      "id": "scheduler",
+      "title": "Social scheduler",
+      "blurb": "Plan posts for social networks you connect. Separate from Telegram campaigns."
+    },
+    {
+      "id": "assist",
+      "title": "AI and personal",
+      "blurb": "Your assistant, search, look and where your files live."
+    },
+    {
+      "id": "team",
+      "title": "Team",
+      "blurb": "For agencies where more than one person works in AgencyOS."
+    }
   ],
   "features": [
     {
@@ -23,7 +47,9 @@
         "Check the cards for active clients, campaigns in flight and authorized destinations.",
         "If a red or amber banner appears, it names what is not set up yet (for example no Telegram bot token) and how to fix it."
       ],
-      "tips": ["“All clear” means nothing is waiting on you."]
+      "tips": [
+        "“All clear” means nothing is waiting on you."
+      ]
     },
     {
       "id": "clients",
@@ -56,8 +82,12 @@
         "Choose the authorized Telegram destinations and a start time.",
         "Submit for review. Nothing is sent until it is approved."
       ],
-      "needs": ["At least one authorized destination before you can schedule (see Telegram)."],
-      "tips": ["Press Ctrl+K and type a campaign name to jump to it."]
+      "needs": [
+        "At least one authorized destination before you can schedule (see Telegram)."
+      ],
+      "tips": [
+        "Press Ctrl+K and type a campaign name to jump to it."
+      ]
     },
     {
       "id": "approvals",
@@ -83,14 +113,19 @@
       "status": "needs-setup",
       "summary": "The chats and channels AgencyOS may post to. A chat only counts once its administrator has authorized it.",
       "steps": [
-        "Under the tray icon choose Status and settings and paste your Telegram bot token (from @BotFather).",
+        "Press Connect a Telegram bot on the Dashboard (or use the tray icon, then Status and settings) and paste your bot token from @BotFather.",
         "Open Telegram in AgencyOS and choose Connect a group or channel. You get a one-time code.",
         "Add the bot to that chat, then a chat administrator sends /authorize and the code in the chat.",
         "The destination turns active. Anyone can revoke it with /revoke, and it expires after a year unless renewed.",
         "If the bot is removed or loses permission, the destination is paused and its queued posts wait."
       ],
-      "needs": ["A Telegram bot token.", "A chat administrator who agrees to authorize."],
-      "tips": ["AgencyOS does not join groups, collect members or add people. It only posts where it was invited and authorized."]
+      "needs": [
+        "A Telegram bot token.",
+        "A chat administrator who agrees to authorize."
+      ],
+      "tips": [
+        "AgencyOS does not join groups, collect members or add people. It only posts where it was invited and authorized."
+      ]
     },
     {
       "id": "accounts",
@@ -120,7 +155,9 @@
         "Use Export CSV, or Print or save as PDF, for a copy to share.",
         "A job marked Needs check was interrupted mid-send. AgencyOS never resends it on its own, so check the chat first."
       ],
-      "tips": ["Numbers come from stored send results and tracked-link clicks. Impressions and reach are not shown because there is no verified source for them."]
+      "tips": [
+        "Numbers come from stored send results and tracked-link clicks. Impressions and reach are not shown because there is no verified source for them."
+      ]
     },
     {
       "id": "crm",
@@ -149,7 +186,9 @@
         "Confirm the source allowed you to collect it and that the people in it were told. This is required.",
         "Search by keyword. When the local search model has finished downloading, results are also ranked by meaning."
       ],
-      "tips": ["It holds what you add. AgencyOS does not scrape groups or harvest usernames."]
+      "tips": [
+        "It holds what you add. AgencyOS does not scrape groups or harvest usernames."
+      ]
     },
     {
       "id": "invoices",
@@ -178,8 +217,12 @@
         "Click a time slot to write a post and schedule it.",
         "Use Day, Week or Month to change the view."
       ],
-      "needs": ["A connected social account."],
-      "tips": ["This is the original social scheduler. Telegram ads are made in Campaigns."]
+      "needs": [
+        "A connected social account."
+      ],
+      "tips": [
+        "This is the original social scheduler. Telegram ads are made in Campaigns."
+      ]
     },
     {
       "id": "media",
@@ -189,7 +232,10 @@
       "icon": "image",
       "status": "ready",
       "summary": "Images and videos you upload once and reuse.",
-      "steps": ["Open Media library and upload files.", "Pick them when you write a post."]
+      "steps": [
+        "Open Media library and upload files.",
+        "Pick them when you write a post."
+      ]
     },
     {
       "id": "analytics",
@@ -199,8 +245,13 @@
       "icon": "bars",
       "status": "needs-setup",
       "summary": "How connected social channels are doing.",
-      "steps": ["Connect a channel in Calendar first.", "Open Channel analytics and pick the channel and period."],
-      "needs": ["A connected social account."]
+      "steps": [
+        "Connect a channel in Calendar first.",
+        "Open Channel analytics and pick the channel and period."
+      ],
+      "needs": [
+        "A connected social account."
+      ]
     },
     {
       "id": "team",
@@ -211,8 +262,13 @@
       "status": "ready",
       "hideWhenLocal": true,
       "summary": "Who can do what: owner, admin, sales, campaign manager, editor, analyst and client.",
-      "steps": ["Open Team and roles and pick a person's role.", "Role changes apply immediately and are recorded in the audit trail."],
-      "tips": ["Hidden in the desktop app, where one person uses AgencyOS."]
+      "steps": [
+        "Open Team and roles and pick a person's role.",
+        "Role changes apply immediately and are recorded in the audit trail."
+      ],
+      "tips": [
+        "Hidden in the desktop app, where one person uses AgencyOS."
+      ]
     },
     {
       "id": "portal",
@@ -223,24 +279,36 @@
       "status": "ready",
       "hideWhenLocal": true,
       "summary": "What a client sees: only their own campaigns, to review and sign off.",
-      "steps": ["Give a person the Client role for one customer.", "They sign in and see only that customer's campaigns, with Approve and Send back."],
-      "tips": ["Hidden in the desktop app, where one person uses AgencyOS."]
+      "steps": [
+        "Give a person the Client role for one customer.",
+        "They sign in and see only that customer's campaigns, with Approve and Send back."
+      ],
+      "tips": [
+        "Hidden in the desktop app, where one person uses AgencyOS."
+      ]
     },
     {
       "id": "copilot",
       "group": "assist",
-      "title": "Copilot",
+      "title": "Copilot and agent",
       "href": "/guide/features#copilot",
       "icon": "sparkles",
       "status": "needs-setup",
-      "summary": "An assistant in a side panel. Ask how to do something, or ask for a draft.",
+      "summary": "A side panel with two modes. Ask answers questions and writes drafts. Agent does the work: it looks things up in AgencyOS, drafts campaigns and proposes changes that you approve.",
       "steps": [
         "Press Ctrl+J (⌘J on a Mac) or the sparkles button in the top bar.",
-        "Ask in plain words, for example “How do I get an ad approved?”.",
-        "Answers come from the provider and model you chose in Settings → AI and Copilot.",
-        "It explains and drafts. It never clicks or changes anything for you."
+        "Ask: type a question in plain words, for example “How do I get an ad approved?”. It explains and drafts; it changes nothing.",
+        "Agent: tell it what to do, for example “What needs my attention today?” or “Add a client called Nair Foods”. You see each look-up as it happens.",
+        "When the agent wants to change something (add a client, create or edit a draft campaign, choose its Telegram destinations, submit it for review) it shows exactly what will change. Nothing happens until you press Approve.",
+        "Stop it at any time with Stop. Every approved change is recorded in the audit trail under your name.",
+        "It uses the provider, model and thinking level you chose for “Copilot chat” or “Agent” in Settings → AI and Copilot."
       ],
-      "needs": ["A working AI provider (the local model works out of the box once downloaded)."]
+      "needs": [
+        "A working AI provider (the local model works out of the box once downloaded). Agents work best with a capable model; a small local model may not follow the agent’s format."
+      ],
+      "tips": [
+        "The agent can never approve a campaign, schedule or send anything, delete anything, authorize a Telegram chat or change who may do what. Those stay with people."
+      ]
     },
     {
       "id": "search",
@@ -250,7 +318,10 @@
       "icon": "search",
       "status": "ready",
       "summary": "Jump to any page, setting or campaign from the keyboard.",
-      "steps": ["Press Ctrl+K (⌘K on a Mac) anywhere.", "Type a few letters, use ↑ ↓ and press Enter."]
+      "steps": [
+        "Press Ctrl+K (⌘K on a Mac) anywhere.",
+        "Type a few letters, use ↑ ↓ and press Enter."
+      ]
     },
     {
       "id": "ai",
@@ -263,12 +334,15 @@
       "steps": [
         "Open Settings → AI and Copilot.",
         "Pick a provider. Local model needs nothing. Claude Code, Codex CLI and Antigravity CLI use the programs on this computer that you have already signed in to. APIs need your key.",
-        "Pick a model from the list, which is read live from the provider, or type one.",
-        "Pick a thinking level. Higher is slower and more careful; Auto leaves it to the provider.",
+        "Pick a model from the list. The list comes from the provider itself (the tool, your installed models, or your API account) and has a Refresh button; you can also type a model name.",
+        "Pick a thinking level. Only the levels that model supports are offered. Higher is slower and more careful; Auto leaves it to the provider.",
+        "Under “A different model for each job” you can choose another provider, model and thinking level for ad copy, text improvement, Copilot chat and the agent, for example a fast local model for copy and a stronger one for the agent. Each job has its own Test button.",
         "Press Test. It says exactly what is wrong if something is missing.",
-        "Below, keep Claude Code and Codex CLI up to date: AgencyOS runs their own update command once a day, or press Update now. Switch it off there if you prefer to update them yourself."
+        "Below, keep Claude Code, Codex CLI and Antigravity CLI up to date: AgencyOS runs each tool’s own update command once a day, or press Update now. Switch it off there if you prefer to update them yourself."
       ],
-      "tips": ["Only owners and admins can change these settings.", "Antigravity CLI is shown but not updated by AgencyOS, because it has no documented update command."]
+      "tips": [
+        "Only owners and admins can change these settings."
+      ]
     },
     {
       "id": "appearance",
@@ -278,7 +352,10 @@
       "icon": "sun",
       "status": "ready",
       "summary": "Light, dark or follow your computer.",
-      "steps": ["Use the sun or moon button in the top bar for a quick switch.", "Choose Light, Dark or System in the account menu or in Settings → Appearance."]
+      "steps": [
+        "Use the sun or moon button in the top bar for a quick switch.",
+        "Choose Light, Dark or System in the account menu or in Settings → Appearance."
+      ]
     },
     {
       "id": "storage",
@@ -293,7 +370,9 @@
         "Choose Move and pick a new folder. AgencyOS stops, copies, checks the copy, switches and restarts.",
         "The old copy is deleted only when you say so."
       ],
-      "tips": ["Only available in the desktop app."]
+      "tips": [
+        "Only available in the desktop app."
+      ]
     }
   ]
 }

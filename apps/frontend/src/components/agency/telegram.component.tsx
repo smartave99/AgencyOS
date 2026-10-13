@@ -122,8 +122,9 @@ const InstructionsDialog: FC<{ info: Instructions; onDone: () => void }> = ({
     >
       {!info.botUsername && (
         <Notice tone="warn">
-          This server has no Telegram bot configured yet, so nobody can use the
-          code until whoever runs it sets AGENCY_TELEGRAM_BOT_TOKEN.
+          AgencyOS is not connected to a Telegram bot yet, so nobody can use the
+          code until a bot token is added (tray icon, then Status and settings,
+          or the “Connect a Telegram bot” button on the Dashboard).
         </Notice>
       )}
       <ol className="flex flex-col gap-3">

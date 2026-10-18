@@ -5,6 +5,7 @@
 //   <out>/app/frontend               Next.js standalone server (+ static files)
 //   <out>/app/node_modules           only the packages the backend and orchestrator can reach
 //   <out>/app/prisma                 schema and migrations
+//   <out>/app/telegram-worker        the Python Telegram user-account worker (its interpreter is staged by stage-runtime)
 //   <out>/launcher                   the supervisor
 //
 // The repository keeps every dependency of every app in one package.json (about 3.4 GB installed).
@@ -165,6 +166,17 @@ for (const f of fs.readdirSync(path.join(appDir, 'frontend'))) if (f.startsWith(
 fs.mkdirSync(path.join(appDir, 'prisma'), { recursive: true });
 fs.copyFileSync(inputs.schema, path.join(appDir, 'prisma/schema.prisma'));
 copyTree(inputs.migrations, path.join(appDir, 'prisma/migrations'), { prune: false });
+
+// The Telegram user-account worker: its source only (no tests, no bytecode); stage-runtime adds Python and the packages.
+{
+  const source = path.join(root, 'apps/telegram-worker/agencyos_telegram');
+  if (!fs.existsSync(path.join(source, '__main__.py'))) die('apps/telegram-worker/agencyos_telegram/__main__.py not found');
+  fs.cpSync(source, path.join(appDir, 'telegram-worker/agencyos_telegram'), {
+    recursive: true,
+    filter: (from) => path.basename(from) !== '__pycache__' && !from.endsWith('.pyc'),
+  });
+  fs.copyFileSync(path.join(root, 'apps/telegram-worker/requirements.lock.txt'), path.join(appDir, 'telegram-worker/requirements.lock.txt'));
+}
 
 // ---------------------------------------------------------------------------------------
 // 3. node_modules: follow the requires

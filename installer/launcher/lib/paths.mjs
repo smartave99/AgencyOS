@@ -98,6 +98,7 @@ export function resolvePaths({
       postgresBin: p.join(runtime, 'postgres', 'bin'),
       redis: p.join(runtime, 'redis', `redis-server${exe}`),
       temporal: p.join(runtime, 'temporal', `temporal${exe}`),
+      python: p.join(runtime, 'python', `python${exe}`),
       manifest: p.join(installRoot, 'runtime-manifest.json'),
     },
     app: {
@@ -106,6 +107,7 @@ export function resolvePaths({
       backendMain: p.join(app, 'backend', 'dist', 'apps', 'backend', 'src', 'main.js'),
       orchestratorMain: p.join(app, 'orchestrator', 'dist', 'apps', 'orchestrator', 'src', 'main.js'),
       frontendServer: p.join(app, 'frontend', 'apps', 'frontend', 'server.js'),
+      telegramWorker: p.join(app, 'telegram-worker'),
       prismaSchema: p.join(app, 'prisma', 'schema.prisma'),
       prismaCli: p.join(app, 'node_modules', 'prisma', 'build', 'index.js'),
       publicDir: p.join(app, 'frontend', 'apps', 'frontend', 'public'),

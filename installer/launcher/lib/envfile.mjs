@@ -84,6 +84,8 @@ export function loadOrCreateSecrets(file, random = (n) => crypto.randomBytes(n).
     jwtSecret: existing.jwtSecret || random(48),
     dbPassword: existing.dbPassword || random(24),
     adminToken: existing.adminToken || random(24),
+    // Shared by the app's server and the Telegram account worker, which listens on this computer only.
+    workerToken: existing.workerToken || random(24),
   };
   if (JSON.stringify(secrets) !== JSON.stringify(existing)) {
     fs.mkdirSync(path.dirname(file), { recursive: true });

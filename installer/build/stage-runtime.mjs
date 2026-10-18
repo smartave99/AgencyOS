@@ -6,6 +6,7 @@
 //   runtime/postgres/{bin,lib,share}  PostgreSQL 16 (initdb, pg_ctl, postgres)
 //   runtime/redis/                  Redis for Windows
 //   runtime/temporal/temporal.exe   Temporal dev server (what the platform needs to start)
+//   runtime/python/                 CPython plus the worker's pinned packages (runs only the Telegram account worker)
 //   runtime/vc/                     Visual C++ runtime DLLs, so no system install is needed
 //
 // Ollama (about 1.4 GB because of its GPU libraries) is NOT shipped; its download address and
@@ -18,7 +19,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -230,7 +231,49 @@ fs.mkdirSync(runtimeDir, { recursive: true });
   tools.vcRuntime = { files: copied, license: 'Microsoft Visual C++ Redistributable (app-local deployment)' };
 }
 
-// 6. Ollama: only recorded ----------------------------------------------------------------------
+// 6. Python, for the Telegram user-account worker --------------------------------------------------
+// The interpreter is the PSF's own Windows build (NuGet package, checksum pinned in runtimes.json). The worker's
+// packages come from the hash-pinned list next to its source; pip is used here and then removed, so nothing on
+// the person's computer can install anything into it later.
+{
+  const v = pins.python;
+  const dl = await download(v.url, `python.${v.version}.nupkg`);
+  verifyDigest('python', dl.sha256, v.sha256);
+  if (dl.sha256 !== v.sha256.toLowerCase()) die(`python: checksum mismatch (expected ${v.sha256}, got ${dl.sha256})`);
+  untar(dl.file, path.join(tmp, 'python'));
+  const dest = path.join(runtimeDir, 'python');
+  fs.cpSync(path.join(tmp, 'python', 'tools'), dest, { recursive: true });
+  const exe = path.join(dest, 'python.exe');
+  if (!fs.existsSync(exe)) die('the Python package has no tools/python.exe');
+  const site = path.join(dest, 'Lib', 'site-packages');
+  const lock = path.join(out, 'app', 'telegram-worker', 'requirements.lock.txt');
+  if (!fs.existsSync(lock)) die(`${lock} is missing: run stage-app.mjs first`);
+
+  const python = (argv, opts = {}) => spawnSync(exe, ['-E', '-s', ...argv], { encoding: 'utf8', timeout: 600000, ...opts });
+  await retry('install the worker packages', async () => {
+    const r = python(['-m', 'pip', 'install', '--require-hashes', '--no-deps', '--disable-pip-version-check', '--no-warn-script-location', '--target', site, '-r', lock]);
+    if (r.status !== 0) throw new Error(`pip exited ${r.status}: ${`${r.stdout}\n${r.stderr}`.trim().split(/\r?\n/).slice(-8).join(' | ')}`);
+  }, 3);
+
+  // pip and its tools have done their job; the installed copy of Python cannot install anything.
+  for (const entry of fs.readdirSync(site)) if (/^(pip|setuptools|pkg_resources|_distutils_hack|wheel)(-.*)?$/i.test(entry)) fs.rmSync(path.join(site, entry), { recursive: true, force: true });
+  for (const rel of v.prune) fs.rmSync(path.join(dest, ...rel.split('/')), { recursive: true, force: true });
+  const compiled = python(['-m', 'compileall', '-q', '-j', '0', site]);
+  if (compiled.status !== 0) log(`compileall: ${`${compiled.stdout}${compiled.stderr}`.trim().split(/\r?\n/).pop()}`);
+
+  const installed = python(['-c', 'import sys, ssl, sqlite3, asyncio, telethon, rsa, pyasn1, pyaes; print(sys.version.split()[0], telethon.__version__)']);
+  if (installed.status !== 0) die(`the packaged Python cannot import the worker's packages: ${`${installed.stdout}${installed.stderr}`.trim().slice(-600)}`);
+  log(`python: ${installed.stdout.trim()}`);
+  tools.python = { version: v.version, source: v.url, sha256: dl.sha256, license: 'Python Software Foundation License 2.0' };
+  tools.pythonPackages = [
+    { name: 'telethon', version: '1.45.0', license: 'MIT' },
+    { name: 'pyaes', version: '1.6.1', license: 'MIT' },
+    { name: 'rsa', version: '4.9.1', license: 'Apache-2.0' },
+    { name: 'pyasn1', version: '0.6.4', license: 'BSD-2-Clause' },
+  ];
+}
+
+// 7. Ollama: only recorded ----------------------------------------------------------------------
 {
   const assets = {};
   for (const [key, name] of Object.entries(pins.ollama.assets)) {
@@ -240,12 +283,47 @@ fs.mkdirSync(runtimeDir, { recursive: true });
   tools.ollama = { version: pins.ollama.tag, assets, license: 'MIT' };
 }
 
+
+// The worker as it will be installed: its own Python, its packages, its source from the staged app. The in-memory
+// backend never talks to Telegram, so this proves the process starts and answers, not that Telegram accepts it.
+async function proveWorker() {
+  const cwd = path.join(out, 'app', 'telegram-worker');
+  const env = { ...process.env, PYTHONUTF8: '1', PYTHONDONTWRITEBYTECODE: '1', AGENCYOS_WORKER_TOKEN: crypto.randomBytes(16).toString('hex') };
+  const child = spawn(path.join(runtimeDir, 'python', 'python.exe'), ['-E', '-s', '-m', 'agencyos_telegram', '--port', '0', '--backend', 'memory'], { cwd, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  let text = '';
+  child.stdout.on('data', (d) => (text += d));
+  child.stderr.on('data', (d) => (text += d));
+  try {
+    const port = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`no start within 30 seconds: ${text.slice(-500)}`)), 30000);
+      const look = setInterval(() => {
+        const m = /"port"\s*:\s*(\d+)/.exec(text);
+        if (m) {
+          clearTimeout(timer);
+          clearInterval(look);
+          resolve(Number(m[1]));
+        }
+      }, 100);
+      child.once('exit', (code) => reject(new Error(`exited ${code}: ${text.slice(-500)}`)));
+    });
+    const res = await fetch(`http://127.0.0.1:${port}/health`);
+    if (!res.ok) throw new Error(`/health answered ${res.status}`);
+    log(`telegram worker: ${JSON.stringify(await res.json()).slice(0, 160)}`);
+  } catch (error) {
+    die(`the Telegram worker does not start from the staged layout: ${error.message}`);
+  } finally {
+    child.kill();
+  }
+}
+
 // ---- prove it all starts ---------------------------------------------------------------------
 log('checking that each runtime starts…');
 check('node', path.join(runtimeDir, 'node', 'node.exe'), ['--version']);
 check('postgres', path.join(runtimeDir, 'postgres', 'bin', 'postgres.exe'), ['--version']);
 check('redis', path.join(runtimeDir, 'redis', 'redis-server.exe'), ['--version']);
 check('temporal', path.join(runtimeDir, 'temporal', 'temporal.exe'), ['--version']);
+check('python', path.join(runtimeDir, 'python', 'python.exe'), ['--version']);
+await proveWorker();
 
 fs.rmSync(tmp, { recursive: true, force: true });
 
@@ -265,8 +343,9 @@ const notices = [
   'AgencyOS is proprietary software of NextGen OS (see LICENSE.txt). It runs these programs, which keep their own licenses:',
   '',
   ...Object.entries(tools)
-    .filter(([k]) => k !== 'ollama' && k !== 'vcRuntime')
+    .filter(([k]) => k !== 'ollama' && k !== 'vcRuntime' && k !== 'pythonPackages')
     .map(([k, t]) => `  ${k.padEnd(10)} ${String(t.version).padEnd(18)} ${t.license}\n             ${t.source}`),
+  `  python pkgs ${tools.pythonPackages.map((p) => `${p.name} ${p.version} (${p.license})`).join(', ')}`,
   `  vc runtime  Microsoft Visual C++ runtime DLLs (${tools.vcRuntime.files.length} files), redistributed app-locally under Microsoft's terms`,
   '',
   `Downloaded on first run, not shipped: Ollama ${pins.ollama.tag} (MIT) and the AI models you are offered (Gemma: Google's Gemma terms; others under their own licenses).`,

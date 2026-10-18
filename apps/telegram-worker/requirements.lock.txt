@@ -1,13 +1,17 @@
-# Exact runtime dependencies of agencyos-telegram-worker (Python >= 3.11), for vendoring wheels
-# into the Windows installer. Everything here is pure Python (no compiled extensions).
+# Exact runtime dependencies of agencyos-telegram-worker (Python >= 3.11), as the Windows installer
+# installs them: `pip install --require-hashes --no-deps --target <site-packages> -r requirements.lock.txt`.
+# Everything here is pure Python (no compiled extensions).
 #
-# Wheels on PyPI (py3-none-any): telethon, rsa, pyasn1.
-# pyaes publishes ONLY a source distribution on PyPI. It is a single pure-Python package and
-# builds to a py3-none-any wheel (`pip wheel --no-deps pyaes==1.6.1`); the installer build must
-# do that once and vendor the resulting wheel next to the others.
+# telethon, rsa and pyasn1 are wheels on PyPI (py3-none-any). pyaes publishes ONLY a source distribution,
+# a single pure-Python package that pip builds into a wheel on the build machine; the hash below is of that
+# source file (pip's build tools, setuptools, are fetched for the build only and are not shipped).
 #
-# `cryptg` (optional speed-up for Telethon) is compiled and is intentionally absent.
-telethon==1.45.0
-pyaes==1.6.1
-rsa==4.9.1
-pyasn1==0.6.4
+# `cryptg` (an optional compiled speed-up for Telethon) is intentionally absent.
+telethon==1.45.0 \
+    --hash=sha256:339e24c83aedc9f12cbe389264627edc49779e4289c535aa90aafc4ce62f7972
+pyaes==1.6.1 \
+    --hash=sha256:02c1b1405c38d3c370b085fb952dd8bea3fadcee6411ad99f312cc129c536d8f
+rsa==4.9.1 \
+    --hash=sha256:68635866661c6836b8d39430f97a996acbd61bfa49406748ea243539fe239762
+pyasn1==0.6.4 \
+    --hash=sha256:deda9277cfd454080ec40b207fb6df82206a3a2688735233cdcd8d3d565f088b

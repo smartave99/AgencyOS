@@ -30,6 +30,7 @@ export const DEFAULT_PORTS = {
   redis: 6390,
   temporal: 7233,
   ollama: 11434,
+  telegramWorker: 54351,
 };
 
 export function databaseUrl(secrets, port) {
@@ -78,6 +79,9 @@ export function buildAppEnv({ paths, ports, secrets, userEnv = {}, aiEnv = {}, s
     AGENCYOS_AI_FOLDER: paths.data.ollamaRoot,
     AGENCYOS_STATUS_URL: statusUrl,
     AGENCY_SCHEDULER_ENABLED: 'true',
+    // The Telegram user-account worker (a separate Python process on this computer); see docs/TELEGRAM_WORKER_CONTRACT.md.
+    AGENCYOS_TELEGRAM_WORKER_URL: `http://127.0.0.1:${ports.telegramWorker}`,
+    AGENCYOS_TELEGRAM_WORKER_TOKEN: secrets.workerToken,
     NEXT_TELEMETRY_DISABLED: '1',
     CHECKPOINT_DISABLE: '1',
     PRISMA_HIDE_UPDATE_MESSAGE: '1',
@@ -325,6 +329,31 @@ export function buildServices(ctx) {
         const res = await httpGet(`http://127.0.0.1:${ports.frontend}/`);
         return !!res && res.status < 500;
       },
+    },
+    {
+      name: 'telegram-worker',
+      label: 'Telegram account service',
+      required: false,
+      dependsOn: [],
+      readyTimeoutMs: 90000,
+      spawn: () => {
+        if (!fs.existsSync(paths.runtime.python)) throw new Error('The Telegram account service is not part of this copy of AgencyOS.');
+        return {
+          command: paths.runtime.python,
+          // -E: ignore PYTHON* settings of the person's computer; -s: ignore their user packages.
+          args: ['-E', '-s', '-m', 'agencyos_telegram', '--port', String(ports.telegramWorker)],
+          cwd: paths.app.telegramWorker,
+          env: withVc({
+            ...process.env,
+            PYTHONUTF8: '1',
+            PYTHONDONTWRITEBYTECODE: '1',
+            AGENCYOS_WORKER_TOKEN: secrets.workerToken,
+            // The only folder the worker will read media from: what the app itself stored.
+            AGENCYOS_MEDIA_ROOT: paths.data.uploads,
+          }),
+        };
+      },
+      isReady: async () => (await httpGet(`http://127.0.0.1:${ports.telegramWorker}/health`))?.status === 200,
     },
     {
       name: 'ollama',

@@ -49,6 +49,7 @@ describe('secrets', () => {
     const first = loadOrCreateSecrets(f);
     assert.equal(first.jwtSecret.length, 96);
     assert.ok(first.dbPassword.length >= 32);
+    assert.ok(first.workerToken.length >= 32, 'the Telegram worker token is long enough for the worker to accept it');
     assert.deepEqual(loadOrCreateSecrets(f), first);
     fs.rmSync(dir, { recursive: true, force: true });
   });
@@ -59,6 +60,7 @@ describe('secrets', () => {
     const b = loadOrCreateSecrets(path.join(dir, 'b.json'));
     assert.notEqual(a.jwtSecret, b.jwtSecret);
     assert.notEqual(a.dbPassword, b.dbPassword);
+    assert.notEqual(a.workerToken, b.workerToken);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });
@@ -112,7 +114,7 @@ describe('ports', () => {
 
 describe('application environment', () => {
   const p = resolvePaths({ launcherDir: '/i/launcher', env: { AGENCYOS_DATA: '/d' }, platform: 'linux' });
-  const secrets = { jwtSecret: 'j', dbPassword: 'p@ss/word', adminToken: 't' };
+  const secrets = { jwtSecret: 'j', dbPassword: 'p@ss/word', adminToken: 't', workerToken: 'w-0123456789abcdef' };
   const ports = { ...DEFAULT_PORTS };
 
   it('binds to loopback and points every URL at the chosen ports', () => {
@@ -134,6 +136,30 @@ describe('application environment', () => {
     assert.equal(env('frontend').AGENCYOS_STATUS_TOKEN, 't');
     assert.equal(env('backend').AGENCYOS_STATUS_TOKEN, undefined);
     assert.equal(env('orchestrator').AGENCYOS_STATUS_TOKEN, undefined);
+  });
+
+  it('tells the server where the Telegram account worker is and how to call it', () => {
+    const e = buildAppEnv({ paths: p, ports, secrets, base: {} });
+    assert.equal(e.AGENCYOS_TELEGRAM_WORKER_URL, `http://127.0.0.1:${DEFAULT_PORTS.telegramWorker}`);
+    assert.equal(e.AGENCYOS_TELEGRAM_WORKER_TOKEN, 'w-0123456789abcdef');
+  });
+
+  it('starts the worker with its own Python, on loopback, with a token and only the uploads folder for media', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agencyos-worker-'));
+    const wp = resolvePaths({ launcherDir: path.join(root, 'install', 'launcher'), env: { AGENCYOS_DATA: path.join(root, 'data') }, platform: 'linux' });
+    const worker = buildServices({ paths: wp, ports, secrets }).find((s) => s.name === 'telegram-worker');
+    assert.equal(worker.required, false, 'a missing worker must not stop AgencyOS from starting');
+    assert.throws(() => worker.spawn(), /not part of this copy/);
+    fs.mkdirSync(path.dirname(wp.runtime.python), { recursive: true });
+    fs.writeFileSync(wp.runtime.python, '');
+    const spec = worker.spawn();
+    assert.equal(spec.command, wp.runtime.python);
+    assert.deepEqual(spec.args, ['-E', '-s', '-m', 'agencyos_telegram', '--port', String(DEFAULT_PORTS.telegramWorker)]);
+    assert.equal(spec.cwd, wp.app.telegramWorker);
+    assert.equal(spec.env.AGENCYOS_WORKER_TOKEN, 'w-0123456789abcdef');
+    assert.equal(spec.env.AGENCYOS_MEDIA_ROOT, wp.data.uploads);
+    assert.equal(spec.env.DATABASE_URL, undefined, 'the worker never receives the database address');
+    assert.equal(spec.env.JWT_SECRET, undefined);
   });
 
   it('url-encodes the database password', () => {

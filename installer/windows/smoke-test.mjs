@@ -308,7 +308,7 @@ async function main() {
   });
 
   await step('nothing listens on the network, only on this computer', async () => {
-    const ours = new Set([3000, 3002, 4200, 4999, 6390, 7233, 54329]);
+    const ours = new Set([3000, 3002, 4200, 4999, 6390, 7233, 54329, 54351]);
     const exposed = listeners().filter((l) => ours.has(l.port) && !/^(127\.0\.0\.1|\[?::1\]?)$/.test(l.host));
     assert(exposed.length === 0, `listening beyond loopback: ${JSON.stringify(exposed)}`);
     const seen = listeners().filter((l) => ours.has(l.port)).map((l) => l.port);
@@ -358,6 +358,14 @@ async function main() {
     assert(orgs.status === 200, `organizations -> ${orgs.status}`);
     const me = await getJson(`${api}/agency/me`, h);
     assert(me.status === 200, `agency/me -> ${me.status} ${JSON.stringify(me.json)}`);
+    // The Telegram account service ships with the app (its own Python and packages) and the server reaches it.
+    // This proves the process runs and answers on the installed machine; it does not prove Telegram accepts it.
+    const worker = await waitFor('the Telegram account service to answer the server', async () => {
+      const r = await getJson(`${api}/agency/telegram/accounts/status`, h);
+      return r.status === 200 && r.json?.running === true ? r.json : null;
+    }, { timeoutMs: 120000, intervalMs: 3000 });
+    assert(worker.configured === true && worker.version, `the Telegram account service reported ${JSON.stringify(worker)}`);
+    report.facts.telegramWorker = worker.version;
     const created = await fetch(`${api}/agency/clients`, { method: 'POST', headers: h, body: JSON.stringify({ name: 'Smoke Client', email: 'client@example.com', industry: 'Bakery' }) });
     assert(created.status === 201 || created.status === 200, `create client -> ${created.status} ${await created.text()}`);
     const clients = await getJson(`${api}/agency/clients`, h);

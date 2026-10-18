@@ -12,7 +12,9 @@ import {
 import {
   AccountEvent,
   TelegramUserAccountView,
+  TelegramIdentityView,
   useTelegramAccountEvents,
+  useTelegramOverview,
   useTelegramUserAccounts,
   useTelegramWorkerStatus,
 } from '@gitroom/frontend/components/agency/telegram.users.hooks';
@@ -31,6 +33,7 @@ import {
   Notice,
   PageHeader,
   PageShell,
+  Stat,
   StatusBadge,
   TextField,
   timeAgo,
@@ -590,6 +593,88 @@ const AccountRow: FC<{
 // ---------------------------------------------------------------------------
 // The page
 // ---------------------------------------------------------------------------
+const IDENTITY_KIND: Record<TelegramIdentityView['kind'], string> = {
+  bot: 'Bot',
+  serverBot: 'Bot from settings',
+  userAccount: 'Account',
+};
+
+/** Every bot and account in one place: how many are fine, and for the others what happened and what is next. */
+const AtAGlance: FC = () => {
+  const overview = useTelegramOverview();
+  if (!overview.data) {
+    return overview.error ? (
+      <LoadError error={overview.error} onRetry={() => overview.mutate()} />
+    ) : (
+      <Loading rows={1} />
+    );
+  }
+  const { totals, identities } = overview.data;
+  if (totals.all === 0) return null;
+  const apart = identities.filter((i) => i.state !== 'READY');
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <Stat label="Ready" value={totals.ready} tone="good" />
+        <Stat label="Paused" value={totals.paused} />
+        <Stat
+          label="Limited by Telegram"
+          value={totals.limited}
+          tone={totals.limited ? 'warn' : undefined}
+          hint={totals.limited ? 'Their jobs wait' : undefined}
+        />
+        <Stat
+          label="Need attention"
+          value={totals.needsAttention}
+          tone={totals.needsAttention ? 'bad' : undefined}
+        />
+      </div>
+      {apart.length > 0 && (
+        <Card title="What needs a look" subtitle={overview.data.note}>
+          <ul>
+            {apart.map((i) => (
+              <li
+                key={`${i.kind}-${i.id ?? 'server'}`}
+                className="flex flex-col gap-1 border-t first:border-t-0 border-[color:var(--ag-hairline)] py-3 text-[13px]"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-newTextColor">
+                    {i.label}
+                  </span>
+                  <span className="text-textItemBlur">
+                    {IDENTITY_KIND[i.kind]}
+                    {i.handle ? ` · ${i.handle}` : ''}
+                  </span>
+                  <StatusBadge status={i.status} />
+                </div>
+                <span className="text-textItemBlur">
+                  {i.summary}
+                  {i.retryAt
+                    ? ` Try again after ${formatDateTime(i.retryAt)}.`
+                    : ''}
+                </span>
+                {i.lastError && (
+                  <span className="text-textItemBlur">
+                    Last message: {i.lastError}
+                  </span>
+                )}
+                <span className="text-textItemBlur">
+                  {i.destinationCount} chat{i.destinationCount === 1 ? '' : 's'}
+                  {i.communityCount != null
+                    ? ` · ${i.communityCount} communit${
+                        i.communityCount === 1 ? 'y' : 'ies'
+                      }`
+                    : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+    </>
+  );
+};
+
 export const TelegramAccountsComponent: FC = () => {
   const { can } = useCan();
   const canManage = can('userAccount:manage');
@@ -625,6 +710,8 @@ export const TelegramAccountsComponent: FC = () => {
       {worker.data && !ready && (
         <Notice tone="warn">{worker.data.message}</Notice>
       )}
+
+      <AtAGlance />
 
       <Card
         title="Accounts"

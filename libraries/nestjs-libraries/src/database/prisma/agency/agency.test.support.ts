@@ -15,6 +15,7 @@ import { AgencyTelegramService } from './agency.telegram.service';
 import { AgencyTelegramBotsService } from './agency.telegram.bots.service';
 import { AgencyTelegramUsersRepository } from './agency.telegram.users.repository';
 import { AgencyTelegramUsersService } from './agency.telegram.users.service';
+import { AgencyTelegramOverviewService } from './agency.telegram.overview.service';
 import { AgencyCommunitiesRepository } from './agency.communities.repository';
 import { AgencyCommunitiesService } from './agency.communities.service';
 import { AgencyService, CampaignInput } from './agency.service';
@@ -547,6 +548,7 @@ export interface Harness {
   bots: AgencyTelegramBotsService;
   userGateway: FakeTelegramUserGateway;
   users: AgencyTelegramUsersService;
+  overview: AgencyTelegramOverviewService;
   communities: AgencyCommunitiesService;
   agency: AgencyService;
   portal: AgencyPortalService;
@@ -593,6 +595,7 @@ export async function buildHarness(): Promise<Harness> {
     access,
     userGateway
   );
+  const overview = new AgencyTelegramOverviewService(access, bots, users);
   const publishing = new AgencyPublishingService(
     agencyRepo,
     jobsRepo,
@@ -677,6 +680,7 @@ export async function buildHarness(): Promise<Harness> {
     bots,
     userGateway,
     users,
+    overview,
     communities,
     agency,
     portal,

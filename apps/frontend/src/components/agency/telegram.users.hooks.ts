@@ -131,6 +131,44 @@ export const useTelegramWorkerStatus = () =>
     30000
   );
 
+export type IdentityState = 'READY' | 'PAUSED' | 'LIMITED' | 'NEEDS_ATTENTION';
+
+export interface TelegramIdentityView {
+  kind: 'bot' | 'serverBot' | 'userAccount';
+  id: string | null;
+  label: string;
+  handle: string | null;
+  state: IdentityState;
+  status: string;
+  summary: string;
+  retryAt: string | null;
+  lastCheckedAt: string | null;
+  lastError: string | null;
+  destinationCount: number;
+  communityCount: number | null;
+  permissions: string[] | null;
+}
+
+export interface TelegramOverviewView {
+  identities: TelegramIdentityView[];
+  totals: {
+    all: number;
+    ready: number;
+    paused: number;
+    limited: number;
+    needsAttention: number;
+  };
+  worker: WorkerStatus | null;
+  note: string;
+}
+
+export const useTelegramOverview = () =>
+  useResource<TelegramOverviewView>(
+    ['agency-telegram-overview'],
+    '/agency/telegram/overview',
+    20000
+  );
+
 export const useTelegramUserAccounts = () =>
   useResource<TelegramUserAccountView[]>(
     ['agency-telegram-user-accounts'],

@@ -54,6 +54,7 @@ import { AgencyCampaignsController } from '@gitroom/backend/api/routes/agency.ca
 import { AgencyTemplatesController } from '@gitroom/backend/api/routes/agency.templates.controller';
 import { AgencyLeadsController } from '@gitroom/backend/api/routes/agency.leads.controller';
 import { AgencyTelegramAccountsController } from '@gitroom/backend/api/routes/agency.telegram.accounts.controller';
+import { AgencyTelegramOverviewController } from '@gitroom/backend/api/routes/agency.telegram.overview.controller';
 import { AgencyCommunitiesController } from '@gitroom/backend/api/routes/agency.communities.controller';
 import { AgencyWhatsappController } from '@gitroom/backend/api/routes/agency.whatsapp.controller';
 import { AgencyApprovalsController } from '@gitroom/backend/api/routes/agency.approvals.controller';
@@ -106,6 +107,7 @@ const authenticatedController = [
   AgencyTemplatesController,
   AgencyLeadsController,
   AgencyTelegramAccountsController,
+  AgencyTelegramOverviewController,
   AgencyCommunitiesController,
   AgencyWhatsappController,
   AgencyApprovalsController,

@@ -119,6 +119,25 @@ Nothing here has had an external penetration test or audit.
   schedule or send anything, delete anything or authorize a chat. What tools return is treated as
   data, never as instructions.
 
+### Outside AI agents (agent gateway)
+Described in full in `docs/AGENCYOS_AGENT_INTEGRATIONS.md`.
+* An agent (any MCP client) works through tokens made by owners and admins (`ai:configure`). A token is
+  `agt_` and 32 random bytes; only its SHA-256 is stored and it is shown once. Scope READ looks; scope DRAFT
+  also proposes changes. There is no WRITE scope.
+* A token authenticates only `/agent-gateway/*` (health, tools, call). It is not accepted by any other route,
+  and a signed-in person's cookie is not accepted by the gateway. A token never outranks the person who made
+  it: that person's role is read again at every call. At most 10 tokens work at once per agency, 60 calls a
+  minute per token (in the process's memory), optional expiry (default 90 days), revoked at once.
+* The tools are an allowlist pinned by a test. None can send, schedule, approve, join, authorize, delete, change
+  roles or settings, read a secret, run a command, touch a file or make a request. A change is only a proposal:
+  a person approves it, it runs once as that person after their role is checked again, and it is audited.
+* Answers carry only the fields a tool declares; client e-mail addresses and deal contact names are withheld;
+  Telegram data is limited to directory metadata and masked account health (no messages, members, ids or full
+  phone numbers); a test runs every tool against seeded secrets. What an agent reads is data and can contain
+  instructions from other people; it still cannot send or approve.
+* The MCP server (`apps/agent-mcp`) talks only to this computer unless told otherwise, never logs the token and
+  has no tools of its own.
+
 ### Desktop app: System settings
 * The desktop app's System settings reach the launcher through the app's own server
   (`/api/system/...`), never from the browser directly. The launcher's token stays in the app
@@ -147,6 +166,8 @@ Nothing here has had an external penetration test or audit.
 | The audit trail is not tamper-evident | A database administrator can alter it | Hash-chain or ship to write-once storage |
 | Click-event data has no automatic retention limit | Hashes accumulate | Scheduled purge |
 | Rate limiting is the platform's global throttling only | No per-agency or per-endpoint limits | Add limits on `/agency/*` |
+| The agent gateway's limit of 60 calls a minute is counted in the process's memory, and wrong tokens are not limited by caller address | Several backend processes would each allow 60; guessing a 256-bit token is not realistic, but bad requests are not slowed | Keep the count in Redis; limit by address |
+| The agent configuration file holds the token in plain text, as MCP clients' settings do; the file layout is unverified for Antigravity | Anyone who can read the file can use the token until it is revoked | Revoke when in doubt; prefer a short expiry; verify against a real client |
 | No external penetration test, dependency audit or secret scan was run for this work | Unknown unknowns | Run them before production |
 | Accessibility has not been tested with assistive technology | Possible barriers | Test with screen readers |
 

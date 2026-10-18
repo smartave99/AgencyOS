@@ -97,6 +97,21 @@ limit. **Missing** = not built. **Unverified** = built, but could not be exercis
 | Copilot agent mode | Partial | One-step-per-request agent loop with read tools and approval-gated change tools; 8 integration tests and an HTTP end-to-end test with a scripted model. Run live once against Claude Code (haiku) and in the browser. No approve, schedule, send, delete or authorize tool exists. Needs a capable model (a very small local model may not follow the step format). Answers are not streamed. |
 | Connected accounts and capability registry | Partial | Status read from stored data (labelled "not live"); no OAuth tokens enter agency code; no capability data is invented for unlisted networks. |
 
+### Agent integrations (MCP)
+Details, tool list and threat notes: `docs/AGENCYOS_AGENT_INTEGRATIONS.md`.
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| Agent tokens (`agt_…`, 32 random bytes, only the SHA-256 stored, shown once, scope READ or DRAFT, optional expiry default 90 days, at most 10 working per agency, revoke at once, last used; owners/admins only; never outranks the person who made it) and migration `a4_agency_agent_integrations` | Done | `agency.agent.gateway.int.spec.ts` (tokens: hash only, never listed, role gating, revoke, expiry, the limit of ten under a race, malformed headers, demoted creator, last used, audit); fresh `migrate deploy` on an empty database has no drift |
+| Agent gateway (`/agent-gateway/health`, `/tools`, `/call`) authenticated by the token only; the token opens nothing else and a signed-in cookie opens nothing here; 60 calls a minute per token (`429`) | Done | The same spec, and 11 HTTP tests on the compiled backend (missing, wrong, revoked, expired and cookie callers refused; refused on 14 other routes; unknown gateway routes 404; 429). The rate limit is in the process's memory. |
+| 13 reading tools (the in-app agent's own, plus community directory, Telegram account health, `get_proposal`); client e-mail addresses and deal contact names withheld; no description, notes, members, ids or messages from Telegram | Done | Same specs; a test runs every tool against seeded bot tokens, sealed sessions, an API hash, an AI key, full phone numbers and a token and asserts none appears |
+| 5 drafting tools that only create proposals; a person approves in the app, the change runs once as the approver after a fresh permission check, expires after 24 hours, declined or expired never runs, withdrawn with a revoked token, caps on waiting proposals | Done | Same specs, including two people approving at once and a whole create-client → draft → edit → destinations → review run that queues and sends nothing |
+| Allowlist pinned in a test: no tool can send, publish, schedule, approve, join, leave, authorize, log out, delete, run a shell, touch files, make HTTP requests or read secrets; no WRITE scope exists | Done | Names, scopes and the permissions the tools need are compared with literals |
+| Page `/agency/agent-integrations` (explanation, tokens with a once-only dialog and revoke confirmation, the configuration block, proposals with Approve and Decline confirmations) | Done | `tsc --noEmit`; a scripted run in Chromium against the compiled backend (27 checks: validation, once-only token dialog, approve, decline, failed change, revoke, no horizontal scroll at 1280 and 390 px in light and dark). Not tested with other browsers or assistive technology. |
+| MCP server `apps/agent-mcp/server.mjs`: JSON-RPC over standard input and output, no dependencies, no tools of its own, loopback-only, never logs the token | Done | 23 `node --test` tests against a fake gateway |
+| Working with **Antigravity** or any real MCP client; the `.agents/mcp_config.json` file name and layout | **Unverified** | Follows the common MCP-client convention only. Vendor documentation could not be reached; no real client was run. |
+| The installer copying the MCP server into the install | Missing | `installer/` was not changed; the page says when it cannot find the file |
+
 ### Interface
 | Item | Status | Evidence |
 | --- | --- | --- |

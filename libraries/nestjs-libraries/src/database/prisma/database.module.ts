@@ -83,6 +83,8 @@ import { AgencyService } from '@gitroom/nestjs-libraries/database/prisma/agency/
 import { AgencyAiRepository } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.repository';
 import { AgencyAiGatewayService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.gateway.service';
 import { AgencyAiAgentService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.agent.service';
+import { AgencyAgentGatewayRepository } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.agent.gateway.repository';
+import { AgencyAgentGatewayService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.agent.gateway.service';
 import { AgencyAiDiscoveryService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.discovery.service';
 import { AgencyAiToolsService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.tools.service';
 import { AgencyAiService } from '@gitroom/nestjs-libraries/database/prisma/agency/agency.ai.service';
@@ -180,6 +182,8 @@ import { AgencyPortalService } from '@gitroom/nestjs-libraries/database/prisma/a
     AgencyAiToolsService,
     AgencyAiDiscoveryService,
     AgencyAiAgentService,
+    AgencyAgentGatewayRepository,
+    AgencyAgentGatewayService,
     AgencyAiService,
     AgencySchedulerService,
     AgencyIntelligenceService,

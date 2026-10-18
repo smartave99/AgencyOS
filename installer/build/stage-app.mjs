@@ -6,6 +6,7 @@
 //   <out>/app/node_modules           only the packages the backend and orchestrator can reach
 //   <out>/app/prisma                 schema and migrations
 //   <out>/app/telegram-worker        the Python Telegram user-account worker (its interpreter is staged by stage-runtime)
+//   <out>/app/agent-mcp              the MCP server a person can point an agent program (Antigravity) at; no dependencies
 //   <out>/launcher                   the supervisor
 //
 // The repository keeps every dependency of every app in one package.json (about 3.4 GB installed).
@@ -166,6 +167,17 @@ for (const f of fs.readdirSync(path.join(appDir, 'frontend'))) if (f.startsWith(
 fs.mkdirSync(path.join(appDir, 'prisma'), { recursive: true });
 fs.copyFileSync(inputs.schema, path.join(appDir, 'prisma/schema.prisma'));
 copyTree(inputs.migrations, path.join(appDir, 'prisma/migrations'), { prune: false });
+
+// The MCP server for agent programs: one file with no dependencies, run with the bundled Node when a person
+// connects an agent under Admin > Agent integrations. The page looks for it at app/agent-mcp/server.mjs.
+{
+  const server = path.join(root, 'apps/agent-mcp/server.mjs');
+  if (!fs.existsSync(server)) die('apps/agent-mcp/server.mjs not found');
+  const check = spawnSync(process.execPath, ['--check', server], { encoding: 'utf8' });
+  if (check.status !== 0) die(`apps/agent-mcp/server.mjs does not parse: ${check.stderr}`);
+  fs.mkdirSync(path.join(appDir, 'agent-mcp'), { recursive: true });
+  fs.copyFileSync(server, path.join(appDir, 'agent-mcp/server.mjs'));
+}
 
 // The Telegram user-account worker: its source only (no tests, no bytecode); stage-runtime adds Python and the packages.
 {

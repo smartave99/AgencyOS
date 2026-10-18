@@ -162,6 +162,11 @@ describe('application environment', () => {
     assert.equal(spec.env.JWT_SECRET, undefined);
   });
 
+  it('tells the app servers which Node.js they run on, for the agent settings it shows', () => {
+    const services = buildServices({ paths: p, ports, secrets, node: '/opt/agencyos/runtime/node/node' });
+    assert.equal(services.find((s) => s.name === 'backend').spawn().env.AGENCYOS_NODE_PATH, '/opt/agencyos/runtime/node/node');
+  });
+
   it('url-encodes the database password', () => {
     assert.match(databaseUrl(secrets, 54329), /agencyos:p%40ss%2Fword@127\.0\.0\.1:54329\/agencyos/);
   });

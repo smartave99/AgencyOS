@@ -66,6 +66,8 @@ import { AgencyCrmController } from '@gitroom/backend/api/routes/agency.crm.cont
 import { AgencyTeamController } from '@gitroom/backend/api/routes/agency.team.controller';
 import { AgencyDashboardController } from '@gitroom/backend/api/routes/agency.dashboard.controller';
 import { AgencyAiController } from '@gitroom/backend/api/routes/agency.ai.controller';
+import { AgencyAgentIntegrationsController } from '@gitroom/backend/api/routes/agency.agent.integrations.controller';
+import { AgentGatewayController } from '@gitroom/backend/api/routes/agency.agent.gateway.controller';
 import { AgencyInvoicesController } from '@gitroom/backend/api/routes/agency.invoices.controller';
 import { AgencyTrackingController } from '@gitroom/backend/api/routes/agency.tracking.controller';
 import { AgencyIntelligenceController } from '@gitroom/backend/api/routes/agency.intelligence.controller';
@@ -114,6 +116,7 @@ const authenticatedController = [
   AgencyTelegramController,
   AgencyDashboardController,
   AgencyAiController,
+  AgencyAgentIntegrationsController,
   AgencyInvoicesController,
   AgencyTeamController,
   AgencyCrmController,
@@ -141,6 +144,8 @@ const authenticatedController = [
         PublicController,
         AgencyTrackingController,
         AgencyTelegramWebhookController,
+        // Not behind AuthMiddleware on purpose: an agent key is its only way in (see AgentTokenGuard).
+        AgentGatewayController,
         MonitorController,
         EnterpriseController,
         NoAuthIntegrationsController,

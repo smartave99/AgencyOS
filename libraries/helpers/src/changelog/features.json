@@ -477,6 +477,33 @@
         "There is no send-all button and no scheduled sending. The WhatsApp Business API is not available in this version.",
         "It does not collect numbers or read WhatsApp groups. A person with no recorded consent cannot be added."
       ]
+    },
+    {
+      "id": "agent-integrations",
+      "group": "assist",
+      "title": "Agent integrations",
+      "href": "/agency/agent-integrations",
+      "icon": "cpu",
+      "status": "experimental",
+      "summary": "Connect an AI agent that speaks MCP (for example the Antigravity CLI) so it can look at your work and prepare drafts. It can never send, schedule, approve or delete anything, and every change it proposes waits for you.",
+      "steps": [
+        "Open Agent integrations and choose New token. Name it after the program, pick Read only or Read and draft, and keep the suggested expiry.",
+        "Copy the token when it is shown. It appears once; AgencyOS keeps only a fingerprint and cannot show it again.",
+        "Copy the configuration block into your agent's MCP settings and paste the token in place of the placeholder. The same page shows the plain command for any other MCP program.",
+        "Start your agent. It sees only the tools its token allows. Read tools run at once; a draft tool creates a proposal.",
+        "Open Proposals, read the sentence and the exact details, and choose Approve or Decline. An approved change runs once, as you, with your permissions.",
+        "Revoke a token whenever you like; it stops working at once and its waiting proposals are withdrawn."
+      ],
+      "needs": [
+        "An MCP-capable agent program on the same computer, and Node.js to run the small MCP server that comes with AgencyOS.",
+        "Owner or admin access."
+      ],
+      "tips": [
+        "There is no setting that lets an agent send, schedule, approve, join or leave a community, authorize a chat, change roles or settings, delete, or read passwords, sessions or messages. A draft token only adds proposals.",
+        "Agents see client names and campaigns but not client e-mail addresses, and only the community directory's own fields (title, @username, counts, labels, stage), never members or messages.",
+        "The configuration file name and layout follow the common MCP convention. They were not checked against Antigravity's documentation or a real Antigravity install, so compare them with what your program expects.",
+        "AgencyOS works exactly the same with no agent connected. An agent never runs on a schedule of its own."
+      ]
     }
   ]
 }

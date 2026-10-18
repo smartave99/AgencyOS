@@ -202,7 +202,8 @@ export function buildServices(ctx) {
   const nodeService = (name, label, entry, cwd, extraEnv = {}) => ({
     name,
     label,
-    spawn: () => ({ command: node, args: ['--experimental-require-module', entry], cwd, env: { ...appEnv(), ...extraEnv } }),
+    // AGENCYOS_NODE_PATH: the Node.js that came with the app, which Agent integrations puts in the settings it shows.
+    spawn: () => ({ command: node, args: ['--experimental-require-module', entry], cwd, env: { ...appEnv(), AGENCYOS_NODE_PATH: node, ...extraEnv } }),
   });
 
   return [

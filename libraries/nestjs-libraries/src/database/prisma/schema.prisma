@@ -50,6 +50,8 @@ model Organization {
   telegramBots         TelegramBot[]
   telegramUserAccounts TelegramUserAccount[]
   communities          Community[]
+  agentTokens          AgentToken[]
+  agentProposals       AgentProposal[]
   adTemplates          AdTemplate[]
   leadLinks            LeadLink[]
   leads               LeadCapture[]
@@ -2881,4 +2883,66 @@ model WhatsappSettings {
   updatedAt          DateTime     @updatedAt
 
   organization       Organization @relation(fields: [orgId], references: [id])
+}
+
+enum AgentScope {
+  READ
+  DRAFT
+}
+
+enum AgentProposalStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  EXPIRED
+}
+
+// A key for an outside AI agent (any MCP client, for example the Antigravity CLI) to reach the agent
+// gateway and nothing else. Only a SHA-256 hash of the key is stored: the key is shown once, when it is
+// made. READ lets the agent look; DRAFT also lets it propose changes. There is no scope that sends,
+// schedules, approves, deletes or changes who may do what.
+model AgentToken {
+  id          String       @id @default(cuid())
+  orgId       String
+  label       String
+  scope       AgentScope
+  tokenHash   String       @unique
+  // The first characters of the key, so a person can tell keys apart in a list.
+  prefix      String
+  createdById String
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  revokedById String?
+  createdAt   DateTime     @default(now())
+
+  organization Organization    @relation(fields: [orgId], references: [id])
+  proposals    AgentProposal[]
+
+  @@index([orgId, revokedAt])
+}
+
+// A change an outside agent asked for. It runs only when a person approves it, as that person, and
+// at most once: PENDING moves to APPROVED or DECLINED in one guarded update. Nothing expires by
+// itself in the background; an old PENDING row is marked EXPIRED the next time anyone looks.
+model AgentProposal {
+  id          String              @id @default(cuid())
+  orgId       String
+  tokenId     String
+  tool        String
+  args        Json
+  summary     String
+  status      AgentProposalStatus @default(PENDING)
+  expiresAt   DateTime
+  decidedAt   DateTime?
+  decidedById String?
+  // What happened when it ran: { ok, result?, error? }; or why it was withdrawn.
+  outcome     Json?
+  createdAt   DateTime            @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  token        AgentToken   @relation(fields: [tokenId], references: [id])
+
+  @@index([orgId, status, createdAt])
+  @@index([tokenId, status])
 }

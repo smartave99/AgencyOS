@@ -1958,5 +1958,539 @@ describe(
         );
       });
     });
+
+    describe('agent gateway over HTTP', () => {
+      const READ_TOOLS = [
+        'dashboard',
+        'list_clients',
+        'list_campaigns',
+        'get_campaign',
+        'list_destinations',
+        'list_approvals',
+        'get_report',
+        'list_deals',
+        'suggest_copy',
+        'list_communities',
+        'get_community',
+        'list_telegram_accounts',
+        'get_proposal',
+      ];
+      const DRAFT_TOOLS = [
+        'create_client',
+        'create_campaign_draft',
+        'update_campaign_draft',
+        'set_campaign_destinations',
+        'submit_campaign_for_review',
+      ];
+
+      /** What an outside program sends: a bearer token and nothing else (no cookie, no session header). */
+      const agent = async (method, path, token, body) => {
+        const res = await fetch(`${base}${path}`, {
+          method,
+          redirect: 'manual',
+          headers: {
+            'content-type': 'application/json',
+            ...(token ? { authorization: `Bearer ${token}` } : {}),
+          },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+        const text = await res.text();
+        let json;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = undefined;
+        }
+        return { status: res.status, json, text, headers: res.headers };
+      };
+      const makeToken = async (scope, label = 'Antigravity', as = 'owner') => {
+        const res = await call('POST', '/agency/agent-integrations/tokens', {
+          as,
+          body: { label, scope },
+        });
+        assert.equal(res.status, 201, res.text);
+        return res.json;
+      };
+      const callTool = (token, tool, args) =>
+        agent('POST', '/agent-gateway/call', token, { tool, args });
+
+      it('rejects a missing, malformed, wrong or cookie-authenticated caller', async () => {
+        const { token } = await makeToken('READ');
+        const wrong = `agt_${'A'.repeat(43)}`;
+        for (const [method, path] of [
+          ['GET', '/agent-gateway/tools'],
+          ['GET', '/agent-gateway/health'],
+          ['POST', '/agent-gateway/call'],
+        ]) {
+          const body = method === 'POST' ? { tool: 'dashboard' } : undefined;
+          assert.equal(
+            (await agent(method, path, undefined, body)).status,
+            401
+          );
+          assert.equal(
+            (await agent(method, path, 'agt_short', body)).status,
+            401
+          );
+          assert.equal((await agent(method, path, wrong, body)).status, 401);
+          assert.equal(
+            (await agent(method, path, 'not-a-token', body)).status,
+            401
+          );
+          // A signed-in person's cookie or session header is not a way in here.
+          const signedIn = await call(method, path, { as: 'owner', body });
+          assert.equal(
+            signedIn.status,
+            401,
+            `${method} ${path} with a session`
+          );
+          // Neither is the token placed where the app reads sessions.
+          const misplaced = await call(method, path, {
+            headers: { auth: token },
+            body,
+          });
+          assert.equal(misplaced.status, 401, `${method} ${path} misplaced`);
+        }
+        // The right token works on the same routes.
+        assert.equal(
+          (await agent('GET', '/agent-gateway/health', token)).status,
+          200
+        );
+      });
+
+      it('lets only owners and admins make, list and revoke tokens, and never lists a token again', async () => {
+        for (const as of ['sales', 'manager', 'client']) {
+          const refused = await call(
+            'POST',
+            '/agency/agent-integrations/tokens',
+            { as, body: { label: 'x', scope: 'READ' } }
+          );
+          assert.equal(refused.status, 403, as);
+          for (const path of ['tokens', 'config', 'proposals']) {
+            assert.equal(
+              (await call('GET', `/agency/agent-integrations/${path}`, { as }))
+                .status,
+              403,
+              `${as} ${path}`
+            );
+          }
+        }
+        assert.equal(
+          (await call('GET', '/agency/agent-integrations/tokens')).status,
+          403,
+          'anonymous'
+        );
+
+        const bad = (body) =>
+          call('POST', '/agency/agent-integrations/tokens', {
+            as: 'owner',
+            body,
+          });
+        assert.equal((await bad({ label: 'x', scope: 'WRITE' })).status, 400);
+        assert.equal((await bad({ label: 'x', scope: 'ADMIN' })).status, 400);
+        assert.equal((await bad({ scope: 'READ' })).status, 400);
+        assert.equal((await bad({ label: '', scope: 'READ' })).status, 400);
+        assert.equal(
+          (await bad({ label: 'x', scope: 'READ', expiresInDays: 4000 }))
+            .status,
+          400
+        );
+
+        const made = await makeToken('DRAFT', 'Listed once');
+        assert.match(made.token, /^agt_[A-Za-z0-9_-]{43}$/);
+        matches(made, {
+          label: 'Listed once',
+          scope: 'DRAFT',
+          state: 'ACTIVE',
+        });
+        const list = await call('GET', '/agency/agent-integrations/tokens', {
+          as: 'owner',
+        });
+        assert.equal(list.status, 200);
+        assert.ok(list.json.some((t) => t.id === made.id));
+        assert.ok(!list.text.includes(made.token), 'the token is not listed');
+        assert.ok(!/tokenHash/.test(list.text));
+        // Another agency sees none of it and cannot revoke it.
+        const theirs = await call('GET', '/agency/agent-integrations/tokens', {
+          as: 'otherOwner',
+        });
+        assert.ok(!theirs.json.some((t) => t.id === made.id));
+        assert.equal(
+          (
+            await call(
+              'POST',
+              `/agency/agent-integrations/tokens/${made.id}/revoke`,
+              { as: 'otherOwner' }
+            )
+          ).status,
+          404
+        );
+      });
+
+      it('gives the connection settings with a placeholder, never a token', async () => {
+        const res = await call('GET', '/agency/agent-integrations/config', {
+          as: 'owner',
+        });
+        assert.equal(res.status, 200, res.text);
+        const file = JSON.parse(res.json.configText);
+        assert.equal(file.mcpServers.agencyos.command, 'node');
+        assert.match(file.mcpServers.agencyos.args[0], /server\.mjs$/);
+        assert.match(
+          file.mcpServers.agencyos.env.AGENCYOS_MCP_URL,
+          /^http:\/\/127\.0\.0\.1:\d+$/
+        );
+        assert.equal(
+          file.mcpServers.agencyos.env.AGENCYOS_MCP_TOKEN,
+          '<paste the token shown once>'
+        );
+        assert.equal(res.json.verifiedWithAntigravity, false);
+        assert.equal(res.json.serverFound, true);
+        assert.ok(!/agt_[A-Za-z0-9_-]{20}/.test(res.text));
+      });
+
+      it('opens the gateway and nothing else: the token is refused on every other route', async () => {
+        const { token } = await makeToken('DRAFT');
+        for (const [method, path] of [
+          ['GET', '/agency/me'],
+          ['GET', '/agency/clients'],
+          ['GET', '/agency/campaigns'],
+          ['GET', '/agency/dashboard'],
+          ['GET', '/agency/team'],
+          ['GET', '/agency/ai/settings'],
+          ['GET', '/agency/agent-integrations/tokens'],
+          ['POST', '/agency/agent-integrations/tokens'],
+          ['POST', '/agency/agent-integrations/proposals/x/approve'],
+          ['GET', '/user/self'],
+          ['GET', '/posts'],
+          ['GET', '/integrations/list'],
+          ['GET', '/public/v1/integrations'],
+          ['GET', '/public/v1/is-connected'],
+        ]) {
+          const body =
+            method === 'POST' ? { label: 'x', scope: 'READ' } : undefined;
+          // As a bearer token (how the public API and this gateway read credentials) ...
+          const bearer = await agent(method, path, token, body);
+          assert.ok(
+            [401, 403, 404].includes(bearer.status),
+            `${method} ${path}: ${bearer.status}`
+          );
+          // ... and in the headers the app's own sign-in reads.
+          for (const header of ['auth', 'authorization']) {
+            const res = await call(method, path, {
+              headers: { [header]: token },
+              body,
+            });
+            assert.ok(
+              [401, 403, 404].includes(res.status),
+              `${method} ${path} via ${header}: ${res.status}`
+            );
+          }
+        }
+        // Under /agent-gateway only the three routes exist, whatever the method.
+        for (const [method, path] of [
+          ['GET', '/agent-gateway'],
+          ['GET', '/agent-gateway/secrets'],
+          ['GET', '/agent-gateway/tokens'],
+          ['POST', '/agent-gateway/tools'],
+          ['DELETE', '/agent-gateway/call'],
+          ['GET', '/agent-gateway/call'],
+          ['PUT', '/agent-gateway/health'],
+        ]) {
+          assert.equal(
+            (await agent(method, path, token)).status,
+            404,
+            `${method} ${path}`
+          );
+        }
+      });
+
+      it('lists the tools a token’s scope allows, with JSON Schemas, and says nothing is cached', async () => {
+        const read = await makeToken('READ', 'Reader');
+        const draft = await makeToken('DRAFT', 'Drafter');
+        const readTools = await agent(
+          'GET',
+          '/agent-gateway/tools',
+          read.token
+        );
+        assert.equal(readTools.status, 200, readTools.text);
+        assert.equal(readTools.headers.get('cache-control'), 'no-store');
+        assert.deepEqual(
+          readTools.json.tools.map((t) => t.name),
+          READ_TOOLS
+        );
+        const draftTools = await agent(
+          'GET',
+          '/agent-gateway/tools',
+          draft.token
+        );
+        assert.deepEqual(
+          draftTools.json.tools.map((t) => t.name),
+          [...READ_TOOLS, ...DRAFT_TOOLS]
+        );
+        for (const tool of draftTools.json.tools) {
+          assert.equal(tool.inputSchema.type, 'object');
+          assert.equal(tool.inputSchema.additionalProperties, false);
+          assert.ok(tool.description.length > 10, tool.name);
+        }
+        const health = await agent('GET', '/agent-gateway/health', draft.token);
+        matches(health.json, {
+          ok: true,
+          label: 'Drafter',
+          scope: 'DRAFT',
+          tools: 18,
+        });
+      });
+
+      it('runs a reading tool inside the token’s own agency', async () => {
+        const { token } = await makeToken('READ');
+        const clients = await callTool(token, 'list_clients', {});
+        assert.equal(clients.status, 200, clients.text);
+        assert.equal(clients.json.tool, 'list_clients');
+        assert.ok(clients.json.result.some((c) => c.id === ctx.customerId));
+        assert.ok(
+          !clients.text.includes('"email"'),
+          'client e-mail addresses are not given out'
+        );
+        const dash = await callTool(token, 'dashboard');
+        assert.equal(dash.status, 200);
+        assert.equal(typeof dash.json.result.totalCampaigns, 'number');
+        // Another agency's token sees its own data only.
+        const theirToken = await makeToken('READ', 'Theirs', 'otherOwner');
+        const theirs = await callTool(theirToken.token, 'list_clients', {});
+        assert.ok(!theirs.json.result.some((c) => c.id === ctx.customerId));
+      });
+
+      it('refuses a drafting tool to a reading token, an unknown tool, and bad arguments', async () => {
+        const { token } = await makeToken('READ');
+        const scoped = await callTool(token, 'create_client', {
+          name: 'Nope Ltd',
+        });
+        assert.equal(scoped.status, 403);
+        assert.equal(scoped.json.error, 'scope_denied');
+        for (const tool of [
+          'send_campaign',
+          'approve_campaign',
+          'delete_client',
+          'run_shell',
+        ]) {
+          const res = await callTool(token, tool, {});
+          assert.equal(res.status, 404, tool);
+          assert.equal(res.json.error, 'unknown_tool');
+        }
+        assert.equal((await callTool(token, 'get_campaign', {})).status, 400);
+        assert.equal(
+          (await callTool(token, 'list_campaigns', { status: 'SENT' })).status,
+          400
+        );
+        // The body itself is checked before any tool is looked up.
+        assert.equal(
+          (await agent('POST', '/agent-gateway/call', token, {})).status,
+          400
+        );
+        assert.equal(
+          (
+            await agent('POST', '/agent-gateway/call', token, {
+              tool: 'Bad Name!',
+            })
+          ).status,
+          400
+        );
+        assert.equal(
+          (
+            await agent('POST', '/agent-gateway/call', token, {
+              tool: 'dashboard',
+              args: 'x',
+            })
+          ).status,
+          400
+        );
+        assert.equal(
+          await prisma.customer.count({ where: { name: 'Nope Ltd' } }),
+          0
+        );
+      });
+
+      it('turns a drafting call into a proposal that a signed-in owner approves, once', async () => {
+        const { token } = await makeToken('DRAFT');
+        const name = `Gateway Client ${rnd()}`;
+        const asked = await callTool(token, 'create_client', {
+          name,
+          approve: true,
+          orgId: 'someone-else',
+        });
+        assert.equal(asked.status, 200, asked.text);
+        matches(asked.json.result, { status: 'pending_approval' });
+        const proposalId = asked.json.result.proposalId;
+        assert.ok(proposalId);
+        assert.match(asked.json.result.message, /person has to approve/);
+        // Nothing has happened yet.
+        const clientsBefore = await call('GET', '/agency/clients', {
+          as: 'owner',
+        });
+        assert.ok(!clientsBefore.json.some((c) => c.name === name));
+        const seen = await callTool(token, 'get_proposal', { id: proposalId });
+        matches(seen.json.result, { status: 'PENDING', tool: 'create_client' });
+
+        // A person sees it, with the exact arguments, and only owners and admins decide.
+        const listed = await call(
+          'GET',
+          '/agency/agent-integrations/proposals?status=PENDING',
+          { as: 'owner' }
+        );
+        const mine = listed.json.find((p) => p.id === proposalId);
+        assert.deepEqual(mine.args, { name });
+        matches(mine, {
+          status: 'PENDING',
+          summary: `Add the client “${name}”`,
+        });
+        const approve = `/agency/agent-integrations/proposals/${proposalId}/approve`;
+        for (const as of ['sales', 'manager', 'client']) {
+          assert.equal((await call('POST', approve, { as })).status, 403, as);
+        }
+        assert.equal(
+          (await call('POST', approve, { as: 'otherOwner' })).status,
+          404
+        );
+
+        const approved = await call('POST', approve, { as: 'owner' });
+        assert.equal(approved.status, 201, approved.text);
+        matches(approved.json, { status: 'APPROVED', outcome: { ok: true } });
+        const clientsAfter = await call('GET', '/agency/clients', {
+          as: 'owner',
+        });
+        assert.equal(
+          clientsAfter.json.filter((c) => c.name === name).length,
+          1
+        );
+
+        // Never twice.
+        assert.equal(
+          (await call('POST', approve, { as: 'owner' })).status,
+          409
+        );
+        assert.equal(
+          (
+            await call(
+              'POST',
+              `/agency/agent-integrations/proposals/${proposalId}/decline`,
+              { as: 'owner', body: {} }
+            )
+          ).status,
+          409
+        );
+        assert.equal(
+          (await call('GET', '/agency/clients', { as: 'owner' })).json.filter(
+            (c) => c.name === name
+          ).length,
+          1
+        );
+
+        // The agent can see the outcome.
+        const after = await callTool(token, 'get_proposal', { id: proposalId });
+        matches(after.json.result, {
+          status: 'APPROVED',
+          outcome: { ok: true },
+        });
+
+        // And it is on the audit trail, under the person who approved.
+        const audit = await prisma.auditEvent.findMany({
+          where: { orgId: ctx.users.owner.orgId, entityId: proposalId },
+        });
+        assert.deepEqual(audit.map((a) => a.action).sort(), [
+          'agent.proposal_approved',
+          'agent.proposal_created',
+        ]);
+        assert.equal(
+          audit.find((a) => a.action === 'agent.proposal_approved').actorUserId,
+          ctx.users.owner.userId
+        );
+        assert.equal(
+          audit.find((a) => a.action === 'agent.proposal_created').actorRole,
+          'AGENT'
+        );
+      });
+
+      it('declined proposals never run, and a revoked token stops working at once', async () => {
+        const { token, id } = await makeToken('DRAFT', 'Short lived');
+        const name = `Declined ${rnd()}`;
+        const asked = await callTool(token, 'create_client', { name });
+        const declined = await call(
+          'POST',
+          `/agency/agent-integrations/proposals/${asked.json.result.proposalId}/decline`,
+          { as: 'owner', body: { reason: 'Not this client' } }
+        );
+        assert.equal(declined.status, 201, declined.text);
+        matches(declined.json, { status: 'DECLINED' });
+        const seen = await callTool(token, 'get_proposal', {
+          id: asked.json.result.proposalId,
+        });
+        matches(seen.json.result, { status: 'DECLINED' });
+        assert.ok(
+          !(await call('GET', '/agency/clients', { as: 'owner' })).json.some(
+            (c) => c.name === name
+          )
+        );
+
+        // A waiting proposal is withdrawn with its token.
+        const waiting = await callTool(token, 'create_client', {
+          name: `Withdrawn ${rnd()}`,
+        });
+        const revoked = await call(
+          'POST',
+          `/agency/agent-integrations/tokens/${id}/revoke`,
+          { as: 'owner' }
+        );
+        assert.equal(revoked.status, 201);
+        matches(revoked.json, { state: 'REVOKED' });
+        for (const path of ['/agent-gateway/health', '/agent-gateway/tools']) {
+          const res = await agent('GET', path, token);
+          assert.equal(res.status, 401);
+          assert.match(res.json.message, /revoked/);
+        }
+        assert.equal((await callTool(token, 'dashboard')).status, 401);
+        assert.equal(
+          (
+            await call(
+              'POST',
+              `/agency/agent-integrations/proposals/${waiting.json.result.proposalId}/approve`,
+              { as: 'owner' }
+            )
+          ).status,
+          409
+        );
+      });
+
+      it('stops a token that has expired', async () => {
+        const { token, id } = await makeToken('READ', 'Expiring');
+        await prisma.agentToken.update({
+          where: { id },
+          data: { expiresAt: new Date(Date.now() - 1000) },
+        });
+        const res = await agent('GET', '/agent-gateway/health', token);
+        assert.equal(res.status, 401);
+        assert.match(res.json.message, /expired/);
+      });
+
+      it('answers 429 when one token calls more than sixty times a minute', async () => {
+        const { token } = await makeToken('READ', 'Chatty');
+        const { token: calm } = await makeToken('READ', 'Calm');
+        let limited;
+        for (let i = 0; i < 61; i++) {
+          const res = await agent('GET', '/agent-gateway/health', token);
+          if (res.status === 429) {
+            limited = res;
+            assert.equal(i, 60, 'the 61st call is the first one refused');
+            break;
+          }
+          assert.equal(res.status, 200);
+        }
+        assert.ok(limited, 'a 429 came');
+        assert.match(limited.json.message, /Too many calls/);
+        assert.ok(limited.json.retryAfterSeconds > 0);
+        assert.equal(
+          (await agent('GET', '/agent-gateway/health', calm)).status,
+          200
+        );
+      });
+    });
   }
 );

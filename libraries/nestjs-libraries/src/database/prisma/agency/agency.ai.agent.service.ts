@@ -28,7 +28,7 @@ import {
 import { CreateClientDto } from '@gitroom/nestjs-libraries/dtos/agency/client.dto';
 
 type ArgType = 'string' | 'number' | 'boolean';
-interface ArgSpec {
+export interface ArgSpec {
   type: ArgType;
   description: string;
   required?: boolean;
@@ -53,6 +53,15 @@ interface ToolDef {
   run: (actor: AgencyActor, args: Record<string, any>) => Promise<unknown>;
   /** One sentence for the approval card. */
   summary?: (actor: AgencyActor, args: Record<string, any>) => Promise<string>;
+}
+
+/** A tool as an outside caller may be told about it: everything except how it runs. */
+export interface AgentToolDescriptor {
+  name: string;
+  kind: 'read' | 'change';
+  permission: AgencyPermission;
+  description: string;
+  args: Record<string, ArgSpec>;
 }
 
 export type AgentTurn =
@@ -91,6 +100,47 @@ const short = (value: unknown, max = 160) => {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 };
 const ID = { type: 'string', required: true } as const;
+
+/** Keeps only the arguments a tool declares, of the right type, within its limits. */
+export function cleanToolArgs(
+  specs: Record<string, ArgSpec>,
+  raw: unknown
+): { ok: true; args: Record<string, any> } | { ok: false; error: string } {
+  const input =
+    raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const args: Record<string, any> = {};
+  for (const [key, spec] of Object.entries(specs)) {
+    let value = input[key];
+    if (value === undefined || value === null || value === '') {
+      if (spec.required) return { ok: false, error: `“${key}” is required` };
+      continue;
+    }
+    if (spec.type === 'number') value = Number(value);
+    else if (spec.type === 'boolean')
+      value = value === true || value === 'true';
+    else value = String(value);
+    if (spec.type === 'number' && Number.isNaN(value)) {
+      return { ok: false, error: `“${key}” must be a number` };
+    }
+    if (
+      spec.type === 'string' &&
+      (value as string).length > (spec.max ?? 500)
+    ) {
+      return {
+        ok: false,
+        error: `“${key}” is too long (at most ${spec.max ?? 500} characters)`,
+      };
+    }
+    if (spec.enum && !spec.enum.includes(value as string)) {
+      return {
+        ok: false,
+        error: `“${key}” must be one of: ${spec.enum.join(', ')}`,
+      };
+    }
+    args[key] = value;
+  }
+  return { ok: true, args };
+}
 
 @Injectable()
 export class AgencyAiAgentService {
@@ -580,45 +630,11 @@ export class AgencyAiAgentService {
     return this.tools.find((t) => t.name === name);
   }
 
-  /** Keeps only the arguments the tool declares, of the right type, within its limits. */
   private cleanArgs(
     def: ToolDef,
     raw: unknown
   ): { ok: true; args: Record<string, any> } | { ok: false; error: string } {
-    const input =
-      raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-    const args: Record<string, any> = {};
-    for (const [key, spec] of Object.entries(def.args)) {
-      let value = input[key];
-      if (value === undefined || value === null || value === '') {
-        if (spec.required) return { ok: false, error: `“${key}” is required` };
-        continue;
-      }
-      if (spec.type === 'number') value = Number(value);
-      else if (spec.type === 'boolean')
-        value = value === true || value === 'true';
-      else value = String(value);
-      if (spec.type === 'number' && Number.isNaN(value)) {
-        return { ok: false, error: `“${key}” must be a number` };
-      }
-      if (
-        spec.type === 'string' &&
-        (value as string).length > (spec.max ?? 500)
-      ) {
-        return {
-          ok: false,
-          error: `“${key}” is too long (at most ${spec.max ?? 500} characters)`,
-        };
-      }
-      if (spec.enum && !spec.enum.includes(value as string)) {
-        return {
-          ok: false,
-          error: `“${key}” must be one of: ${spec.enum.join(', ')}`,
-        };
-      }
-      args[key] = value;
-    }
-    return { ok: true, args };
+    return cleanToolArgs(def.args, raw);
   }
 
   // ==========================================
@@ -822,6 +838,64 @@ Rules:
         summary,
       };
     }
+  }
+
+  // ==========================================
+  // FOR THE AGENT GATEWAY
+  // ==========================================
+  // An outside agent (reached through the agent gateway) is offered some of these same tools, so the
+  // gateway asks here instead of keeping its own copy. It decides which names to offer; nothing is
+  // offered just because it exists here.
+  describeTool(name: string): AgentToolDescriptor | null {
+    const def = this.tool(name);
+    if (!def) return null;
+    return {
+      name: def.name,
+      kind: def.kind,
+      permission: def.permission,
+      description: def.description,
+      args: def.args,
+    };
+  }
+
+  /** Runs a reading tool as `actor` and returns what it found. Only reading tools run through here. */
+  async runRead(
+    actor: AgencyActor,
+    name: string,
+    rawArgs: unknown
+  ): Promise<unknown> {
+    const def = this.tool(name);
+    if (!def || def.kind !== 'read') {
+      throw new BadRequestException('That is not a reading tool');
+    }
+    this.access.assert(actor, def.permission);
+    const cleaned = this.cleanArgs(def, rawArgs);
+    if ('error' in cleaned) throw new BadRequestException(cleaned.error);
+    return def.run(actor, cleaned.args);
+  }
+
+  /**
+   * Checks a change the way the in-app agent does and says in one sentence what it would do.
+   * Nothing is changed: a person approves it later, and {@link act} runs it as them.
+   */
+  async prepareChange(
+    actor: AgencyActor,
+    name: string,
+    rawArgs: unknown
+  ): Promise<{ args: Record<string, any>; summary: string }> {
+    const def = this.tool(name);
+    if (!def || def.kind !== 'change') {
+      throw new BadRequestException(
+        'That is not a change an agent can propose'
+      );
+    }
+    this.access.assert(actor, def.permission);
+    const cleaned = this.cleanArgs(def, rawArgs);
+    if ('error' in cleaned) throw new BadRequestException(cleaned.error);
+    const summary = def.summary
+      ? await def.summary(actor, cleaned.args).catch(() => def.description)
+      : def.description;
+    return { args: cleaned.args, summary };
   }
 
   private explain(error: unknown): string {

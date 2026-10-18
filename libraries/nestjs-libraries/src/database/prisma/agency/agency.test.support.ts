@@ -30,6 +30,8 @@ import { AgencyAiService } from './agency.ai.service';
 import { AgencyAiToolsService } from './agency.ai.tools.service';
 import { AgencyAiDiscoveryService } from './agency.ai.discovery.service';
 import { AgencyAiAgentService } from './agency.ai.agent.service';
+import { AgencyAgentGatewayRepository } from './agency.agent.gateway.repository';
+import { AgencyAgentGatewayService } from './agency.agent.gateway.service';
 import {
   TelegramUserGateway,
   TelegramUserGatewayError,
@@ -554,6 +556,7 @@ export interface Harness {
   aiTools: AgencyAiToolsService;
   aiDiscovery: AgencyAiDiscoveryService;
   aiAgent: AgencyAiAgentService;
+  agents: AgencyAgentGatewayService;
 }
 
 export async function buildHarness(): Promise<Harness> {
@@ -646,6 +649,14 @@ export async function buildHarness(): Promise<Harness> {
     crm,
     ai
   );
+  const agents = new AgencyAgentGatewayService(
+    new AgencyAgentGatewayRepository(prisma),
+    access,
+    accessRepo,
+    aiAgent,
+    communities,
+    users
+  );
   return {
     prisma,
     gateway,
@@ -670,6 +681,7 @@ export async function buildHarness(): Promise<Harness> {
     aiTools,
     aiDiscovery,
     aiAgent,
+    agents,
   };
 }
 

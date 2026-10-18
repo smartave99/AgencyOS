@@ -21,6 +21,7 @@ describeDb(
   () => {
     let h: Harness;
     let t: Tenant;
+    const tenants: Tenant[] = [];
     let seed = 3_000_000 + Math.floor(Math.random() * 6_000_000);
 
     beforeAll(async () => {
@@ -31,7 +32,21 @@ describeDb(
     });
     beforeEach(async () => {
       t = await seedTenant(h, 'overview');
+      tenants.push(t);
       h.userGateway.errors.clear();
+    });
+
+    // A bot left behind would be listened for by the next spec that looks at what is listening.
+    afterEach(async () => {
+      await h.prisma.telegramBot.updateMany({
+        where: { orgId: { in: tenants.map((x) => x.orgId) }, deletedAt: null },
+        data: {
+          deletedAt: new Date(),
+          status: 'DISABLED',
+          tokenSealed: '',
+          tokenHash: '',
+        },
+      });
     });
 
     it('lists bots and user accounts side by side with one set of states', async () => {

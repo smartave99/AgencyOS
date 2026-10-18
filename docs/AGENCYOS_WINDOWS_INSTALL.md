@@ -100,12 +100,19 @@ If you switch the automatic setup on, it chooses like this:
 | Under 4 GB memory | none (AI off) | none |
 | 4–7 GB | a small embedding model | none |
 | 8 GB+ (any laptop) | EmbeddingGemma | Gemma 3 1B |
-| 12 GB+ memory, 6+ processor threads | EmbeddingGemma | Gemma 4 E2B |
-| 24 GB+ memory, 12+ threads | EmbeddingGemma | Gemma 4 E4B |
+| 10 GB+ memory, 4+ processor threads | EmbeddingGemma | Qwen 3.5 2B |
+| 12 GB+ memory, 6+ processor threads (the usual laptop) | EmbeddingGemma | **Qwen 3.5 4B** (the default) |
+| 24 GB+ memory, 12+ threads | EmbeddingGemma | Qwen 3.5 9B |
+| NVIDIA GPU, 6 GB video memory | EmbeddingGemma | Qwen 3.5 4B |
 | NVIDIA GPU, 8 GB video memory | EmbeddingGemma | Gemma 4 E4B |
 | NVIDIA GPU, 10–21 GB | EmbeddingGemma | Gemma 4 12B |
 | NVIDIA GPU, 22–23 GB | EmbeddingGemma | Gemma 4 26B |
 | NVIDIA GPU, 24 GB or more | EmbeddingGemma | Gemma 4 31B |
+
+Qwen 3.5 models are "thinking" models. AgencyOS turns thinking off for ad copy and the Copilot (the
+**Thinking** level per task in **Settings → AI and Copilot** can turn it on), so the first words of an
+answer are the answer. If a model's name is not found in the Ollama library, the next one in the row's
+chain is used instead (Qwen 3.5 4B → Gemma 4 E2B → Gemma 3 4B). Telegram content is never sent to a local model.
 
 Details of how it decides:
 

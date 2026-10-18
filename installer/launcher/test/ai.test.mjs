@@ -118,13 +118,13 @@ describe('AiManager', () => {
     const { mgr, client, rt, started } = make();
     const plan = await mgr.planModels();
     assert.equal(plan.tier, 'standard');
-    assert.deepEqual(mgr.appEnv(), { OLLAMA_HOST: 'http://127.0.0.1:11434', AI_MODEL: 'gemma4:e2b', EMBEDDING_MODEL: 'embeddinggemma' });
+    assert.deepEqual(mgr.appEnv(), { OLLAMA_HOST: 'http://127.0.0.1:11434', AI_MODEL: 'qwen3.5:4b', EMBEDDING_MODEL: 'embeddinggemma' });
 
     const outcome = await mgr.run();
     assert.equal(outcome, 'ready');
     assert.equal(rt.installs, 1);
     assert.equal(started.length, 1);
-    assert.deepEqual([...client.installed].sort(), ['embeddinggemma', 'gemma4:e2b']);
+    assert.deepEqual([...client.installed].sort(), ['embeddinggemma', 'qwen3.5:4b']);
     const snap = mgr.snapshot();
     assert.equal(snap.phase, 'ready');
     assert.equal(snap.models.embedding.state, 'ready');
@@ -142,16 +142,16 @@ describe('AiManager', () => {
     // The lighter model is fast enough.
     const realGenerate = client.generate;
     client.generate = async (model, prompt, opts) => {
-      client.rate = model === 'gemma4:e2b' ? 1.5 : 25;
+      client.rate = model === 'qwen3.5:4b' ? 1.5 : 25;
       return realGenerate(model, prompt, opts);
     };
     const outcome = await mgr.run();
     assert.equal(outcome, 'ready');
     assert.equal(changes.length, 1);
-    assert.equal(changes[0].AI_MODEL, 'gemma3:1b');
-    assert.ok(client.calls.some(([c, m]) => c === 'remove' && m === 'gemma4:e2b'));
-    assert.ok(client.installed.has('gemma3:1b'));
-    assert.equal(mgr.snapshot().tier, 'light');
+    assert.equal(changes[0].AI_MODEL, 'qwen3.5:2b');
+    assert.ok(client.calls.some(([c, m]) => c === 'remove' && m === 'qwen3.5:4b'));
+    assert.ok(client.installed.has('qwen3.5:2b'));
+    assert.equal(mgr.snapshot().tier, 'compact');
     assert.match(mgr.snapshot().reasons[0], /too slow/);
   });
 
@@ -160,13 +160,13 @@ describe('AiManager', () => {
     const first = make({ client });
     await first.mgr.planModels();
     const realGenerate = client.generate;
-    client.generate = async (m, p, o) => { client.rate = m === 'gemma4:e2b' ? 1.5 : 25; return realGenerate(m, p, o); };
+    client.generate = async (m, p, o) => { client.rate = m === 'qwen3.5:4b' ? 1.5 : 25; return realGenerate(m, p, o); };
     await first.mgr.run();
 
     const registryCalls = [];
     const second = make({ client, registry: async (id) => { registryCalls.push(id); return { exists: true }; } });
     await second.mgr.planModels();
-    assert.equal(second.mgr.appEnv().AI_MODEL, 'gemma3:1b');
+    assert.equal(second.mgr.appEnv().AI_MODEL, 'qwen3.5:2b');
     assert.deepEqual(registryCalls, [], 'cached plan needs no registry lookups');
     const before = client.calls.length;
     assert.equal(await second.mgr.run(), 'ready');
@@ -174,15 +174,15 @@ describe('AiManager', () => {
   });
 
   it('falls back to the next candidate when the registry no longer has the preferred tag', async () => {
-    const { mgr } = make({ registry: async (id) => ({ exists: id !== 'gemma4:e2b' }) });
+    const { mgr } = make({ registry: async (id) => ({ exists: id !== 'qwen3.5:4b' }) });
     const plan = await mgr.planModels();
-    assert.equal(plan.textModel, 'gemma3:4b');
+    assert.equal(plan.textModel, 'gemma4:e2b');
   });
 
   it('keeps the planned name when the registry cannot be reached (offline first run)', async () => {
     const { mgr } = make({ registry: async () => ({ exists: null }) });
     const plan = await mgr.planModels();
-    assert.equal(plan.textModel, 'gemma4:e2b');
+    assert.equal(plan.textModel, 'qwen3.5:4b');
   });
 
   it('waits for the internet instead of failing, then finishes once it is back', async () => {
@@ -312,8 +312,8 @@ describe('AiManager', () => {
       await mgr.run();
       const list = await mgr.models();
       assert.equal(list.engine.running, true);
-      assert.deepEqual(list.installed.map((m) => m.name).sort(), ['embeddinggemma', 'gemma4:e2b']);
-      assert.deepEqual(list.installed.find((m) => m.name === 'gemma4:e2b').roles, ['copy']);
+      assert.deepEqual(list.installed.map((m) => m.name).sort(), ['embeddinggemma', 'qwen3.5:4b']);
+      assert.deepEqual(list.installed.find((m) => m.name === 'qwen3.5:4b').roles, ['copy']);
       assert.deepEqual(list.installed.find((m) => m.name === 'embeddinggemma').roles, ['search']);
       assert.equal(list.suggestions[0].recommended, true);
       assert.ok(list.suggestions.some((s) => s.id === 'gemma3:1b' && s.sizeGB));
@@ -351,9 +351,9 @@ describe('AiManager', () => {
       const { mgr, client } = make();
       await mgr.planModels();
       await mgr.run();
-      assert.deepEqual(await mgr.deleteModel('gemma4:e2b'), { deleted: 'gemma4:e2b' });
-      assert.ok(!client.installed.has('gemma4:e2b'));
-      assert.ok(client.calls.some(([c, m]) => c === 'unload' && m === 'gemma4:e2b'));
+      assert.deepEqual(await mgr.deleteModel('qwen3.5:4b'), { deleted: 'qwen3.5:4b' });
+      assert.ok(!client.installed.has('qwen3.5:4b'));
+      assert.ok(client.calls.some(([c, m]) => c === 'unload' && m === 'qwen3.5:4b'));
       assert.equal(mgr.snapshot().models.text.state, 'removed');
 
       const before = client.calls.filter(([c]) => c === 'pull').length;
@@ -361,9 +361,9 @@ describe('AiManager', () => {
       assert.equal(client.calls.filter(([c]) => c === 'pull').length, before, 'the deleted model was not pulled again');
 
       // Asking for it again by name undoes that choice.
-      mgr.downloadModel('gemma4:e2b');
-      await settle(mgr, (s) => s.download?.model === 'gemma4:e2b' && s.download.state === 'done');
-      assert.ok(client.installed.has('gemma4:e2b'));
+      mgr.downloadModel('qwen3.5:4b');
+      await settle(mgr, (s) => s.download?.model === 'qwen3.5:4b' && s.download.state === 'done');
+      assert.ok(client.installed.has('qwen3.5:4b'));
     });
 
     it('says plainly when a model cannot be deleted: not installed, engine off, or the engine refused', async () => {
@@ -372,9 +372,9 @@ describe('AiManager', () => {
       await mgr.run();
       await assert.rejects(mgr.deleteModel('nothing:1b'), (e) => e.status === 404 && /not installed/.test(e.message));
       client.removeStrict = async () => { throw new Error('file is in use'); };
-      await assert.rejects(mgr.deleteModel('gemma4:e2b'), (e) => e.status === 502 && /file is in use/.test(e.message));
+      await assert.rejects(mgr.deleteModel('qwen3.5:4b'), (e) => e.status === 502 && /file is in use/.test(e.message));
       client.up = false;
-      await assert.rejects(mgr.deleteModel('gemma4:e2b'), (e) => e.status === 409 && /Start the local AI engine/.test(e.message));
+      await assert.rejects(mgr.deleteModel('qwen3.5:4b'), (e) => e.status === 409 && /Start the local AI engine/.test(e.message));
     });
 
     it('installs, starts and stops the engine on request, remembering whether it should run at the next start', async () => {
@@ -414,7 +414,7 @@ describe('AiManager', () => {
       const { mgr } = make();
       await mgr.planModels();
       await mgr.run();
-      const text = await mgr.tryModel('gemma4:e2b');
+      const text = await mgr.tryModel('qwen3.5:4b');
       assert.equal(text.ok, true);
       assert.equal(text.kind, 'text');
       assert.ok(text.tokensPerSecond > 0);

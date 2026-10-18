@@ -3,7 +3,8 @@
 // Two jobs, both optional for the product (the app falls back to keyword search and
 // template copy when no model answers):
 //   * embeddings for the knowledge base  -> EmbeddingGemma (Google), with smaller fallbacks
-//   * copy suggestions                   -> the largest Gemma that fits comfortably
+//   * copy suggestions                   -> Qwen 3.5 (2B, 4B or 9B by memory and processor), Gemma 4 for graphics cards
+//                                            that hold it, and the small Gemma 3 where little memory is left
 //
 // The sizes below were read from registry.ollama.ai (download size of the tag, Q4_K_M unless
 // stated). They are used for planning only: the real size is read from the registry again
@@ -51,33 +52,47 @@ export const TEXT_TIERS = [
     minTokensPerSecond: 6,
   },
   {
+    // For computers with plenty of memory and no strong graphics card: Qwen 3.5 9B.
+    tier: 'advanced',
+    label: 'Advanced',
+    candidates: [{ id: 'qwen3.5:9b', downloadGB: 6.6 }, { id: 'gemma4:e4b', downloadGB: 6.13 }, { id: 'gemma4:e2b', downloadGB: 4.27 }],
+    gpu: { minVramGB: 9 },
+    cpu: { minRamGB: 24, minThreads: 12 },
+    minTokensPerSecond: 4,
+  },
+  {
+    // What an 8 GB graphics card can hold completely.
     tier: 'plus',
     label: 'Enhanced',
     candidates: [{ id: 'gemma4:e4b', downloadGB: 6.13 }, { id: 'gemma4:e2b', downloadGB: 4.27 }],
     gpu: { minVramGB: 8 },
-    cpu: { minRamGB: 24, minThreads: 12 },
     minTokensPerSecond: 5,
   },
   {
+    // The default for an ordinary laptop: Qwen 3.5 4B.
     tier: 'standard',
     label: 'Balanced',
     candidates: [
+      { id: 'qwen3.5:4b', downloadGB: 3.1 },
       { id: 'gemma4:e2b', downloadGB: 4.27 },
       { id: 'gemma3:4b', downloadGB: 3.12 },
-      { id: 'qwen3.5:4b', downloadGB: 3.1 },
     ],
     gpu: { minVramGB: 6 },
     cpu: { minRamGB: 12, minThreads: 6 },
     minTokensPerSecond: 4,
   },
   {
+    // Fewer processor threads or less memory than Balanced wants: Qwen 3.5 2B.
+    tier: 'compact',
+    label: 'Compact',
+    candidates: [{ id: 'qwen3.5:2b', downloadGB: 2.5 }, { id: 'gemma3:1b', downloadGB: 0.75 }, { id: 'llama3.2:1b', downloadGB: 1.23 }],
+    cpu: { minRamGB: 10, minThreads: 4 },
+    minTokensPerSecond: 3,
+  },
+  {
     tier: 'light',
     label: 'Light',
-    candidates: [
-      { id: 'gemma3:1b', downloadGB: 0.75 },
-      { id: 'llama3.2:1b', downloadGB: 1.23 },
-      { id: 'qwen3.5:2b', downloadGB: 2.5 },
-    ],
+    candidates: [{ id: 'gemma3:1b', downloadGB: 0.75 }, { id: 'llama3.2:1b', downloadGB: 1.23 }],
     gpu: { minVramGB: 4 },
     cpu: { minRamGB: 8, minThreads: 2 },
     minTokensPerSecond: 3,

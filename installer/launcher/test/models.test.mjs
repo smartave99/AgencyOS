@@ -21,34 +21,46 @@ const textId = (plan) => plan.text?.candidates[0].id ?? null;
 const embedId = (plan) => plan.embedding?.[0].id ?? null;
 
 describe('model selection by hardware', () => {
-  it('GitHub-sized runner (16 GB, 4 threads, no GPU) gets the light Gemma 3 model and EmbeddingGemma', () => {
+  it('GitHub-sized runner (16 GB, 4 threads, no GPU) gets Qwen 3.5 2B and EmbeddingGemma', () => {
     const plan = selectModels(machine({ ram: 16, threads: 4 }));
-    assert.equal(plan.tier, 'light');
-    assert.equal(textId(plan), 'gemma3:1b');
+    assert.equal(plan.tier, 'compact');
+    assert.equal(textId(plan), 'qwen3.5:2b');
     assert.equal(embedId(plan), 'embeddinggemma');
     assert.equal(plan.acceleration, 'cpu');
   });
 
-  it('8 GB laptop stays on the light tier', () => {
+  it('8 GB laptop stays on the light tier, with the small Gemma 3 that fits beside the rest of AgencyOS', () => {
     const plan = selectModels(machine({ ram: 8, threads: 8 }));
     assert.equal(plan.tier, 'light');
+    assert.equal(textId(plan), 'gemma3:1b');
   });
 
-  it('a mainstream 16 GB, 8-thread laptop without a GPU gets Gemma 4 E2B', () => {
+  it('a 12 GB laptop with 4 threads gets the compact Qwen 3.5 2B, not the 4B it would swap', () => {
+    const plan = selectModels(machine({ ram: 12, threads: 4 }));
+    assert.equal(plan.tier, 'compact');
+    assert.equal(textId(plan), 'qwen3.5:2b');
+  });
+
+  it('a mainstream 16 GB, 8-thread laptop without a GPU gets Qwen 3.5 4B, the default', () => {
     const plan = selectModels(machine({ ram: 16, threads: 8 }));
     assert.equal(plan.tier, 'standard');
-    assert.equal(textId(plan), 'gemma4:e2b');
+    assert.equal(textId(plan), 'qwen3.5:4b');
+    assert.deepEqual(plan.text.candidates.slice(1).map((c) => c.id), ['gemma4:e2b', 'gemma3:4b']);
   });
 
-  it('a 32 GB, 16-thread workstation without a GPU gets Gemma 4 E4B, never a dense 12B+', () => {
+  it('a 32 GB, 16-thread workstation without a GPU gets Qwen 3.5 9B, never a dense 12B+', () => {
     const plan = selectModels(machine({ ram: 32, threads: 16 }));
-    assert.equal(plan.tier, 'plus');
-    assert.equal(textId(plan), 'gemma4:e4b');
+    assert.equal(plan.tier, 'advanced');
+    assert.equal(textId(plan), 'qwen3.5:9b');
   });
 
   it('a 128 GB CPU-only machine is still capped (large dense models are unusably slow on a CPU)', () => {
     const plan = selectModels(machine({ ram: 128, threads: 32 }));
-    assert.equal(plan.tier, 'plus');
+    assert.equal(plan.tier, 'advanced');
+  });
+
+  it('a 24 GB laptop with few threads is not given the 9B model it cannot run comfortably', () => {
+    assert.equal(selectModels(machine({ ram: 24, threads: 8 })).tier, 'standard');
   });
 
   it('uses video memory when an NVIDIA card is present', () => {
@@ -62,6 +74,13 @@ describe('model selection by hardware', () => {
   it('a small NVIDIA card falls back to the CPU rules for the tier it cannot hold', () => {
     const plan = selectModels(machine({ ram: 16, threads: 8, gpus: [nvidia(4)] }));
     assert.equal(plan.tier, 'standard');
+  });
+
+  it('a 6 GB NVIDIA card holds Qwen 3.5 4B', () => {
+    const plan = selectModels(machine({ ram: 16, threads: 4, gpus: [nvidia(6)] }));
+    assert.equal(plan.tier, 'standard');
+    assert.equal(textId(plan), 'qwen3.5:4b');
+    assert.equal(plan.acceleration, 'gpu');
   });
 
   it('does not count AMD, Intel or integrated graphics as acceleration', () => {
@@ -94,7 +113,7 @@ describe('model selection by hardware', () => {
 
 describe('disk space', () => {
   it('steps down to a smaller model when the larger one does not fit with the runtime and a margin', () => {
-    // standard = 0.58 + 4.27, runtime 3.5, margin 2 -> needs 10.4 GB
+    // standard = 0.58 + 3.1, runtime 3.5, margin 2 -> needs 9.2 GB
     const roomy = selectModels(machine({ ram: 16, threads: 8, free: 11 }));
     assert.equal(roomy.tier, 'standard');
     const tight = selectModels(machine({ ram: 16, threads: 8, free: 8 }));
@@ -167,7 +186,9 @@ describe('catalog integrity', () => {
 describe('stepping down', () => {
   it('lowerTier walks down to none', () => {
     assert.equal(lowerTier('ultra'), 'max');
-    assert.equal(lowerTier('standard'), 'light');
+    assert.equal(lowerTier('advanced'), 'plus');
+    assert.equal(lowerTier('standard'), 'compact');
+    assert.equal(lowerTier('compact'), 'light');
     assert.equal(lowerTier('light'), 'minimal');
     assert.equal(lowerTier('minimal'), 'none');
     assert.equal(lowerTier('none'), null);

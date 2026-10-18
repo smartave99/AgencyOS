@@ -1,11 +1,13 @@
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import fsp from 'node:fs/promises';
 import { resolvePaths, readLocations, writeLocations } from '../lib/paths.mjs';
 import {
   planMove,
+  dirSize,
   moveStorage,
   copyTree,
   verifyTree,
@@ -360,5 +362,30 @@ describe('a missing drive', () => {
     fs.mkdirSync(path.join(dir, 'D'));
     writeLocations(paths.locations.file, { dataRoot: path.join(dir, 'D', 'AgencyOS') }, { defaultRoot: paths.locations.defaultRoot, platform: process.platform });
     assert.doesNotThrow(() => assertLocationsAvailable(make()));
+  });
+});
+
+describe('sizing a folder that is in use', () => {
+  it('leaves out a file that vanishes while it is being read, and one that cannot be read', async (t) => {
+    const { paths } = world();
+    write(path.join(paths.data.pg, 'pg_wal', 'segment-1'), 'abcd');
+    write(path.join(paths.data.pg, 'pg_wal', 'segment-2'), 'efgh');
+    write(path.join(paths.data.pg, 'pg_wal', 'locked'), 'ijkl');
+    const before = await dirSize(paths.data.root, ['run', 'ollama']);
+    const real = fsp.stat;
+    t.after(() => mock.restoreAll());
+    mock.method(fsp, 'stat', async (file, ...rest) => {
+      if (String(file).endsWith('segment-1')) throw Object.assign(new Error('gone'), { code: 'ENOENT' });
+      if (String(file).endsWith('locked')) throw Object.assign(new Error('busy'), { code: 'EBUSY' });
+      return real.call(fsp, file, ...rest);
+    });
+    assert.equal(await dirSize(paths.data.root, ['run', 'ollama']), before - 4 - 4);
+  });
+
+  it('a check of a whole drive is answered with the reason, even while the database is running', async () => {
+    const { paths } = world();
+    const plan = await planMove(paths, { dataRoot: path.parse(paths.data.root).root }, { statfs: bigStatfs });
+    assert.equal(plan.ok, false);
+    assert.match(plan.errors.dataRoot, /not a whole drive/);
   });
 });

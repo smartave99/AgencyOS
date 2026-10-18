@@ -245,6 +245,7 @@ export async function startLauncher({ launcherDir, env = process.env, onExit = (
     token: secrets.adminToken,
     version,
     getStatus,
+    log,
     tail: (name) => {
       if (name === 'supervisor') return fs.readFileSync(path.join(paths.data.logs, 'supervisor.log'), 'utf8').split('\n').slice(-400).join('\n');
       try {

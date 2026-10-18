@@ -76,7 +76,7 @@ export function storageRequest(body = {}) {
  *                  aiEngine(action), aiTry(model),
  *                  cliTools(), cliInstall(tool), cliLogin(tool), cliCancel(), cliCheck(tool), cliSignOut(tool) }
  */
-export function createStatusServer({ port, token, version, getStatus, tail, actions }) {
+export function createStatusServer({ port, token, version, getStatus, tail, actions, log = () => {} }) {
   const send = (res, status, body, type = 'application/json; charset=utf-8') => {
     res.writeHead(status, {
       'Content-Type': type,
@@ -166,6 +166,7 @@ export function createStatusServer({ port, token, version, getStatus, tail, acti
       }
       return send(res, 404, { error: 'Not found' });
     } catch (error) {
+      if (!error.status) log(`${req.method} ${req.url} failed: ${error.stack || error.message}`);
       return send(res, error.status || 500, { error: error.status ? error.message : 'Something went wrong', ...(error.fields ? { fields: error.fields } : {}) });
     }
   });

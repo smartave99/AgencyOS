@@ -56,13 +56,18 @@ function helpers(platform) {
 const relKey = (rel) => rel.split(path.sep).join('/');
 const skipped = (rel, skip) => skip.some((s) => rel === s || rel.startsWith(`${s}/`));
 
-/** Yields every folder and file under `root` (folders first), minus anything in `skip`. */
-async function* walk(root, skip = [], rel = '') {
+/**
+ * Yields every folder and file under `root` (folders first), minus anything in `skip`. A file or folder that
+ * disappears while it is being read is simply not there any more (a running database renames and removes
+ * its own files); with `lenient`, anything else that cannot be read is left out too, which is right for
+ * a size estimate but never for copying or comparing.
+ */
+async function* walk(root, skip = [], rel = '', lenient = false) {
   let entries;
   try {
     entries = await fsp.readdir(path.join(root, rel), { withFileTypes: true });
   } catch (error) {
-    if (error.code === 'ENOENT') return;
+    if (error.code === 'ENOENT' || lenient) return;
     throw error;
   }
   for (const entry of entries) {
@@ -71,18 +76,26 @@ async function* walk(root, skip = [], rel = '') {
     const abs = path.join(root, childRel);
     if (entry.isDirectory()) {
       yield { rel: childRel, abs, kind: 'dir' };
-      yield* walk(root, skip, childRel);
+      yield* walk(root, skip, childRel, lenient);
     } else if (entry.isFile()) {
-      yield { rel: childRel, abs, kind: 'file', size: (await fsp.stat(abs)).size };
+      let size;
+      try {
+        size = (await fsp.stat(abs)).size;
+      } catch (error) {
+        if (error.code === 'ENOENT' || lenient) continue;
+        throw error;
+      }
+      yield { rel: childRel, abs, kind: 'file', size };
     } else {
       yield { rel: childRel, abs, kind: 'other' };
     }
   }
 }
 
+/** How much is in a folder that may be in use right now: an estimate that never fails because a file moved. */
 export async function dirSize(root, skip = []) {
   let bytes = 0;
-  for await (const item of walk(root, skip)) if (item.kind === 'file') bytes += item.size;
+  for await (const item of walk(root, skip, '', true)) if (item.kind === 'file') bytes += item.size;
   return bytes;
 }
 

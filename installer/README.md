@@ -15,11 +15,13 @@ for whoever builds or changes it.
   runtime\postgres\         PostgreSQL 16
   runtime\redis\            Redis for Windows
   runtime\temporal\         Temporal dev server (the platform needs one to start)
+  runtime\python\           CPython 3.13 + the Telegram worker's four pure-Python packages (pip removed); runs only the worker
   runtime\vc\               Visual C++ runtime DLLs (so a brand-new Windows needs nothing)
   app\backend|orchestrator  compiled NestJS apps
   app\frontend              Next.js standalone server
   app\node_modules          only what the backend can reach
   app\prisma                schema + migrations
+  app\telegram-worker       the Python worker's source (apps/telegram-worker)
 %LOCALAPPDATA%\AgencyOS\    locations.json: where the data lives (always here)
 <data folder>\             pg\, uploads\, logs\, config\, redis\, temporal\ (default: %LOCALAPPDATA%\AgencyOS; never touched by upgrades)
 <AI folder>\               app\ (Ollama), models\ (default: <data folder>\ollama)
@@ -33,6 +35,7 @@ AgencyOS.exe (Electron)
         ├─ PostgreSQL (pg_ctl)   Redis   Temporal           127.0.0.1 only
         ├─ prisma migrate deploy
         ├─ backend :3000   orchestrator :3002   frontend :4200
+        ├─ telegram-worker :54351 (Python, optional; loopback + token; user accounts only)
         ├─ status server :4999 (status page + control API, token-protected)
         └─ AiManager: hardware → models → download → benchmark → (step down)
 ```
@@ -56,7 +59,7 @@ AgencyOS.exe (Electron)
 | `launcher/lib/status-*.mjs` | the loopback status page and API |
 | `desktop/` | Electron shell: `main.js`, `preload.js` (the folder picker, status page only), `policy.js` (navigation rules, tested), `splash.html`, icons |
 | `build/stage-app.mjs` | assembles `app/` and `launcher/` from a finished build, verifies it |
-| `build/stage-runtime.mjs` | downloads and checks Node, PostgreSQL, Redis, Temporal, VC++ DLLs |
+| `build/stage-runtime.mjs` | downloads and checks Node, PostgreSQL, Redis, Temporal, Python (+ the worker's hashed packages, and proves the staged worker starts), VC++ DLLs |
 | `build/make-icons.mjs` | draws the icon (PNG, tray, ICO) without external tools |
 | `windows/agencyos.iss` | Inno Setup script |
 | `windows/smoke-test.mjs` | installs the built setup file and uses the product (CI) |

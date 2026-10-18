@@ -241,6 +241,7 @@ desktop app; they remain for server deployments, where sign-in stays on.
 | 11 | AI failure does not stop scheduling | Publishing 11 |
 | 12 | Cancelled campaign stops | Publishing 12 (4 tests) |
 | 13 | Revoked permission prevents publishing | Publishing 13 (3 tests) |
+| Windows run 41 (c4b9901, selftest, publish off): install, start, product, local AI, restart, data move, uninstall; the Python Telegram worker packaged and answering | Passed (about 20 min) on a GitHub runner |
 
 ## Known defects and limits
 

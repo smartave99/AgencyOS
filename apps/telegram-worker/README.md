@@ -205,7 +205,7 @@ behaves as assumed. That is the list below.
 
 ## Dependencies
 
-All runtime dependencies are pure Python. See `requirements.lock.txt`.
+All runtime dependencies are pure Python. See `requirements.lock.txt`: it carries SHA-256 hashes, and the Windows installer installs from it with `pip install --require-hashes --no-deps --target <site-packages>`. pyaes has only a source distribution on PyPI, so pip builds it there (the build tools it fetches are used only for that build and are not shipped).
 
 | package | version | Windows installer |
 | --- | --- | --- |

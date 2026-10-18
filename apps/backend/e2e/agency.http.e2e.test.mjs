@@ -1170,6 +1170,33 @@ describe(
             403
           );
 
+          // The same account in the overview, next to the bots, without a secret and role-aware.
+          const overview = await call('GET', '/agency/telegram/overview', {
+            as: 'manager',
+          });
+          assert.equal(overview.status, 200, overview.text);
+          const mine = overview.json.identities.find((i) => i.id === accountId);
+          assert.ok(mine, 'the account is in the overview');
+          assert.equal(mine.kind, 'userAccount');
+          assert.equal(mine.state, 'READY');
+          assert.ok(overview.json.totals.all >= 1);
+          for (const secret of [
+            'SECRET-SESSION-E2E',
+            'ab'.repeat(16),
+            '4915112346789',
+            'sealed',
+          ]) {
+            assert.ok(
+              !overview.text.includes(secret),
+              `${secret} leaked through the overview`
+            );
+          }
+          assert.equal(
+            (await call('GET', '/agency/telegram/overview', { as: 'client' }))
+              .status,
+            403
+          );
+
           // Permissions: owner grants joining; a manager cannot.
           assert.equal(
             (

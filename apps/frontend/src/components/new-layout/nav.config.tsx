@@ -179,6 +179,13 @@ export const NAV_GROUPS: NavGroup[] = [
         permission: 'portal:view',
         hideWhenLocal: true,
       },
+      {
+        id: 'agent-integrations',
+        label: 'Agent integrations',
+        href: '/agency/agent-integrations',
+        icon: 'cpu',
+        permission: 'ai:configure',
+      },
     ],
   },
 ];

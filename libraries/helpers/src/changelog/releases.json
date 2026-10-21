@@ -2,6 +2,42 @@
   "$comment": "The one list of what changed in each AgencyOS version, newest first. CHANGELOG.md, the in-app What's new page and the release notes are all made from it (node installer/build/changelog.mjs). Add an entry here for every version; installer/VERSION must match the first one.",
   "releases": [
     {
+      "version": "1.5.0",
+      "date": "2026-10-21",
+      "title": "Telegram accounts ship with the app, Qwen 3.5 models, and agent integrations",
+      "summary": "The Telegram account service now ships inside the installer, the accounts page shows every bot and account in one list, local AI picks Qwen 3.5 models for your computer, and an outside agent program can connect through a read-and-draft server. Nothing sends, joins or publishes without a person approving it.",
+      "changes": [
+        {
+          "type": "added",
+          "area": "Telegram",
+          "text": "The Telegram account service is part of the installer: its own Python and the packages it needs, checked when the build runs. It starts with AgencyOS on this computer only. If it cannot start, AgencyOS still runs and the Telegram accounts page says so."
+        },
+        {
+          "type": "added",
+          "area": "Telegram",
+          "text": "Telegram accounts at a glance: the Telegram accounts page lists the bots and accounts together, with ready, paused, limited by Telegram or needs-attention states, the reason, and when a limit ends. A limited account's work waits; it is never given to another account."
+        },
+        {
+          "type": "added",
+          "area": "AI",
+          "text": "Qwen 3.5 for local AI: a 4B model for an ordinary laptop, a 2B model for smaller machines and a 9B model for computers with 24 GB of memory and 12 processor threads. Gemma models are still used for graphics cards that hold them and for small laptops. You can download any size by name."
+        },
+        {
+          "type": "added",
+          "area": "Agents",
+          "text": "Agent integrations (Admin → Agent integrations): connect an outside agent program through the AgencyOS server. Tokens are shown once, can be revoked, expire after 90 days by default, and are limited to ten working tokens. An agent with a read token can look things up; a draft token can only propose changes, and each proposal runs only when a person approves it in the app, under that person's role."
+        },
+        {
+          "type": "changed",
+          "area": "Agents",
+          "text": "Agents never see client e-mail addresses or deal contact names, and no agent tool can send, schedule, approve, join, authorize, delete or run commands. The connection file format is not yet checked against each agent program's own documentation."
+        }
+      ],
+      "tips": [
+        "Local AI is still optional. AgencyOS works without it."
+      ]
+    },
+    {
       "version": "1.4.0",
       "date": "2026-10-13",
       "title": "Antigravity by default, models you manage, templates, leads and a live dashboard",

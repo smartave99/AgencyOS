@@ -2,6 +2,21 @@
 
 Every change in every version of AgencyOS, by NextGen OS, newest first. This file is generated from `libraries/helpers/src/changelog/releases.json`: edit that file, then run `node installer/build/changelog.mjs`.
 
+## 1.5.0 — 2026-10-21 · Telegram accounts ship with the app, Qwen 3.5 models, and agent integrations
+
+The Telegram account service now ships inside the installer, the accounts page shows every bot and account in one list, local AI picks Qwen 3.5 models for your computer, and an outside agent program can connect through a read-and-draft server. Nothing sends, joins or publishes without a person approving it.
+
+### Added
+
+- **Telegram:** The Telegram account service is part of the installer: its own Python and the packages it needs, checked when the build runs. It starts with AgencyOS on this computer only. If it cannot start, AgencyOS still runs and the Telegram accounts page says so.
+- **Telegram:** Telegram accounts at a glance: the Telegram accounts page lists the bots and accounts together, with ready, paused, limited by Telegram or needs-attention states, the reason, and when a limit ends. A limited account's work waits; it is never given to another account.
+- **AI:** Qwen 3.5 for local AI: a 4B model for an ordinary laptop, a 2B model for smaller machines and a 9B model for computers with 24 GB of memory and 12 processor threads. Gemma models are still used for graphics cards that hold them and for small laptops. You can download any size by name.
+- **Agents:** Agent integrations (Admin → Agent integrations): connect an outside agent program through the AgencyOS server. Tokens are shown once, can be revoked, expire after 90 days by default, and are limited to ten working tokens. An agent with a read token can look things up; a draft token can only propose changes, and each proposal runs only when a person approves it in the app, under that person's role.
+
+### Changed
+
+- **Agents:** Agents never see client e-mail addresses or deal contact names, and no agent tool can send, schedule, approve, join, authorize, delete or run commands. The connection file format is not yet checked against each agent program's own documentation.
+
 ## 1.4.0 — 2026-10-13 · Antigravity by default, models you manage, templates, leads and a live dashboard
 
 Antigravity CLI is now the default AI, so a new install downloads nothing; a local model is optional and you can download, try, start, stop and delete models yourself. Ads can be saved as templates, and the dashboard shows the live queue and the health of your bots and chats. Closing the window now shuts AgencyOS down (after telling you what that means) while minimizing keeps it working. A chat can also have backup bots, and the build can sign the installer as soon as a certificate is added.

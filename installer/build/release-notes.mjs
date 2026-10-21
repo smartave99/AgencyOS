@@ -39,7 +39,7 @@ function verification() {
   if (f.copilot?.model) lines.push(`The Copilot answered from \`${f.copilot.model}\` in ${f.copilot.seconds}s.`);
   if (f.manifest) {
     lines.push('', 'Bundled components:', '');
-    for (const [name, t] of Object.entries(f.manifest)) if (name !== 'ollama' && name !== 'vcRuntime') lines.push(`- ${name} ${t.version} (${t.license})`);
+    for (const [name, t] of Object.entries(f.manifest)) if (name !== 'ollama' && name !== 'vcRuntime' && name !== 'pythonPackages' && t?.version) lines.push(`- ${name} ${t.version} (${t.license})`);
     if (f.manifest.ollama) lines.push(`- Ollama ${f.manifest.ollama.version} (downloaded on first start, MIT)`);
   }
   return lines.join('\n');

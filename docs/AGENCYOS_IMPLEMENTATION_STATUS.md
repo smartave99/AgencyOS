@@ -241,6 +241,7 @@ desktop app; they remain for server deployments, where sign-in stays on.
 | 11 | AI failure does not stop scheduling | Publishing 11 |
 | 12 | Cancelled campaign stops | Publishing 12 (4 tests) |
 | 13 | Revoked permission prevents publishing | Publishing 13 (3 tests) |
+| **1.5.0 published** (`windows-v1.5.0`, built from `db91cc4`, `AgencyOS-Setup-1.5.0.exe`, 375,062,485 bytes, SHA-256 `f87c253a785642f7489f22837d018ffc87f2fabf5cb7d25eaa5cc48079dd5cae`): branch run 44 and publish run 46 passed the full smoke test; on the CI machine local AI chose the Compact tier (`qwen3.5:2b`, 13 tokens/s) | Passed |
 | Windows run 41 (c4b9901, selftest, publish off): install, start, product, local AI, restart, data move, uninstall; the Python Telegram worker packaged and answering | Passed (about 20 min) on a GitHub runner |
 
 ## Known defects and limits

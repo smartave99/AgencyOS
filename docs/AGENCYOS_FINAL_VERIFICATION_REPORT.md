@@ -138,21 +138,26 @@ tests; opening `wa.me` links on a phone has not been tried.
 
 ## 11. Test commands and results (this tree, 2026-10-23)
 
-| Suite                                         | Command (from the repo root unless noted)                                                                                                                                                | Result                                                               |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| Backend/libraries (real PostgreSQL, fakes)    | `AGENCYOS_TEST_DATABASE_URL=… DATABASE_URL=… npx jest --runInBand --testPathIgnorePatterns=/.claude/`                                                                                    | **448 passed, 28 suites**                                            |
-| HTTP end-to-end (compiled backend + Postgres) | `cd apps/backend && AGENCYOS_TEST_DATABASE_URL=… REDIS_URL=… node --experimental-require-module --test --test-force-exit --test-concurrency=1 ./e2e/*.test.mjs` (after `pnpm run build`) | **49 passed**                                                        |
-| Telegram worker (Python)                      | `cd apps/telegram-worker && python -m pytest tests -q`                                                                                                                                   | **602 passed, 1 skipped**                                            |
-| Launcher, installer, desktop policy           | `node --test installer/launcher/test/*.test.mjs installer/desktop/test/policy.test.js`                                                                                                   | **198 passed** (one run in four had a single failure, below)         |
-| MCP server                                    | `node --test apps/agent-mcp/test/*.test.mjs`                                                                                                                                             | **23 passed**                                                        |
-| Types                                         | `tsc --noEmit -p apps/backend/tsconfig.build.json`; `cd apps/frontend && ../../node_modules/.bin/tsc --noEmit -p tsconfig.json`                                                          | clean (checked on the merged tree before the last docs-only commits) |
-| Empty-database migration                      | `prisma migrate deploy` then `prisma migrate diff --from-schema-datasource … --to-schema-datamodel … --exit-code`                                                                        | 14 applied, no drift                                                 |
-| Windows smoke test                            | `windows-installer.yml` (`publish=false`, `sign_selftest=true`; and the two publish runs)                                                                                                | passed on runs 40, 41, 43, 44, 46                                    |
+| Suite                                         | Command (from the repo root unless noted)                                                                                                                                                | Result                                                                     |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Backend/libraries (real PostgreSQL, fakes)    | `AGENCYOS_TEST_DATABASE_URL=… DATABASE_URL=… npx jest --runInBand --testPathIgnorePatterns=/.claude/`                                                                                    | **448 passed, 28 suites**                                                  |
+| HTTP end-to-end (compiled backend + Postgres) | `cd apps/backend && AGENCYOS_TEST_DATABASE_URL=… REDIS_URL=… node --experimental-require-module --test --test-force-exit --test-concurrency=1 ./e2e/*.test.mjs` (after `pnpm run build`) | **49 passed**                                                              |
+| Telegram worker (Python)                      | `cd apps/telegram-worker && python -m pytest tests -q`                                                                                                                                   | **602 passed, 1 skipped**                                                  |
+| Launcher, installer, desktop policy           | `node --test installer/launcher/test/*.test.mjs installer/desktop/test/policy.test.js`                                                                                                   | **198 passed** (one earlier run had a single, unreproduced failure, below) |
+| MCP server                                    | `node --test apps/agent-mcp/test/*.test.mjs`                                                                                                                                             | **23 passed**                                                              |
+| Types                                         | `tsc --noEmit -p apps/backend/tsconfig.build.json`; `cd apps/frontend && ../../node_modules/.bin/tsc --noEmit -p tsconfig.json`                                                          | clean (checked on the merged tree before the last docs-only commits)       |
+| Empty-database migration                      | `prisma migrate deploy` then `prisma migrate diff --from-schema-datasource … --to-schema-datamodel … --exit-code`                                                                        | 14 applied, no drift                                                       |
+| Windows smoke test                            | `windows-installer.yml` (`publish=false`, `sign_selftest=true`; and the two publish runs)                                                                                                | passed on runs 40, 41, 43, 44, 46                                          |
 
 Things to know about these numbers:
 
-- **One intermittent launcher failure.** On one of four full runs today a single launcher/desktop test failed; three
-  immediate reruns passed 198/198. I did not find which test or why. Treat it as a flake to chase, not as noise.
+- **One intermittent launcher failure, not reproduced.** On one of four full runs on 2026-10-23 a single launcher/desktop
+  test failed. I kept only the pass/fail counts of that run, not its log, so I do not know which test it was. Since then
+  the same suite passed 21 whole-suite runs (6 of them with 8 CPU-burning processes on 4 cores, 6 straight after the
+  Python suite), and each of the 12 launcher test files passed 15 runs on its own (180 runs). Candidates, not findings:
+  the status-server test picks a free port and listens on it later, so another process could take it in between;
+  `services.test.mjs` asserts a command returns in under 4 seconds. If it happens again, save the whole output
+  (`node --test … > run.log 2>&1`) and read the `not ok` lines first.
 - The backend build needs a larger heap on this sandbox (`NODE_OPTIONS=--max-old-space-size=6144`); the default ran out
   of memory once.
 - Tests run against fakes: a fake worker for the NestJS side, an in-memory backend and a stub Telethon client built from
@@ -192,7 +197,7 @@ bypass, no automatic WhatsApp sending, no Telegram content to any model.
 1. Live Telegram verification (section 12) — the largest remaining risk.
 2. A code-signing certificate, so SmartScreen stops warning (`docs/AGENCYOS_SIGNING.md`).
 3. A licence review of the Postiz-derived code before commercial distribution.
-4. Find the intermittent launcher test failure.
+4. Catch the intermittent launcher test failure (not reproduced in 200+ runs; see section 11).
 5. Per-bot rate-limit state in the accounts overview, and a per-chat bot assignment screen. Chats are assigned where they
    are added or authorized today.
 6. Output checking for the newer AI jobs (copy generation has it; variations, briefs and JSON jobs are partial).

@@ -175,6 +175,9 @@ export interface TelegramBotView {
   status: 'ACTIVE' | 'DISABLED' | 'INVALID';
   lastError: string | null;
   lastCheckedAt: string | null;
+  /** Until when Telegram asked this bot to slow down (a past time means the wait is over). */
+  rateLimitedUntil?: string | null;
+  lastRateLimitedAt?: string | null;
   createdAt: string;
   destinationCount: number;
 }
@@ -402,6 +405,9 @@ export interface DestinationView {
   backupBotIds: string[];
   botStrategy: 'FAILOVER' | 'ROUND_ROBIN' | 'LEAST_USED';
   lastBotId: string | null;
+  /** Who posts here: a bot (the default) or a Telegram account for a reviewed community. */
+  senderKind?: 'BOT' | 'USER_ACCOUNT';
+  userAccountId?: string | null;
   chatId: string;
   title: string;
   type: string;

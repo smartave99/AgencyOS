@@ -539,7 +539,7 @@ const DestinationRow: FC<{
 // ---------------------------------------------------------------------------
 // A chat's backup bots: other bots of yours that the chat's administrator has also made administrators
 // ---------------------------------------------------------------------------
-const STRATEGY: Record<
+export const STRATEGY: Record<
   DestinationView['botStrategy'],
   { label: string; short: string; help: string }
 > = {
@@ -560,13 +560,13 @@ const STRATEGY: Record<
   },
 };
 
-const botName = (bots: TelegramBots | undefined, key: string) => {
+export const botName = (bots: TelegramBots | undefined, key: string) => {
   if (key === 'server') return bots?.server.label ?? 'Server bot';
   const bot = bots?.bots.find((b) => b.id === key);
   return bot ? `${bot.label} (@${bot.username})` : 'A removed bot';
 };
 
-const BackupBotsDialog: FC<{
+export const BackupBotsDialog: FC<{
   d: DestinationView;
   bots: TelegramBots;
   onClose: () => void;

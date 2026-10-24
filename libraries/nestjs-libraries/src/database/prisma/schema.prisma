@@ -2041,6 +2041,10 @@ model TelegramBot {
   status        TelegramBotStatus     @default(ACTIVE)
   lastError     String?
   lastCheckedAt DateTime?
+  // When Telegram last told this bot to slow down, and until when. Its posts wait for it; no other bot takes
+  // them over. A time in the past means the wait is over.
+  rateLimitedUntil  DateTime?
+  lastRateLimitedAt DateTime?
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
   deletedAt     DateTime?

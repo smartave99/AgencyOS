@@ -20,6 +20,7 @@ import {
 import { AgencyAccessService, AgencyActor } from './agency.access.service';
 import {
   AgencyTelegramBotsService,
+  BotHandle,
   BotPick,
 } from './agency.telegram.bots.service';
 import {
@@ -767,9 +768,27 @@ export class AgencyPublishingService {
       );
       await this.logBotSwitch(orgId, dest, pick, campaign, jobId);
     } catch (err) {
+      await this.noteBotRateLimit(pick.bot, err);
       await this.handleSendError(job, attempt, err);
     }
     await finishReconcile();
+  }
+
+  /** Remember that Telegram slowed this bot down, for the screens. It changes nothing about who sends. */
+  private async noteBotRateLimit(bot: BotHandle, rawErr: unknown) {
+    try {
+      const err =
+        rawErr instanceof TelegramGatewayError
+          ? rawErr
+          : this.gateway.classify(rawErr);
+      if (err.kind === 'RATE_LIMITED') {
+        await this.bots.noteRateLimited(bot, err.retryAfterSeconds);
+      }
+    } catch (e) {
+      this.logger.warn(
+        `Could not record the rate limit of a bot: ${(e as Error).message}`
+      );
+    }
   }
 
   /**

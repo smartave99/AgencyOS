@@ -113,15 +113,24 @@ export class AgencyTelegramOverviewService {
     }
     for (const b of botList?.bots ?? []) {
       const known = BOT_STATES[b.status] ?? BOT_STATES.INVALID;
+      // A bot Telegram asked to wait is limited only while the wait lasts; its posts wait for it.
+      const slowedUntil =
+        b.status === 'ACTIVE' &&
+        b.rateLimitedUntil &&
+        b.rateLimitedUntil > new Date()
+          ? b.rateLimitedUntil
+          : null;
       identities.push({
         kind: 'bot',
         id: b.id,
         label: b.label,
         handle: b.username ? `@${b.username}` : null,
-        state: known.state,
-        status: b.status,
-        summary: known.summary,
-        retryAt: null,
+        state: slowedUntil ? 'LIMITED' : known.state,
+        status: slowedUntil ? 'RATE_LIMITED' : b.status,
+        summary: slowedUntil
+          ? 'Telegram asked this bot to slow down. Its posts wait for it; no other bot takes them over.'
+          : known.summary,
+        retryAt: slowedUntil,
         lastCheckedAt: b.lastCheckedAt ?? null,
         lastError: b.lastError ?? null,
         destinationCount: b.destinationCount ?? 0,

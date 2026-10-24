@@ -250,6 +250,43 @@ describeDb(
         expect(job.lastErrorCode).toBe('RATE_LIMITED');
         expect(backup.fake.sent).toHaveLength(0);
         expect(await switches()).toEqual([]);
+        // Telegram's wait is remembered on the bot that was told to wait, and only on it.
+        const limited = await h.prisma.telegramBot.findUniqueOrThrow({
+          where: { id: main.bot.id },
+        });
+        expect(limited.rateLimitedUntil!.getTime()).toBeGreaterThan(
+          Date.now() + 20_000
+        );
+        expect(limited.rateLimitedUntil!.getTime()).toBeLessThan(
+          Date.now() + 60_000
+        );
+        expect(limited.lastRateLimitedAt).toBeInstanceOf(Date);
+        const other = await h.prisma.telegramBot.findUniqueOrThrow({
+          where: { id: backup.bot.id },
+        });
+        expect(other.rateLimitedUntil).toBeNull();
+        // The overview shows it as limited with the end of the wait; the backup stays ready.
+        const view = await h.overview.overview(t.owner);
+        const row = (id: string) => view.identities.find((i) => i.id === id)!;
+        expect(row(main.bot.id)).toMatchObject({
+          state: 'LIMITED',
+          status: 'RATE_LIMITED',
+        });
+        expect(row(main.bot.id).retryAt).toBeInstanceOf(Date);
+        expect(row(main.bot.id).summary).toMatch(
+          /no other bot takes them over/
+        );
+        expect(row(backup.bot.id).state).toBe('READY');
+        // When the wait has run out it is not shown any more.
+        await h.prisma.telegramBot.update({
+          where: { id: main.bot.id },
+          data: { rateLimitedUntil: new Date(Date.now() - 1000) },
+        });
+        expect(
+          (await h.overview.overview(t.owner)).identities.find(
+            (i) => i.id === main.bot.id
+          )!.state
+        ).toBe('READY');
       });
 
       it('a removed main bot stops its chat, as before; backups are not promoted on their own', async () => {

@@ -198,8 +198,8 @@ bypass, no automatic WhatsApp sending, no Telegram content to any model.
 2. A code-signing certificate, so SmartScreen stops warning (`docs/AGENCYOS_SIGNING.md`).
 3. A licence review of the Postiz-derived code before commercial distribution.
 4. Catch the intermittent launcher test failure (not reproduced in 200+ runs; see section 11).
-5. Per-bot rate-limit state in the accounts overview, and a per-chat bot assignment screen. Chats are assigned where they
-   are added or authorized today.
+5. ~~Per-bot rate-limit state and a chat assignment screen~~ — added after 1.5.0 (migration `a5_agency_bot_rate_limit`, the
+   "Which bot posts where" card). Not in a published release yet; the server bot's own slow-downs are not recorded.
 6. Output checking for the newer AI jobs (copy generation has it; variations, briefs and JSON jobs are partial).
 7. Check the agent configuration file layout against Antigravity's documentation; the agent rate limit is per process.
 8. No automatic updates: a newer setup file is installed over the old one.

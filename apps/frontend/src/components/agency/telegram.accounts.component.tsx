@@ -18,6 +18,7 @@ import {
   useTelegramUserAccounts,
   useTelegramWorkerStatus,
 } from '@gitroom/frontend/components/agency/telegram.users.hooks';
+import { BotAssignments } from '@gitroom/frontend/components/agency/telegram.assignments.component';
 import {
   Btn,
   Card,
@@ -789,15 +790,26 @@ export const TelegramAccountsComponent: FC = () => {
                   {b.label}{' '}
                   <span className="text-textItemBlur">@{b.username}</span>
                 </span>
-                <StatusBadge
-                  status={b.status}
-                  label={b.status === 'ACTIVE' ? 'Connected' : undefined}
-                />
+                {b.status === 'ACTIVE' &&
+                b.rateLimitedUntil &&
+                new Date(b.rateLimitedUntil) > new Date() ? (
+                  <StatusBadge
+                    status="RATE_LIMITED"
+                    label={`Slowed until ${formatDateTime(b.rateLimitedUntil)}`}
+                  />
+                ) : (
+                  <StatusBadge
+                    status={b.status}
+                    label={b.status === 'ACTIVE' ? 'Connected' : undefined}
+                  />
+                )}
               </li>
             ))}
           </ul>
         )}
       </Card>
+
+      <BotAssignments />
 
       <p className="max-w-2xl text-xs leading-relaxed text-textItemBlur">
         AgencyOS does not create Telegram accounts, switch to another account

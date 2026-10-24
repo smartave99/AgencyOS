@@ -910,6 +910,8 @@ export class AgencyRepository {
     status: true,
     lastError: true,
     lastCheckedAt: true,
+    rateLimitedUntil: true,
+    lastRateLimitedAt: true,
     createdAt: true,
   } satisfies Prisma.TelegramBotSelect;
 
@@ -926,6 +928,14 @@ export class AgencyRepository {
       ...bot,
       destinationCount: _count.destinations,
     }));
+  }
+
+  /** Telegram told this bot to slow down: remember until when, so the screens can say so. Never moves any work. */
+  async recordTelegramBotRateLimit(id: string, until: Date) {
+    await this.prisma.telegramBot.updateMany({
+      where: { id, deletedAt: null },
+      data: { rateLimitedUntil: until, lastRateLimitedAt: new Date() },
+    });
   }
 
   async getTelegramBotWithToken(orgId: string, id: string) {

@@ -483,6 +483,22 @@ export class AgencyTelegramBotsService {
     });
   }
 
+  /**
+   * Telegram asked this bot to slow down. The time is kept so the screens can show it; the post that hit the
+   * limit waits for its own bot (see the publishing service), and nothing is handed to another bot.
+   */
+  async noteRateLimited(bot: BotHandle, retryAfterSeconds?: number | null) {
+    if (!bot.id) return; // the server bot has no row
+    const seconds = Math.min(
+      Math.max(Math.ceil(retryAfterSeconds ?? 30), 1),
+      24 * 3600
+    );
+    await this.repo.recordTelegramBotRateLimit(
+      bot.id,
+      new Date(Date.now() + seconds * 1000)
+    );
+  }
+
   static leaseName(bot: { id: string | null }) {
     return bot.id
       ? `agency-telegram-updates:${bot.id}`

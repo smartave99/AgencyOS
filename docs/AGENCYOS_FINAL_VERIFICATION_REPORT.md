@@ -154,9 +154,9 @@ Things to know about these numbers:
 - **One intermittent launcher failure, not reproduced.** On one of four full runs on 2026-10-23 a single launcher/desktop
   test failed. I kept only the pass/fail counts of that run, not its log, so I do not know which test it was. Since then
   the same suite passed 21 whole-suite runs (6 of them with 8 CPU-burning processes on 4 cores, 6 straight after the
-  Python suite), and each of the 12 launcher test files passed 15 runs on its own (180 runs). Candidates, not findings:
-  the status-server test picks a free port and listens on it later, so another process could take it in between;
-  `services.test.mjs` asserts a command returns in under 4 seconds. If it happens again, save the whole output
+  Python suite), and each of the 12 launcher test files passed 15 runs on its own (180 runs). Two suspects were hardened anyway, without proof they were the cause: the status-server test now lets the system pick
+  its port (the server accepts port 0 and reports the port it bound), and the `services.test.mjs` timing limit went from
+  4 s to 15 s with the test ending its own background process. If it happens again, save the whole output
   (`node --test … > run.log 2>&1`) and read the `not ok` lines first.
 - The backend build needs a larger heap on this sandbox (`NODE_OPTIONS=--max-old-space-size=6144`); the default ran out
   of memory once.

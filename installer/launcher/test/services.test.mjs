@@ -10,16 +10,28 @@ describe('runToEnd', () => {
   });
 
   it('does not wait for a background process that keeps the output pipes open (what pg_ctl does)', async () => {
+    // The background process lives for 30 s unless the test ends it; waiting for it would take at least that long,
+    // so a generous limit of 15 s still tells the two apart on a machine that is slow right now.
     const parent = `
       const { spawn } = require('child_process');
-      spawn(process.execPath, ['-e', 'setTimeout(() => {}, 6000)'], { stdio: 'inherit', detached: true }).unref();
-      console.log('started the server');
+      const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'inherit', detached: true });
+      child.unref();
+      console.log('started the server', child.pid);
     `;
     const t0 = Date.now();
     const r = await runToEnd(process.execPath, ['-e', parent]);
+    const took = Date.now() - t0;
+    const pid = Number(/started the server (\d+)/.exec(r.output)?.[1]);
+    if (pid) {
+      try {
+        process.kill(pid);
+      } catch {
+        /* already gone */
+      }
+    }
     assert.equal(r.code, 0);
     assert.match(r.output, /started the server/);
-    assert.ok(Date.now() - t0 < 4000, `took ${Date.now() - t0} ms: it waited for the background process`);
+    assert.ok(took < 15000, `took ${took} ms: it waited for the background process`);
   });
 
   it('reports a command that cannot be started', async () => {

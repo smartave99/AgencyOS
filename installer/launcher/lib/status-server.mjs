@@ -76,7 +76,9 @@ export function storageRequest(body = {}) {
  *                  aiEngine(action), aiTry(model),
  *                  cliTools(), cliInstall(tool), cliLogin(tool), cliCancel(), cliCheck(tool), cliSignOut(tool) }
  */
-export function createStatusServer({ port, token, version, getStatus, tail, actions, log = () => {} }) {
+export function createStatusServer({ port: wanted, token, version, getStatus, tail, actions, log = () => {} }) {
+  // Port 0 asks the system for a free one (tests do); the Host check and the links use the port actually bound.
+  let port = wanted;
   const send = (res, status, body, type = 'application/json; charset=utf-8') => {
     res.writeHead(status, {
       'Content-Type': type,
@@ -176,8 +178,14 @@ export function createStatusServer({ port, token, version, getStatus, tail, acti
     listen: () =>
       new Promise((resolve, reject) => {
         server.once('error', reject);
-        server.listen({ port, host: '127.0.0.1' }, () => resolve());
+        server.listen({ port: wanted, host: '127.0.0.1' }, () => {
+          port = server.address().port;
+          resolve();
+        });
       }),
+    get port() {
+      return port;
+    },
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
 }

@@ -5,7 +5,6 @@ import vm from 'node:vm';
 import { createStatusServer, tokenMatches, hostAllowed, storageRequest } from '../lib/status-server.mjs';
 import { StorageError } from '../lib/storage.mjs';
 import { renderStatusPage } from '../lib/status-page.mjs';
-import { findFreePort } from '../lib/net.mjs';
 
 const TOKEN = 'abc123-token';
 
@@ -28,9 +27,9 @@ describe('status server', () => {
   let handle;
   const calls = [];
   before(async () => {
-    port = await findFreePort(45100);
     handle = createStatusServer({
-      port,
+      // The system picks the port, so nothing else can take it between choosing and listening.
+      port: 0,
       token: TOKEN,
       version: '1.2.3',
       getStatus: () => ({ ready: true, services: [] }),
@@ -98,6 +97,7 @@ describe('status server', () => {
       },
     });
     await handle.listen();
+    port = handle.port;
   });
   after(() => handle.close());
   const auth = { 'X-AgencyOS-Token': TOKEN, 'Content-Type': 'application/json' };

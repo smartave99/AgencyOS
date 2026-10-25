@@ -181,8 +181,7 @@ Details, limits and what is tested: [`AGENCYOS_TELEGRAM_USER_ACCOUNTS.md`](AGENC
 ## 7. Resume point
 
 Updated whenever work stops. **State (2026-10-25):** AgencyOS **1.4.0**, **1.5.0** and **1.6.0** are the published
-Windows releases (`windows-v1.4.0` from `8fd7b1d`, `windows-v1.5.0` from `db91cc4`, `windows-v1.6.0` from the commit
-named in its release notes). Each passed the full Windows smoke test on a GitHub runner before its release was created.
+Windows releases (`windows-v1.4.0` from `8fd7b1d`, `windows-v1.5.0` from `db91cc4`, `windows-v1.6.0` from `1e97e52`). Each passed the full Windows smoke test on a GitHub runner before its release was created.
 1.6.0 adds the "Which bot posts where" card and the per-bot slow-down state.
 
 **Next:** nothing is half-built. What remains is in section 6 (live Telegram verification, a signing certificate,

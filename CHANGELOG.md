@@ -2,6 +2,19 @@
 
 Every change in every version of AgencyOS, by NextGen OS, newest first. This file is generated from `libraries/helpers/src/changelog/releases.json`: edit that file, then run `node installer/build/changelog.mjs`.
 
+## 1.6.0 — 2026-10-25 · See which bot posts where, and when Telegram has slowed a bot down
+
+The Telegram accounts page now shows which bot (or Telegram account) posts to each chat, with its backups, and says when Telegram has asked a bot to slow down and until when. Nothing about who sends changes: a slowed bot's posts wait for it.
+
+### Added
+
+- **Telegram:** Which bot posts where: a card on the Telegram accounts page lists each chat with its main bot, its backups, how they share the work and who sent the last post. You can show the chats of one bot, or only the chats whose bot cannot post, and Change bots opens the same backup-bot dialog as the Telegram page.
+- **Telegram:** Slowed-down bots: when Telegram asks a bot to slow down, AgencyOS remembers until when and shows it on the Telegram accounts page and in the bot list while the wait lasts. The post that hit the limit waits for its own bot; it is never given to another one.
+
+### Improved
+
+- **Telegram:** A chat that is posted to by a Telegram account names that account in the new card instead of a bot. The bot from the settings file has no entry of its own, so its slow-downs are not shown.
+
 ## 1.5.0 — 2026-10-21 · Telegram accounts ship with the app, Qwen 3.5 models, and agent integrations
 
 The Telegram account service now ships inside the installer, the accounts page shows every bot and account in one list, local AI picks Qwen 3.5 models for your computer, and an outside agent program can connect through a read-and-draft server. Nothing sends, joins or publishes without a person approving it.

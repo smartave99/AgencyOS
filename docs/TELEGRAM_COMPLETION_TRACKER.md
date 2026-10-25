@@ -180,11 +180,11 @@ Details, limits and what is tested: [`AGENCYOS_TELEGRAM_USER_ACCOUNTS.md`](AGENC
 
 ## 7. Resume point
 
-Updated whenever work stops. **State (2026-10-21):** AgencyOS **1.4.0** and **1.5.0** are published
-(`windows-v1.4.0` from `8fd7b1d`, `windows-v1.5.0` from `db91cc4`). Both passed the full Windows smoke test on a
-GitHub runner before the release was created. 1.5.0 carries the packaged Telegram worker, the Qwen 3.5 tiers (the
-runner chose `qwen3.5:2b`, so the tag exists and answered), the accounts overview and agent integrations.
+Updated whenever work stops. **State (2026-10-25):** AgencyOS **1.4.0**, **1.5.0** and **1.6.0** are the published
+Windows releases (`windows-v1.4.0` from `8fd7b1d`, `windows-v1.5.0` from `db91cc4`, `windows-v1.6.0` from the commit
+named in its release notes). Each passed the full Windows smoke test on a GitHub runner before its release was created.
+1.6.0 adds the "Which bot posts where" card and the per-bot slow-down state.
 
 **Next:** nothing is half-built. What remains is in section 6 (live Telegram verification, a signing certificate,
 vendor installers on a real machine, the Antigravity/MCP file layout, a licence review) and the small gaps named in
-sections 4 and 5. The final verification report from the brief is still to be written.
+`AGENCYOS_FINAL_VERIFICATION_REPORT.md`.
